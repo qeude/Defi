@@ -167,6 +167,8 @@ extension Daemon {
       platform.recordPerformanceTrace("scroll-pan-end id=\(id) vertical=true shift=\(Int(shift)) speed=\(Int(speed)) step=\(target)")
       platform.endScrollPan(velocity: speed, vertical: true)
       if target != 0 {
+        // The command acts on the active display: make it the one the swipe moved.
+        activeMonitorID = pan.monitorID
         _ = handle("focus-workspace \(target > 0 ? "down" : "up")", inputTimestamp: timestamp)
       } else {
         settleScrollPan(on: pan.monitorID)
@@ -182,7 +184,7 @@ extension Daemon {
         rest: pan.rest, current: offset, projected: pan.rest - projected / pan.stripWidth)
       : scrollGestureFreeRest(workspace: workspace, viewport: pan.viewport, windows: windows,
         settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs,
-        projected: pan.rest - projected / pan.stripWidth),
+        current: offset, projected: pan.rest - projected / pan.stripWidth),
       settleScrollGesture(monitorID: pan.monitorID, workspaceID: pan.workspaceID,
         column: snap.column, offset: snap.offset, focus: snap.focus, state: &state)
     else {

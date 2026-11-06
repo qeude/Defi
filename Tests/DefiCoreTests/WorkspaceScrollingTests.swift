@@ -415,10 +415,35 @@ struct ScrollGestureSnapTests {
     projected: Double, column: Int, offset: Double
   ) throws {
     let rest = try #require(scrollGestureFreeRest(workspace: workspace(), viewport: viewport,
-      settings: LayoutSettings(centerFocusedColumn: .always), projected: projected))
+      settings: LayoutSettings(centerFocusedColumn: .always), current: 0, projected: projected))
     #expect(rest.column == column)
     #expect(abs(rest.offset - offset) < 1e-9)
     #expect(rest.focus?.free == true)
+  }
+
+  @Test
+  func `An unsnapped swipe focuses the column whose centre is nearest the middle`() throws {
+    // Quarter-width columns, view from 0.1 to 1.1: the third column's centre (0.625) is
+    // nearest the middle (0.6); near the strip's start, reveal ranges are clipped.
+    let quarters = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: (1...6).map { Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.25)) },
+      focusedColumn: 0)
+    let rest = try #require(scrollGestureFreeRest(workspace: quarters, viewport: viewport,
+      settings: LayoutSettings(), current: 0, projected: 0.1))
+    #expect(rest.column == 2)
+    #expect(abs(rest.offset - 0.1) < 1e-9)
+  }
+
+  @Test
+  func `A swipe never lands on a native fullscreen column`() throws {
+    let hidden: Set<WindowID> = [WindowID(rawValue: 4)]
+    let snap = try #require(scrollGestureSnap(workspace: workspace(), viewport: viewport,
+      settings: LayoutSettings(), excludingWindowIDs: hidden, rest: 0, current: 0.6, projected: 9))
+    #expect(snap.column == 2)
+    let free = try #require(scrollGestureFreeRest(workspace: workspace(), viewport: viewport,
+      settings: LayoutSettings(), excludingWindowIDs: hidden, current: 0.6, projected: 9))
+    #expect(free.column == 2)
   }
 
   @Test

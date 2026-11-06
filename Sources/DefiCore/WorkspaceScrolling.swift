@@ -190,6 +190,8 @@ public func scrollGestureSnap(
       rests.append((column, target.offset, target.focus))
     }
   }
+  // A native fullscreen column rests where its neighbour does; it is never the landing.
+  rests.removeAll { isOutOfLayout(workspace.columns[$0.column], excludingWindowIDs) }
   rests.sort { $0.column < $1.column }
   let offsets = rests.map(\.offset).sorted()
   // A flick carries to the next resting place at most, never several columns at once:
@@ -211,14 +213,16 @@ public func scrollGestureSnap(
 }
 
 /// Where an unsnapped scroll gesture released at `projected` rests: there, within the strip,
-/// with focus on the column fully in view nearest the middle. When none is fully in view,
-/// the strip slides just enough to show the nearest one. Offsets are in strip widths.
+/// with focus on the column fully in view nearest the middle, the one further in the
+/// gesture's direction (from `current`) on a tie. When none is fully in view, the strip
+/// slides just enough to show the nearest one. Offsets are in strip widths.
 public func scrollGestureFreeRest(
   workspace: Workspace,
   viewport: Rect,
   windows: [Window] = [],
   settings: LayoutSettings,
   excludingWindowIDs: Set<WindowID> = [],
+  current: Double,
   projected: Double
 ) -> (column: Int, offset: Double, focus: ScrollFocus?)? {
   // Where each column is fully in view, whatever the centring policy.
@@ -227,20 +231,35 @@ public func scrollGestureFreeRest(
   revealing.alwaysCenterSingleColumn = false
   let extents = scrollGestureExtents(workspace: workspace, viewport: viewport, windows: windows,
     settings: revealing, excludingWindowIDs: excludingWindowIDs)
-  guard let lowest = extents.map(\.lowerBound).min(), let highest = extents.map(\.upperBound).max()
+  // Columns in the layout, with their centres in strip widths.
+  let shown = workspace.columns.indices.filter { !isOutOfLayout(workspace.columns[$0], excludingWindowIDs) }
+  guard let lowest = shown.map({ extents[$0].lowerBound }).min(),
+    let highest = shown.map({ extents[$0].upperBound }).max()
   else { return nil }
   let wanted = min(max(projected, lowest), highest)
-  let distance = { (extent: ClosedRange<Double>) in
-    (max(extent.lowerBound - wanted, wanted - extent.upperBound, 0),
-      abs((extent.lowerBound + extent.upperBound) / 2 - wanted))
+  let forward = projected >= current
+  let widths = columnWidthsInViewports(
+    workspaceForLayout(workspace, excludingWindowIDs: excludingWindowIDs).columns, viewport: viewport,
+    windowsByID: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) }), settings: settings)
+  guard shown.count == widths.count else { return nil }
+  let centers = Dictionary(uniqueKeysWithValues: shown.indices.map {
+    (shown[$0], widths.prefix($0).reduce(0, +) + widths[$0] / 2)
+  })
+  let distance = { (column: Int) in
+    (max(extents[column].lowerBound - wanted, wanted - extents[column].upperBound, 0),
+      abs(centers[column]! - (wanted + 0.5)), forward ? -column : column)
   }
-  guard let column = extents.indices.min(by: { distance(extents[$0]) < distance(extents[$1]) })
-  else { return nil }
+  guard let column = shown.min(by: { distance($0) < distance($1) }) else { return nil }
   let extent = extents[column]
   let rows = workspace.columns[column]
   let windowID = rows.windows.indices.contains(rows.focusedWindow) ? rows.windows[rows.focusedWindow] : nil
   return (column, min(max(wanted, extent.lowerBound), extent.upperBound),
     windowID.map { ScrollFocus(windowID: $0, centered: false, free: true) })
+}
+
+/// Whether layout leaves the column out: every window in it is excluded (native fullscreen).
+private func isOutOfLayout(_ column: Column, _ excludingWindowIDs: Set<WindowID>) -> Bool {
+  column.windows.allSatisfy(excludingWindowIDs.contains)
 }
 
 /// Each column's resting offsets: the focus policy pushed from the right, then from the

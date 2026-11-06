@@ -245,14 +245,14 @@ public final class HotKeyManager {
     // Install interception first so passive observation sees routed pointer events.
     // Ordinary shortcuts always pass through the filtering callback unchanged.
     // Scrolling crosses the active tap only when gestures may consume it.
-    let interceptorMask = mask & ~CGEventMask(
-      (1 << CGEventType.flagsChanged.rawValue)
-        | (1 << CGEventType.leftMouseDown.rawValue)
-        | (1 << CGEventType.rightMouseDown.rawValue)
-        | (1 << CGEventType.otherMouseDown.rawValue)
-        | (1 << gestureEventType)
-        | (scrollGestureHandler == nil || scrollGestureModifierBits == 0 ? 1 << CGEventType.scrollWheel.rawValue : 0)
-    )
+    let scrollIntercepted = scrollGestureHandler != nil && scrollGestureModifierBits != 0
+    let passive: CGEventMask = (1 << CGEventMask(CGEventType.flagsChanged.rawValue))
+      | (1 << CGEventMask(CGEventType.leftMouseDown.rawValue))
+      | (1 << CGEventMask(CGEventType.rightMouseDown.rawValue))
+      | (1 << CGEventMask(CGEventType.otherMouseDown.rawValue))
+      | (1 << CGEventMask(gestureEventType))
+      | (scrollIntercepted ? 0 : 1 << CGEventMask(CGEventType.scrollWheel.rawValue))
+    let interceptorMask = mask & ~passive
     let interceptorCallback: CGEventTapCallBack = { _, type, event, userInfo in
       guard let userInfo else { return Unmanaged.passUnretained(event) }
       return Unmanaged<InputMonitor>.fromOpaque(userInfo).takeUnretainedValue()
