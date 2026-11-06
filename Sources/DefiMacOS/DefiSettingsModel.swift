@@ -79,6 +79,7 @@ public final class DefiSettingsModel {
   public private(set) var config: Config {
     didSet {
       refreshRuleRows()
+      shortcutRows = makeShortcutRows()
       refreshShortcutResolution()
     }
   }
@@ -87,6 +88,8 @@ public final class DefiSettingsModel {
   }
   private(set) var shortcutResolution = ShortcutResolution(config: Config(), layout: nil)
   public private(set) var ruleRows: [SettingsRuleRow] = []
+  /// Cached: every shortcut row in Settings reads it on each render.
+  public private(set) var shortcutRows: [SettingsShortcutRow] = []
   public private(set) var displays: [SettingsDisplayOption] = []
   public private(set) var message: String?
   public private(set) var accessibilityGranted = false
@@ -111,6 +114,7 @@ public final class DefiSettingsModel {
       message = "The configuration file is invalid. Defi keeps its last valid settings. \(error)"
     }
     refreshRuleRows()
+    shortcutRows = makeShortcutRows()
     refreshShortcutResolution()
     refreshSystemStatus()
     refreshDisplays()
@@ -170,7 +174,7 @@ public final class DefiSettingsModel {
     }
   }
 
-  public var shortcutRows: [SettingsShortcutRow] {
+  private func makeShortcutRows() -> [SettingsShortcutRow] {
     let inherited = inheritedBindings
     var rows = config.keys.sorted { $0.key < $1.key }.map { accelerator, command in
       let defaultAccelerator = inherited.keys.sorted().first { inherited[$0] == command }
