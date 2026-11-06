@@ -12,8 +12,8 @@ It is cut from a 2560 × 1440 ScreenCaptureKit recording of the installed app
 on 30 October 2026 (menu bar and Dock included): a browser workspace, a
 workspace of terminals, and the Overview opening on them. Defi was driven
 through the `defi` CLI (`focus-workspace`, `focus-column`, `cycle-width`,
-`toggle-overview`) at human pace, with `RibbonProxyCapturable` set for the
-recording only, so the ribbon overlay appears as it does on screen. The cursor
+`toggle-overview`) at human pace. The ribbon overlay appears as it does on
+screen. The cursor
 is hidden. A private calendar item in the menu bar is blurred with `delogo`.
 The poster is a mid-clip frame (`feature-overview.jpg`).
 

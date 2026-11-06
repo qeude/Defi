@@ -22,7 +22,6 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case configurationFile
   case configurationGuide
   case logs
-  case animationsInRecordings
   case about
   case defaultColumnWidth
   case focusedColumn
@@ -66,10 +65,6 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .configurationFile: (.general, "Open Configuration File…", "configuration file config toml path")
     case .configurationGuide: (.general, "Configuration Guide…", "documentation configuration guide")
     case .logs: (.general, "Open Logs Folder…", "diagnostics logs")
-    case .animationsInRecordings: (
-      .general, "Show animations in screen recordings",
-      "diagnostics screen recording video capture bug report overlay animation"
-    )
     case .about: (.about, "About Defi", "version build github repository releases release notes updates documentation issues")
     case .defaultColumnWidth: (.layout, "Default column width", "layout.default_column_width")
     case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center on overflow")

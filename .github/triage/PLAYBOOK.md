@@ -195,14 +195,9 @@ files, so collect the following:
   frozen while an app opens a window, and `capture-fast` a new picture of a window.
   Read the lines within two seconds of the marker. A glitch with no `present` or
   `open-hold` near it did not come from a picture shown during a motion or a hold.
-- **Video.** Screen recordings and screenshots show the real windows under the
-  overlay, never the overlay itself, so a clean recording does not rule Defi out. Ask
-  the user to turn on **Settings > General > Diagnostics > Show animations in screen
-  recordings**, record the glitch, then turn it off. It also turns off when Defi
-  restarts. Builds without that switch need, with the user's approval,
-  `defaults write com.qeude.defi RibbonProxyCapturable -bool true` before recording
-  and `defaults delete com.qeude.defi RibbonProxyCapturable` after. A phone video of
-  the screen also works.
+- **Video.** Screen recordings show the overlay as the user sees it. Builds older
+  than this change leave it out, so there a clean recording does not rule Defi out;
+  ask for a phone video of the screen instead.
 
 ## 6. Check upstream
 
