@@ -437,21 +437,27 @@ final class DesktopE2ETests: XCTestCase {
       scrollGestureHandler: { action in actions.withLock { $0.append(action) } }) { _ in } }
     try startHotKeys(manager)
     defer { onNavigation { manager.stop() } }
-    // Appended after Defi's tap, the probe sees only what Defi lets through.
-    let seen = ScrollProbe()
-    let port = try XCTUnwrap(CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap,
-      options: .listenOnly, eventsOfInterest: CGEventMask(1 << CGEventType.scrollWheel.rawValue),
-      callback: { _, type, event, info in
-        if type == .scrollWheel, let info { Unmanaged<ScrollProbe>.fromOpaque(info).takeUnretainedValue().count += 1 }
-        return Unmanaged.passUnretained(event)
-      }, userInfo: Unmanaged.passUnretained(seen).toOpaque()))
-    let source = try XCTUnwrap(CFMachPortCreateRunLoopSource(nil, port, 0))
-    CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-    defer {
-      CGEvent.tapEnable(tap: port, enable: false)
-      CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-      CFMachPortInvalidate(port)
+    // Appended after Defi's tap, a probe sees only what Defi lets through.
+    var removals: [() -> Void] = []
+    defer { removals.forEach { $0() } }
+    func probe() throws -> ScrollProbe {
+      let seen = ScrollProbe()
+      let port = try XCTUnwrap(CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap,
+        options: .listenOnly, eventsOfInterest: CGEventMask(1 << CGEventType.scrollWheel.rawValue),
+        callback: { _, type, event, info in
+          if type == .scrollWheel, let info { Unmanaged<ScrollProbe>.fromOpaque(info).takeUnretainedValue().count += 1 }
+          return Unmanaged.passUnretained(event)
+        }, userInfo: Unmanaged.passUnretained(seen).toOpaque()))
+      let source = try XCTUnwrap(CFMachPortCreateRunLoopSource(nil, port, 0))
+      CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+      removals.append {
+        CGEvent.tapEnable(tap: port, enable: false)
+        CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        CFMachPortInvalidate(port)
+      }
+      return seen
     }
+    let seen = try probe()
     func swipe(_ flags: CGEventFlags) {
       let steps: [(phase: Int64, momentum: Int64, dx: Int32)] = [(1, 0, 0)] + Array(repeating: (2, 0, -8), count: 6)
         + [(4, 0, 0), (0, 1, -6), (0, 2, -4), (0, 3, 0)]
@@ -494,6 +500,25 @@ final class DesktopE2ETests: XCTestCase {
     }
     pumpRunLoop(for: 0.1)
     XCTAssertEqual(seen.count, 11, "A modified wheel notch must not scroll the app")
+    onNavigation { manager.stop() }
+
+    // With three-finger swipes, two-finger scrolls stay the apps' even with the modifier held.
+    actions.withLock { $0.removeAll() }
+    let fingers = onNavigation { HotKeyManager(
+      config: Config(input: InputConfig(scrollGestures: true, scrollGestureFingers: 3)),
+      scrollGestureHandler: { action in actions.withLock { $0.append(action) } }) { _ in } }
+    try startHotKeys(fingers)
+    defer { onNavigation { fingers.stop() } }
+    let passed = try probe()
+    swipe([.maskControl, .maskAlternate])
+    XCTAssertTrue(pumpRunLoop(until: { passed.count == 11 }, timeout: 1),
+      "A two-finger swipe must reach the app whole when Defi swipes with three; seen=\(passed.count)")
+    XCTAssertEqual(actions.withLock { $0 }, [])
+    // The modified wheel still steps.
+    wheel.post(tap: .cghidEventTap)
+    XCTAssertTrue(pumpRunLoop(until: { actions.withLock { $0.count } == 1 }, timeout: 1))
+    pumpRunLoop(for: 0.1)
+    XCTAssertEqual(passed.count, 11, "A modified wheel notch must not scroll the app")
   }
 
   /// Moonlight and other SDL apps capture the keyboard with this exact call.
