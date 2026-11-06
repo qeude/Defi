@@ -432,9 +432,9 @@ final class DesktopE2ETests: XCTestCase {
   /// one started without it reaches the app untouched.
   func testScrollGestureOwnsItsWholeSwipe() throws {
     _ = try preflight()
-    let actions = Mutex<[ScrollGestureAction]>([])
+    let actions = ScrollActions()
     let manager = onNavigation { HotKeyManager(config: Config(input: InputConfig(scrollGestures: true)),
-      scrollGestureHandler: { action in actions.withLock { $0.append(action) } }) { _ in } }
+      scrollGestureHandler: { action in actions.list.withLock { $0.append(action) } }) { _ in } }
     try startHotKeys(manager)
     defer { onNavigation { manager.stop() } }
     // Appended after Defi's tap, a probe sees only what Defi lets through.
@@ -475,10 +475,10 @@ final class DesktopE2ETests: XCTestCase {
     }
 
     swipe([.maskControl, .maskAlternate])
-    XCTAssertTrue(pumpRunLoop(until: { actions.withLock { $0.count } == 2 }, timeout: 1),
-      "A modified swipe must begin and end one pan; actions=\(actions.withLock { $0 })")
-    guard case .panEnded(_, let travel, _, _)? = actions.withLock({ $0.last }) else {
-      return XCTFail("The pan must end; actions=\(actions.withLock { $0 })")
+    XCTAssertTrue(pumpRunLoop(until: { actions.list.withLock { $0.count } == 2 }, timeout: 1),
+      "A modified swipe must begin and end one pan; actions=\(actions.list.withLock { $0 })")
+    guard case .panEnded(_, let travel, _, _)? = actions.list.withLock({ $0.last }) else {
+      return XCTFail("The pan must end; actions=\(actions.list.withLock { $0 })")
     }
     // The first 16 points decide the axis; the pan travels the rest.
     XCTAssertEqual(travel, -32)
@@ -488,35 +488,35 @@ final class DesktopE2ETests: XCTestCase {
     swipe([])
     XCTAssertTrue(pumpRunLoop(until: { seen.count == 11 }, timeout: 1),
       "An unmodified swipe must reach the app whole; seen=\(seen.count)")
-    XCTAssertEqual(actions.withLock { $0.count }, 2)
+    XCTAssertEqual(actions.list.withLock { $0.count }, 2)
 
     let wheel = try XCTUnwrap(CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
       wheel1: -1, wheel2: 0, wheel3: 0))
     wheel.flags = [.maskControl, .maskAlternate]
     wheel.post(tap: .cghidEventTap)
-    XCTAssertTrue(pumpRunLoop(until: { actions.withLock { $0.count } == 3 }, timeout: 1))
-    guard case .focusWorkspace(.down, _)? = actions.withLock({ $0.last }) else {
-      return XCTFail("A modified wheel notch down must focus the workspace below; actions=\(actions.withLock { $0 })")
+    XCTAssertTrue(pumpRunLoop(until: { actions.list.withLock { $0.count } == 3 }, timeout: 1))
+    guard case .focusWorkspace(.down, _)? = actions.list.withLock({ $0.last }) else {
+      return XCTFail("A modified wheel notch down must focus the workspace below; actions=\(actions.list.withLock { $0 })")
     }
     pumpRunLoop(for: 0.1)
     XCTAssertEqual(seen.count, 11, "A modified wheel notch must not scroll the app")
     onNavigation { manager.stop() }
 
     // With three-finger swipes, two-finger scrolls stay the apps' even with the modifier held.
-    actions.withLock { $0.removeAll() }
+    actions.list.withLock { $0.removeAll() }
     let fingers = onNavigation { HotKeyManager(
       config: Config(input: InputConfig(scrollGestures: true, scrollGestureFingers: 3)),
-      scrollGestureHandler: { action in actions.withLock { $0.append(action) } }) { _ in } }
+      scrollGestureHandler: { action in actions.list.withLock { $0.append(action) } }) { _ in } }
     try startHotKeys(fingers)
     defer { onNavigation { fingers.stop() } }
     let passed = try probe()
     swipe([.maskControl, .maskAlternate])
     XCTAssertTrue(pumpRunLoop(until: { passed.count == 11 }, timeout: 1),
       "A two-finger swipe must reach the app whole when Defi swipes with three; seen=\(passed.count)")
-    XCTAssertEqual(actions.withLock { $0 }, [])
+    XCTAssertEqual(actions.list.withLock { $0 }, [])
     // The modified wheel still steps.
     wheel.post(tap: .cghidEventTap)
-    XCTAssertTrue(pumpRunLoop(until: { actions.withLock { $0.count } == 1 }, timeout: 1))
+    XCTAssertTrue(pumpRunLoop(until: { actions.list.withLock { $0.count } == 1 }, timeout: 1))
     pumpRunLoop(for: 0.1)
     XCTAssertEqual(passed.count, 11, "A modified wheel notch must not scroll the app")
   }
@@ -1570,6 +1570,11 @@ private final class CommandLog: Sendable {
   func append(_ command: String) { commands.withLock { $0.append(command) } }
   var count: Int { commands.withLock { $0.count } }
   var all: [String] { commands.withLock { $0 } }
+}
+
+/// Shared by the gesture handlers of several hotkey managers.
+private final class ScrollActions: Sendable {
+  let list = Mutex<[ScrollGestureAction]>([])
 }
 
 /// Counted on the main run loop, read by the test on the main actor.
