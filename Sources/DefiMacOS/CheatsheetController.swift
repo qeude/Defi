@@ -24,9 +24,7 @@ public final class CheatsheetController {
     let bounds = screen.visibleFrame
     let groups = shortcutGroups(
       config: config, layout: currentKeyboardLayout(),
-      display: UserDefaults.standard.string(forKey: ModifierDisplay.defaultsKey)
-        .flatMap(ModifierDisplay.init) ?? .hyper,
-      hyperIncludesShift: UserDefaults.standard.bool(forKey: "displayHyperIncludesShift")
+      displayMod: UserDefaults.standard.object(forKey: displayModDefaultsKey) as? Bool ?? false
     )
     let layout = CheatsheetLayout(
       contentSizes: (1...max(1, min(4, groups.count))).map {
@@ -202,10 +200,10 @@ private struct ShortcutBinding {
 }
 
 func shortcutGroups(
-  config: Config, layout: KeyboardLayout? = nil, display: ModifierDisplay = .hyper, hyperIncludesShift: Bool = false
+  config: Config, layout: KeyboardLayout? = nil, displayMod: Bool = false
 ) -> [ShortcutGroup] {
   func label(_ modifiers: Set<String>) -> String {
-    modifierLabel(modifiers, display: display, hyperIncludesShift: hyperIncludesShift, aliases: config.modifierAliases)
+    modifierLabel(modifiers, displayMod: displayMod, aliases: config.modifierAliases)
   }
   let resolution = ShortcutResolution(config: config, layout: layout)
   let bindings = resolution.resolution.keys.compactMap { key, binding in
@@ -282,8 +280,7 @@ func shortcutGroups(
 /// or says why the shortcut is inactive. An accelerator the resolution does not know is resolved alone.
 func shortcutKeyLabel(
   _ accelerator: String, aliases: [String: String],
-  display: ModifierDisplay = .hyper, hyperIncludesShift: Bool = false,
-  resolved: ShortcutResolution? = nil
+  displayMod: Bool = false, resolved: ShortcutResolution? = nil
 ) -> String {
   guard let normalized = normalizedAccelerator(accelerator, aliases: aliases) else {
     return accelerator
@@ -291,8 +288,7 @@ func shortcutKeyLabel(
   var parts = normalized.split(separator: "-").map(String.init)
   let key = parts.removeLast()
   func label(_ modifiers: Set<String>, _ key: String) -> String {
-    modifierLabel(modifiers, display: display, hyperIncludesShift: hyperIncludesShift, aliases: aliases)
-      + keySymbol(key)
+    modifierLabel(modifiers, displayMod: displayMod, aliases: aliases) + keySymbol(key)
   }
   guard var resolved else { return label(Set(parts), key) }
   if resolved.key(for: normalized) == nil, resolved.inactivity(for: normalized) == nil {
@@ -304,7 +300,7 @@ func shortcutKeyLabel(
   switch resolved.inactivity(for: normalized) {
   case .held(let holder):
     return "Held by " + shortcutKeyLabel(
-      holder, aliases: aliases, display: display, hyperIncludesShift: hyperIncludesShift, resolved: resolved)
+      holder, aliases: aliases, displayMod: displayMod, resolved: resolved)
   case .heldByAnotherApp:
     return "Held by another app"
   default:
@@ -312,25 +308,15 @@ func shortcutKeyLabel(
   }
 }
 
-/// How shortcut labels abbreviate a modifier combination; a display preference only.
-enum ModifierDisplay: String {
-  case keys, hyper, mod
-  static let defaultsKey = "modifierDisplay"
-}
+/// Whether shortcut labels show the `mod` combination as ✧; a display preference only.
+let displayModDefaultsKey = "displayModSymbol"
 
-private func modifierLabel(
-  _ modifiers: Set<String>, display: ModifierDisplay, hyperIncludesShift: Bool, aliases: [String: String]
-) -> String {
+private func modifierLabel(_ modifiers: Set<String>, displayMod: Bool, aliases: [String: String]) -> String {
   var modifiers = modifiers
-  let (group, symbol): (Set<String>, String) = switch display {
-  case .keys: ([], "")
-  case .hyper: (hyperIncludesShift ? ["ctrl", "alt", "cmd", "shift"] : ["ctrl", "alt", "cmd"], "✧")
-  case .mod: (Set(normalizedAccelerator("mod-a", aliases: aliases)?
-    .split(separator: "-").dropLast().map(String.init) ?? []), "Mod")
-  }
-  let compact = !group.isEmpty && group.isSubset(of: modifiers)
-  if compact { modifiers.subtract(group) }
-  return (compact ? symbol : "")
+  let mod = Set(normalizedAccelerator("mod-a", aliases: aliases)?.split(separator: "-").dropLast().map(String.init) ?? [])
+  let compact = displayMod && !mod.isEmpty && mod.isSubset(of: modifiers)
+  if compact { modifiers.subtract(mod) }
+  return (compact ? "✧" : "")
     + ["ctrl", "alt", "shift", "cmd"].filter(modifiers.contains).map(keySymbol).joined()
 }
 

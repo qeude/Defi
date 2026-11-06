@@ -148,18 +148,15 @@ struct DefiSettingsModelTests {
   }
 
   @Test
-  func hyperDisplayDoesNotChangeShortcutMeaning() {
-    let aliases = ["hyper": "Ctrl + Alt + Cmd"]
-    #expect(shortcutKeyLabel("hyper-shift-k", aliases: aliases) == "✧⇧K")
-    #expect(shortcutKeyLabel("ctrl-alt-cmd-k", aliases: [:]) == "✧K")
-    #expect(shortcutKeyLabel("hyper-k", aliases: aliases, display: .keys) == "⌃⌥⌘K")
-    #expect(shortcutKeyLabel("hyper-k", aliases: aliases, hyperIncludesShift: true) == "⌃⌥⌘K")
-    #expect(shortcutKeyLabel("hyper-shift-k", aliases: aliases, hyperIncludesShift: true) == "✧K")
-    #expect(shortcutKeyLabel("alt-k", aliases: [:]) == "⌥K")
+  func modDisplayDoesNotChangeShortcutMeaning() {
+    let hyper = ["mod": "ctrl+alt+cmd"]
+    #expect(shortcutKeyLabel("mod-shift-k", aliases: hyper, displayMod: true) == "✧⇧K")
+    #expect(shortcutKeyLabel("ctrl-alt-cmd-k", aliases: hyper, displayMod: true) == "✧K")
+    #expect(shortcutKeyLabel("mod-k", aliases: hyper) == "⌃⌥⌘K")
     let mod = ["mod": "ctrl+alt"]
-    #expect(shortcutKeyLabel("mod-shift-k", aliases: mod, display: .mod) == "Mod⇧K")
-    #expect(shortcutKeyLabel("ctrl-alt-cmd-k", aliases: mod, display: .mod) == "Mod⌘K")
-    #expect(shortcutKeyLabel("ctrl-k", aliases: mod, display: .mod) == "⌃K")
+    #expect(shortcutKeyLabel("ctrl-alt-cmd-k", aliases: mod, displayMod: true) == "✧⌘K")
+    #expect(shortcutKeyLabel("ctrl-k", aliases: mod, displayMod: true) == "⌃K")
+    #expect(shortcutKeyLabel("alt-k", aliases: [:]) == "⌥K")
   }
 
   @Test

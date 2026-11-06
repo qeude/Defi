@@ -153,7 +153,7 @@ const cheatsheet = [
     ['Workspaces', [['⌃⌥', '↑', 'Workspace up', '⌃⌥⇧', 'Move column to workspace up'], ['⌃⌥', '↓', 'Workspace down', '⌃⌥⇧', 'Move column to workspace down'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⇧', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview']]],
   ],
   [
-    ['Monitors', [['⌃⌘', '←↑↓→', 'Focus monitor', '⌃⇧⌘', 'Move column to monitor'], ['✧', '←↑↓→', 'Move workspace to monitor']]],
+    ['Monitors', [['⌃⌘', '←↑↓→', 'Focus monitor', '⌃⇧⌘', 'Move column to monitor'], ['⌃⌥⌘', '←↑↓→', 'Move workspace to monitor']]],
     ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column']]],
     ['Floating', [['⌃⌥', '\\', 'Float or tile window', '⌃⌥⇧', 'Show floating layer'], ['⌃⌥', ',', 'Previous floating'], ['⌃⌥', '.', 'Next floating']]],
   ],

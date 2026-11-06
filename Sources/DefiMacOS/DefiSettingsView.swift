@@ -462,8 +462,7 @@ private struct WidthPresetsSettings: View {
 private struct InputSettingsView: View {
   let model: DefiSettingsModel
   let request: SettingsRevealRequest
-  @AppStorage(ModifierDisplay.defaultsKey) private var display = ModifierDisplay.hyper
-  @AppStorage("displayHyperIncludesShift") private var hyperIncludesShift = false
+  @AppStorage(displayModDefaultsKey) private var displayMod = false
   @State private var shortcutSheet: ShortcutSheet?
   @State private var shortcutFilter = SettingsShortcutFilter.query("")
 
@@ -477,17 +476,6 @@ private struct InputSettingsView: View {
           Text(keyboardMessage)
             .foregroundStyle(.secondary)
         }
-      }
-      Section("Shortcut display") {
-        Picker(SettingsOption.modifierDisplay.title, selection: $display) {
-          Text("Each key").tag(ModifierDisplay.keys)
-          Text("✧ for Hyper (\(hyperIncludesShift ? "⌃⌥⇧⌘" : "⌃⌥⌘"))").tag(ModifierDisplay.hyper)
-          Text("Mod for the mod key").tag(ModifierDisplay.mod)
-        }
-          .settingsSearchTarget(.modifierDisplay)
-        Toggle(SettingsOption.hyperShift.title, isOn: $hyperIncludesShift)
-          .settingsSearchTarget(.hyperShift)
-          .disabled(display != .hyper)
       }
       Section("Pointer") {
         Toggle(SettingsOption.focusFollowsPointer.title, isOn: boolBinding("input", "focus_follows_mouse", model.config.input.focusFollowsMouse))
@@ -515,6 +503,11 @@ private struct InputSettingsView: View {
       Section("Modifiers") {
         ModKeyRow(model: model)
           .settingsSearchTarget(.modKey)
+        Toggle(
+          "Show mod (\(shortcutKeyLabel("mod-a", aliases: model.config.modifierAliases).dropLast())) as ✧",
+          isOn: $displayMod
+        )
+          .settingsSearchTarget(.modSymbol)
       }
       Section("Shortcut guide") {
         Toggle(SettingsOption.shortcutGuide.title, isOn: Binding(
@@ -527,7 +520,7 @@ private struct InputSettingsView: View {
         ForEach(visibleCommands, id: \.self) { command in
           SettingsShortcutActionRow(
             command: command, model: model,
-            display: display, hyperIncludesShift: hyperIncludesShift
+            displayMod: displayMod
           )
         }
         if visibleCommands.isEmpty {
@@ -602,8 +595,7 @@ private struct InputSettingsView: View {
 private struct SettingsShortcutActionRow: View {
   let command: String
   let model: DefiSettingsModel
-  let display: ModifierDisplay
-  let hyperIncludesShift: Bool
+  let displayMod: Bool
 
   var body: some View {
     HStack {
@@ -642,7 +634,7 @@ private struct SettingsShortcutActionRow: View {
     SettingsShortcutRecorder(
       label: row.map {
         shortcutKeyLabel($0.accelerator, aliases: model.config.modifierAliases,
-          display: display, hyperIncludesShift: hyperIncludesShift,
+          displayMod: displayMod,
           resolved: model.shortcutResolution)
       } ?? "Record Shortcut…",
       command: command,
@@ -1528,8 +1520,7 @@ private struct ShortcutSheet: Identifiable {
 
 @MainActor
 private struct SettingsShortcutEditor: View {
-  @AppStorage(ModifierDisplay.defaultsKey) private var display = ModifierDisplay.hyper
-  @AppStorage("displayHyperIncludesShift") private var hyperIncludesShift = false
+  @AppStorage(displayModDefaultsKey) private var displayMod = false
   let model: DefiSettingsModel
   @Environment(\.dismiss) private var dismiss
   @State private var sourceRow: SettingsShortcutRow?
@@ -1574,7 +1565,7 @@ private struct SettingsShortcutEditor: View {
           label: accelerator.isEmpty
             ? "Record Shortcut…"
             : shortcutKeyLabel(accelerator, aliases: model.config.modifierAliases,
-              display: display, hyperIncludesShift: hyperIncludesShift,
+              displayMod: displayMod,
               resolved: model.shortcutResolution),
           command: sourceRow?.command ?? "New shortcut",
           onRecord: { accelerator = $0 }
