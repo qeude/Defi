@@ -62,6 +62,13 @@ public struct Config: Equatable, Sendable {
   }
 
   public static func decode(_ data: Data) throws -> Config {
+    try decode(data, removedKeys: removedConfigKeys)
+  }
+
+  static func decode(_ data: Data, removedKeys: [String: String]) throws -> Config {
+    if !removedKeys.isEmpty, let removed = firstRemovedKey(in: try TOMLTable(source: data), removed: removedKeys) {
+      throw ConfigError.removedKey(removed.key, replacement: removed.replacement)
+    }
     let raw = try TOMLDecoder().decode(RawConfig.self, from: data)
     let workspaces = raw.workspaces ?? WorkspacesConfig()
     let modifier = raw.defaultKeyModifier ?? "ctrl-alt"
@@ -367,6 +374,7 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible, Sendable {
   case unknownWorkspace(String)
   case invalidCommand(String)
   case conflictingAccelerators(String, String)
+  case removedKey(String, replacement: String)
 
   public var description: String {
     switch self {
@@ -377,6 +385,8 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible, Sendable {
     case .invalidCommand(let command): "invalid command: \(command)"
     case .conflictingAccelerators(let first, let second):
       "conflicting key bindings: \(first) and \(second)"
+    case .removedKey(let key, let replacement):
+      "\(key) was removed: \(replacement)"
     }
   }
 }

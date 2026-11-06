@@ -1,4 +1,4 @@
-import DefiConfig
+@testable import DefiConfig
 import DefiModel
 import Foundation
 import Testing
@@ -332,4 +332,17 @@ struct ConfigTests {
     #expect(config.workspaces.names.first == "dev")
     #expect(config.keys["hyper-left"] == "focus-column left")
   }
+
+  @Test
+  func `Removed keys fail with their replacement, also inside arrays of tables`() throws {
+    let removed = ["default_key_modifier": "use mod", "rules.floating": "use window", "layout.old": "gone"]
+    #expect(throws: ConfigError.removedKey("rules.floating", replacement: "use window")) {
+      try Config.decode(Data("[[rules]]\napp_id = \"a\"\n[[rules]]\napp_id = \"b\"\nfloating = true\n".utf8), removedKeys: removed)
+    }
+    #expect(throws: ConfigError.removedKey("default_key_modifier", replacement: "use mod")) {
+      try Config.decode(Data("default_key_modifier = \"hyper\"\n".utf8), removedKeys: removed)
+    }
+    _ = try Config.decode(Data("[layout]\n[[rules]]\napp_id = \"a\"\nwindow = \"force-tiled\"\n".utf8), removedKeys: removed)
+  }
 }
+

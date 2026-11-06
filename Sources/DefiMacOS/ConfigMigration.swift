@@ -1,7 +1,35 @@
 import Foundation
 
+/// One in-place rewrite of an obsolete configuration format.
+///
+/// A migration ships from `introducedIn` until the release before `removeIn`. The release that
+/// reaches `removeIn` deletes it and moves each obsolete key into `removedConfigKeys`, so a file
+/// that skipped those releases fails loudly instead of losing settings. See CONTRIBUTING.md.
+struct ConfigMigration: Sendable {
+  let id: String
+  let introducedIn: String
+  let removeIn: String
+  /// The rewritten source, or nil when nothing needs migrating.
+  let migrate: @Sendable (String) -> String?
+}
+
+/// Applied in order, oldest first.
+let configMigrations: [ConfigMigration] = [
+  ConfigMigration(
+    id: "rules-window", introducedIn: "0.8.0", removeIn: "0.10.0", migrate: migratingLegacyRuleKeys
+  ),
+]
+
+/// Every migration applied in order, or nil when the source is already current.
+func migratingLegacyConfiguration(
+  in source: String, migrations: [ConfigMigration] = configMigrations
+) -> String? {
+  let migrated = migrations.reduce(source) { $1.migrate($0) ?? $0 }
+  return migrated == source ? nil : migrated
+}
+
 /// Rewrites rule keys that `window` replaced, keeping comments and layout, or nil when none remain.
-/// shortcut: remove once configurations from before `window` are gone, at the first stable release.
+/// On removal, `rules.floating` and `rules.force_tiling` become removed keys pointing to `window`.
 func migratingLegacyRuleKeys(in source: String) -> String? {
   var document = LosslessTOMLDocument(source)
   var changed = false
@@ -26,7 +54,7 @@ public func migrateLegacyConfiguration(at url: URL) {
   let target = url.resolvingSymlinksInPath()
   guard let data = try? Data(contentsOf: target),
     let source = String(data: data, encoding: .utf8),
-    let migrated = migratingLegacyRuleKeys(in: source)
+    let migrated = migratingLegacyConfiguration(in: source)
   else { return }
   do {
     try Data(migrated.utf8).write(to: target, options: .atomic)
