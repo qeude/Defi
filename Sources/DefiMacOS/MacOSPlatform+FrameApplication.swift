@@ -649,7 +649,8 @@ extension MacOSPlatform {
       .map { ($0.windowID, $0.frame) }) { first, _ in first }
     // Windows discovered by this snapshot grow in at their place instead of sliding.
     let opened = newlyDiscoveredWindowIDs
-    let moves = windowProxyDisplayMoves(monitor, displayCount: windowProxyMonitors.count,
+    // A released scroll gesture settles from the drawn ribbon, even back to where it was.
+    let moves = presenter.releasesPan || windowProxyDisplayMoves(monitor, displayCount: windowProxyMonitors.count,
       ribbonTargets: ribbonTargets, previousRibbonFrames: previousRibbonFrames, opened: opened,
       dropped: windowProxyDroppedWindowID, skipped: skippedWindowIDs)
     // A plain layout landing mid-motion (scroll to keep focus visible, a drop settling)

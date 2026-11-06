@@ -253,3 +253,29 @@ private func tiledWindowWidthLearning(
   }
   return nil
 }
+
+/// Selects the column a scroll gesture settled on, resting at `offset`. Returns false
+/// when the workspace is no longer active or the column is gone.
+@discardableResult
+public func settleScrollGesture(
+  monitorID: MonitorID,
+  workspaceID: WorkspaceID,
+  column: Int,
+  offset: Double,
+  focus: ScrollFocus?,
+  state: inout RuntimeState
+) -> Bool {
+  guard offset.isFinite,
+    let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }),
+    state.monitors[monitorIndex].activeWorkspace == workspaceID,
+    let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(where: { $0.id == workspaceID }),
+    state.monitors[monitorIndex].workspaces[workspaceIndex].columns.indices.contains(column)
+  else { return false }
+  state.monitors[monitorIndex].workspaces[workspaceIndex].focusedColumn = column
+  state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .tiled
+  state.monitors[monitorIndex].workspaces[workspaceIndex].scrollOffset = offset
+  state.monitors[monitorIndex].workspaces[workspaceIndex].targetScrollOffset = offset
+  // Recorded as a key press records it, so later layouts keep the same placement.
+  state.monitors[monitorIndex].workspaces[workspaceIndex].scrollFocus = focus
+  return true
+}

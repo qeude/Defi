@@ -7,6 +7,8 @@ import Foundation
 @NavigationActor
 extension Daemon {
   func handleEventTapReenabled(at timestamp: TimeInterval) {
+    // Scroll events were lost: a pan may never see its fingers lift.
+    cancelScrollPan()
     platform.invalidateInputAfterEventTapReenabled(at: timestamp)
     focus.discardDisplacedFocus()
     invalidatePointerFocusIntent()
@@ -16,7 +18,8 @@ extension Daemon {
   }
 
   func handlePointerMotion(_ invocation: PointerMotionInvocation) {
-    guard !shouldShutdown, !restorationInFlight else { return }
+    // The strip is drawn panned over windows that have not moved yet.
+    guard !shouldShutdown, !restorationInFlight, scrollPan == nil else { return }
     defer {
       if pendingPointerFocus != nil { scheduleTick() }
     }

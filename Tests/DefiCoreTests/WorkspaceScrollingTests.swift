@@ -339,3 +339,147 @@ struct WorkspaceScrollingTests {
     #expect(target.focus == nil)
   }
 }
+
+struct ScrollGestureSnapTests {
+  private let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+
+  private func workspace(focusedColumn: Int = 0) -> Workspace {
+    Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: (1...4).map { Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5)) },
+      focusedColumn: focusedColumn
+    )
+  }
+
+  @Test(arguments: [
+    // From the view at 0, half-width columns rest as a key press places them: 0, 0, 0.5, 1.
+    // Springing back keeps the selection; otherwise focus goes to the furthest column
+    // resting there in the gesture's direction, and a flick reaches the next resting place
+    // at most.
+    (0.0, 0.1, 0, 0.0),
+    (0.2, 0.3, 2, 0.5),
+    (0.4, 0.3, 2, 0.5),
+    (0.0, 9.0, 2, 0.5),
+    (1.0, -2.0, 2, 0.5),
+    (0.6, 9.0, 3, 1.0),
+  ])
+  func `A released gesture rests on the nearest column edge`(
+    current: Double, projected: Double, column: Int, offset: Double
+  ) throws {
+    let snap = try #require(scrollGestureSnap(
+      workspace: workspace(), viewport: viewport, settings: LayoutSettings(),
+      rest: 0, current: current, projected: projected))
+    #expect(snap.column == column)
+    #expect(abs(snap.offset - offset) < 1e-9)
+  }
+
+  @Test
+  func `A swipe places the column as a key press would, centred on overflow`() throws {
+    let settings = LayoutSettings(centerFocusedColumn: .onOverflow)
+    var wide = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: (1...3).map { Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.8)) },
+      focusedColumn: 0)
+    wide.scrollFocus = ScrollFocus(windowID: WindowID(rawValue: 1), centered: false)
+    let snap = try #require(scrollGestureSnap(workspace: wide, viewport: viewport, settings: settings,
+      rest: 0, current: 0.5, projected: 0.6))
+    var pressed = wide
+    pressed.focusedColumn = 1
+    let key = focusedColumnScrollTarget(workspace: pressed, viewport: viewport, settings: settings)
+    #expect(snap.column == 1)
+    #expect(abs(snap.offset - key.offset) < 1e-9)
+    #expect(snap.focus == key.focus)
+    #expect(snap.focus?.centered == true)
+  }
+
+  @Test
+  func `A swipe across columns lands as stepping key presses would`() throws {
+    // Directly from the first column the third overflows and would centre (0.75); stepping
+    // through the second, which fits beside it, aligns it to the edge (0.5).
+    var half = workspace()
+    half.scrollFocus = ScrollFocus(windowID: WindowID(rawValue: 1), centered: false)
+    let snap = try #require(scrollGestureSnap(workspace: half, viewport: viewport,
+      settings: LayoutSettings(centerFocusedColumn: .onOverflow), rest: 0, current: 0.3, projected: 2))
+    #expect(snap.column == 2)
+    #expect(abs(snap.offset - 0.5) < 1e-9)
+  }
+
+  @Test(arguments: [
+    // Half-width columns are fully in view between offsets 0...0, 0...0.5, 0.5...1 and 1...1.
+    (0.3, 1, 0.3),
+    (0.7, 2, 0.7),
+    (-1.0, 0, 0.0),
+    (9.0, 3, 1.0),
+  ])
+  func `An unsnapped swipe rests where it stops, focusing the column nearest the middle`(
+    projected: Double, column: Int, offset: Double
+  ) throws {
+    let rest = try #require(scrollGestureFreeRest(workspace: workspace(), viewport: viewport,
+      settings: LayoutSettings(centerFocusedColumn: .always), current: 0, projected: projected))
+    #expect(rest.column == column)
+    #expect(abs(rest.offset - offset) < 1e-9)
+    #expect(rest.focus?.free == true)
+  }
+
+  @Test
+  func `An unsnapped swipe focuses the column whose centre is nearest the middle`() throws {
+    // Quarter-width columns, view from 0.1 to 1.1: the third column's centre (0.625) is
+    // nearest the middle (0.6); near the strip's start, reveal ranges are clipped.
+    let quarters = Workspace(
+      id: WorkspaceID(rawValue: "1"),
+      columns: (1...6).map { Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.25)) },
+      focusedColumn: 0)
+    let rest = try #require(scrollGestureFreeRest(workspace: quarters, viewport: viewport,
+      settings: LayoutSettings(), current: 0, projected: 0.1))
+    #expect(rest.column == 2)
+    #expect(abs(rest.offset - 0.1) < 1e-9)
+  }
+
+  @Test
+  func `A swipe never lands on a native fullscreen column`() throws {
+    let hidden: Set<WindowID> = [WindowID(rawValue: 4)]
+    let snap = try #require(scrollGestureSnap(workspace: workspace(), viewport: viewport,
+      settings: LayoutSettings(), excludingWindowIDs: hidden, rest: 0, current: 0.6, projected: 9))
+    #expect(snap.column == 2)
+    let free = try #require(scrollGestureFreeRest(workspace: workspace(), viewport: viewport,
+      settings: LayoutSettings(), excludingWindowIDs: hidden, current: 0.6, projected: 9))
+    #expect(free.column == 2)
+  }
+
+  @Test
+  func `A free position holds against the centring policy until focus leaves the column`() {
+    let settings = LayoutSettings(centerFocusedColumn: .always)
+    var free = workspace(focusedColumn: 1)
+    free.scrollOffset = 0.3
+    free.scrollFocus = ScrollFocus(windowID: WindowID(rawValue: 2), centered: false, free: true)
+    #expect(focusedColumnScrollTarget(workspace: free, viewport: viewport, settings: settings).offset == 0.3)
+    free.focusedColumn = 2
+    #expect(focusedColumnScrollTarget(workspace: free, viewport: viewport, settings: settings).offset == 0.75)
+  }
+
+  @Test
+  func `Centering rests every column at its centre`() throws {
+    let settings = LayoutSettings(centerFocusedColumn: .always)
+    #expect(scrollGestureExtents(workspace: workspace(), viewport: viewport, settings: settings)
+      == [-0.25 ... -0.25, 0.25...0.25, 0.75...0.75, 1.25...1.25])
+    // Only the centred column is in view at its centre: focus does not run further.
+    #expect(scrollGestureSnap(workspace: workspace(), viewport: viewport, settings: settings,
+      rest: 0, current: 0, projected: 0.3)?.column == 1)
+  }
+
+  @Test
+  func `An empty workspace has nowhere to rest`() {
+    #expect(scrollGestureSnap(
+      workspace: Workspace(id: WorkspaceID(rawValue: "1")), viewport: viewport,
+      settings: LayoutSettings(), rest: 0, current: 0, projected: 0) == nil)
+  }
+
+  @Test
+  func `The rubber band resists past the bounds and never exceeds the dimension`() {
+    #expect(rubberBanded(50, bounds: 0...100, dimension: 1_000) == 50)
+    let past = rubberBanded(200, bounds: 0...100, dimension: 1_000)
+    #expect(past > 100 && past < 200)
+    #expect(rubberBanded(1e9, bounds: 0...100, dimension: 1_000) < 1_100)
+    #expect(rubberBanded(-100, bounds: 0...100, dimension: 1_000) == -(rubberBanded(200, bounds: 0...100, dimension: 1_000) - 100))
+  }
+}

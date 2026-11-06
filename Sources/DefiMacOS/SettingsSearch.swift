@@ -36,6 +36,11 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case pointerFollowsFocus
   case pointerFocusScroll
   case pointerFocusDelay
+  case scrollGestures
+  case scrollGestureFingers
+  case scrollGestureModifier
+  case scrollGestureSpeed
+  case scrollGestureSnap
   case modKey
   case customShortcut
   case shortcutGuide
@@ -82,6 +87,11 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .pointerFollowsFocus: (.input, "Move pointer to keyboard focus", "input.mouse_follows_focus mouse")
     case .pointerFocusScroll: (.input, "Maximum pointer-focus scroll", "input.focus_follows_mouse_max_scroll_amount mouse")
     case .pointerFocusDelay: (.input, "Pointer-focus delay", "input.focus_follows_mouse_delay_ms mouse")
+    case .scrollGestures: (.input, "Move the strip with swipes", "input.scroll_gestures trackpad swipe gesture wheel")
+    case .scrollGestureFingers: (.input, "Fingers", "input.scroll_gesture_fingers trackpad three four fingers swipe gesture")
+    case .scrollGestureModifier: (.input, "Only while holding the modifier", "input.scroll_gesture_modifier trackpad swipe gesture wheel modifier")
+    case .scrollGestureSnap: (.input, "Snap to columns", "input.scroll_gesture_snap trackpad swipe free position center")
+    case .scrollGestureSpeed: (.input, "Swipe speed", "input.scroll_gesture_speed trackpad swipe gesture faster slower")
     case .modKey: (.input, "Mod key", "mod modifier keyboard hyper prefix")
     case .customShortcut: (.input, "Add Custom Shortcut…", "custom command keybinding keyboard binding")
     case .shortcutGuide: (.input, "Show guide when holding the main modifier", "show_cheatsheet_on_modifier_hold shortcut guide cheatsheet")

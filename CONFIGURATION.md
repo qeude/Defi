@@ -171,6 +171,11 @@ focus_follows_mouse = false
 focus_follows_mouse_max_scroll_amount = 0.0
 focus_follows_mouse_delay_ms = 50
 mouse_follows_focus = false
+scroll_gestures = false
+# scroll_gesture_modifier = "ctrl+alt"
+scroll_gesture_fingers = 2
+scroll_gesture_speed = 1.0
+scroll_gesture_snap = true
 ```
 
 | Setting | Default | Values/type | Description |
@@ -179,6 +184,42 @@ mouse_follows_focus = false
 | `focus_follows_mouse_max_scroll_amount` | `0` | number from `0` to `1` | Maximum scroll as fraction of monitor width. `0` accepts only targets needing no scroll; `0.1` permits up to 10%. |
 | `focus_follows_mouse_delay_ms` | `50` | integer from `0` to `1000` | Milliseconds the pointer must rest before focus follows it. `0` focuses immediately; the delay applies only when `focus_follows_mouse` is enabled. |
 | `mouse_follows_focus` | `false` | boolean | Warps pointer to focused window center after keyboard focus changes, unless pointer is already inside it. |
+| `scroll_gestures` | `false` | boolean | Moves the strip with trackpad swipes, and with the mouse wheel while `scroll_gesture_modifier` is held. |
+| `scroll_gesture_modifier` | `mod` | modifier combination or `"none"` | Modifier held to start a swipe, written like `mod`. `"none"` needs three or four fingers and turns the mouse wheel off. |
+| `scroll_gesture_fingers` | `2` | `2`, `3`, or `4` | Fingers that swipe the strip. Two-finger swipes are scrolls, so they need the modifier. |
+| `scroll_gesture_snap` | `true` | boolean | Settles a released sideways swipe on a column, placed as `center_focused_column` would place it. `false` leaves the strip where the swipe stops. |
+| `scroll_gesture_speed` | `1.0` | number from `0.25` to `4` | Multiplies how far a swipe moves the strip and the workspaces. `2` moves twice as far for the same finger travel. |
+
+With `scroll_gestures`, swipes with `scroll_gesture_fingers` fingers that start with the
+modifier held, if any, work like Niri's three-finger swipes, on the display under the
+pointer:
+
+- Sideways, the strip follows the fingers; past the first or last column it meets a
+  rubber band. On release the column nearest where the strip stops takes focus, placed
+  as a key press focusing it would place it, so `center_focused_column` applies. A flick
+  reaches the next column at most.
+- Vertically, the workspaces follow the fingers, one above or below at most. On release
+  the switch completes or springs back, depending on where the flick would stop.
+- With `scroll_gesture_snap = false`, the strip instead stays where the swipe stops,
+  momentum included, within the strip's ends. The column fully in view nearest the
+  middle takes focus; if none is fully in view, the strip slides just enough to show
+  the nearest one. The strip keeps that position, whatever `center_focused_column`
+  says, until focus leaves the column.
+- The first 16 points of a swipe pick its axis for the whole gesture.
+- The same finger travel crosses the same share of any display. On a 1,512-point laptop
+  display the strip follows two fingers about one to one at the default speed. With
+  three or four fingers, a swipe across the whole trackpad moves the strip two displays.
+- A mouse wheel focuses one column per notch sideways (or with Shift), and one workspace
+  per notch vertically, at most one every 150 ms.
+
+Defi keeps a gesture that starts with the modifier, its momentum included, until it
+ends, so the app under the pointer never sees part of it (no half-started swipe back
+in a browser). A gesture that starts without the modifier stays the app's, even if the
+modifier is pressed later. Defi only reads three- and four-finger swipes, so it leaves
+alone each direction macOS gives them in Trackpad settings (Mission Control, Spaces,
+three-finger drag), read again at the start of each swipe. Three- and four-finger
+swipes move the strip with the fingers, whatever the scrolling direction setting. Without
+Screen Recording permission or with animations off, the strip moves once the fingers lift.
 
 Bare `focus_follows_mouse = true` does not scroll.
 Raise `focus_follows_mouse_max_scroll_amount` to allow bounded scrolling. Both

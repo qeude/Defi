@@ -491,6 +491,26 @@ private struct InputSettingsView: View {
         )
           .settingsSearchTarget(.pointerFocusScroll)
           .disabled(!model.config.input.focusFollowsMouse)
+        Toggle(SettingsOption.scrollGestures.title, isOn: boolBinding("input", "scroll_gestures", model.config.input.scrollGestures))
+          .settingsSearchTarget(.scrollGestures)
+        ScrollGestureSettings(model: model)
+        SettingsNumberRow(
+          title: SettingsOption.scrollGestureSpeed.title,
+          value: model.config.input.scrollGestureSpeed * 100,
+          range: 25...400, step: 5, unit: "%",
+          onChange: { model.set(table: "input", key: "scroll_gesture_speed", value: String($0 / 100)) }
+        )
+          .settingsSearchTarget(.scrollGestureSpeed)
+          .disabled(!model.config.input.scrollGestures)
+        Toggle(SettingsOption.scrollGestureSnap.title,
+          isOn: boolBinding("input", "scroll_gesture_snap", model.config.input.scrollGestureSnap))
+          .settingsSearchTarget(.scrollGestureSnap)
+          .disabled(!model.config.input.scrollGestures)
+        Text(model.config.input.scrollGestureSnap
+          ? "The strip lands on the nearest column."
+          : "The strip stops where you let go. The column in the middle gets focus.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
       Section("Modifiers") {
         ModKeyRow(model: model)
@@ -578,6 +598,8 @@ private struct InputSettingsView: View {
     switch (table, key) {
     case ("input", "focus_follows_mouse"): model.config.input.focusFollowsMouse
     case ("input", "mouse_follows_focus"): model.config.input.mouseFollowsFocus
+    case ("input", "scroll_gestures"): model.config.input.scrollGestures
+    case ("input", "scroll_gesture_snap"): model.config.input.scrollGestureSnap
     default: nil
     }
   }
@@ -1766,6 +1788,85 @@ private func settingsToggle(
     get: { value },
     set: { model.set(table: table, key: key, value: $0 ? "true" : "false") }
   ))
+}
+
+/// Which fingers swipe the strip, whether the modifier must be held, and what macOS
+/// already does with those swipes.
+@MainActor
+private struct ScrollGestureSettings: View {
+  let model: DefiSettingsModel
+
+  var body: some View {
+    let input = model.config.input
+    let fingers = input.scrollGestureFingers
+    let modifier = model.config.scrollGestureModifier
+    let system = systemTrackpadSwipes(fingers: fingers)
+    Group {
+      Picker(SettingsOption.scrollGestureFingers.title, selection: Binding(
+        get: { fingers },
+        set: { value in
+          // Two fingers need the modifier: restore it first so each save stays valid.
+          if value == 2, modifier == "none" { model.reset(table: "input", key: "scroll_gesture_modifier") }
+          model.set(table: "input", key: "scroll_gesture_fingers", value: String(value))
+        }
+      )) {
+        Text("Two").tag(2)
+        Text("Three").tag(3)
+        Text("Four").tag(4)
+      }
+        .settingsSearchTarget(.scrollGestureFingers)
+      Toggle(SettingsOption.scrollGestureModifier.title, isOn: Binding(
+        get: { modifier != "none" },
+        set: { held in
+          if held {
+            model.reset(table: "input", key: "scroll_gesture_modifier")
+          } else {
+            model.set(table: "input", key: "scroll_gesture_modifier", value: tomlString("none"))
+          }
+        }
+      ))
+        .settingsSearchTarget(.scrollGestureModifier)
+        .disabled(fingers == 2)
+      Text(caption(fingers: fingers, modifier: modifier, system: system))
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      if let conflict = conflict(fingers: fingers, system: system) {
+        HStack(alignment: .firstTextBaseline) {
+          Label(conflict, systemImage: "exclamationmark.triangle")
+            .font(.caption)
+          Spacer()
+          // The anchor opens the More Gestures tab, where macOS assigns these swipes.
+          Button("More Gestures…") {
+            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Trackpad-Settings.extension?MoreGestures")!)
+          }
+        }
+      }
+    }
+    .disabled(!input.scrollGestures)
+  }
+
+  private func caption(fingers: Int, modifier: String, system: (horizontal: Bool, vertical: Bool)) -> String {
+    let hand = (fingers == 2 ? "Two" : fingers == 3 ? "Three" : "Four") + " fingers"
+      + (modifier == "none" ? "" : " with \(modifier) held")
+    // Only the directions macOS leaves to Defi.
+    let axes = [system.horizontal ? nil : "left or right for columns",
+      system.vertical ? nil : "up or down for workspaces"].compactMap { $0 }
+    let wheel = modifier == "none" ? "" : " The mouse wheel works too."
+    return axes.isEmpty ? wheel.trimmingCharacters(in: .whitespaces)
+      : "\(hand): \(axes.joined(separator: ", ")).\(wheel)"
+  }
+
+  private func conflict(fingers: Int, system: (horizontal: Bool, vertical: Bool)) -> String? {
+    let direction: String
+    switch (system.horizontal, system.vertical) {
+    case (true, true): direction = ""
+    case (false, true): direction = " up or down"
+    case (true, false): direction = " left or right"
+    case (false, false): return nil
+    }
+    let count = fingers == 3 ? "three" : "four"
+    return "macOS already uses \(count)-finger swipes\(direction). Change them in More Gestures to use them here."
+  }
 }
 
 @MainActor

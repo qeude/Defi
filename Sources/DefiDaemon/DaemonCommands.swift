@@ -575,6 +575,7 @@ extension Daemon {
           state.selectedTiledWindowID(on: $0)
         }
       )
+      cancelScrollPan()
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
       let validationMS =
