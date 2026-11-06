@@ -387,7 +387,8 @@ struct LosslessTOMLDocument {
   }
 
   private func quoteKeyIfNeeded(_ key: String) -> String {
-    guard key.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }) else {
+    // TOML bare keys are ASCII only.
+    guard key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }) else {
       return
         "\"\(key.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
     }

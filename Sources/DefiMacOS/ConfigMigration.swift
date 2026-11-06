@@ -97,11 +97,13 @@ func migratingLegacyModifierKeys(in source: String) -> String? {
     document.set(table: "", key: "mod", value: tomlString(modValue))
   }
   if let keys = try? root.table(forKey: "keys") {
-    for accelerator in keys.keys.sorted() {
-      let replacement = rewritten(accelerator)
-      if replacement != accelerator {
-        document.renameKey(table: "keys", from: accelerator, to: replacement)
-      }
+    let renames = keys.keys.sorted().map { ($0, rewritten($0)) }.filter { $0.0 != $0.1 }
+    // Stage through placeholders so a new name never shadows a key still to rename.
+    for (index, rename) in renames.enumerated() {
+      document.renameKey(table: "keys", from: rename.0, to: "defi-migrating-\(index)")
+    }
+    for (index, rename) in renames.enumerated() {
+      document.renameKey(table: "keys", from: "defi-migrating-\(index)", to: rename.1)
     }
   }
   if let disabled = try? root.array(forKey: "disabled_keys") {
