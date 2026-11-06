@@ -203,10 +203,8 @@ enabled = true
 | --- | --- | --- | --- |
 | `enabled` | `true` | boolean | Draws each motion on an overlay from captured window pictures. Each native window moves once to its target underneath, so motion never waits on slow applications. Proxies follow a critically damped spring and keep their velocity when a new command retargets them. Each display has its own overlay, and a command moves only the displays it changes. Pictures of visible windows refresh after each landing, never at rest, and fill resized proxies without stretching. The app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. The overlay needs Screen Recording, which Defi requests once Accessibility is granted. Without the permission, with the macOS Reduce Motion preference, or when the overlay cannot draw a motion yet (for example before the wallpaper is captured), windows move at once. `false` moves windows at once and takes no pictures. |
 
-Screen recordings and screenshots leave the overlay out, so they show windows
-jumping where you saw them glide. To record a glitch for a bug report, turn on
-**Settings > General > Diagnostics > Show animations in screen recordings**.
-It stays on until you turn it off or Defi restarts.
+Screen recordings, screenshots, and screen sharing include the overlay, so they
+show the motion you see.
 
 ## `[overview]`
 

@@ -25,7 +25,7 @@ It opens three fixture windows on an empty workspace, narrows each with `cycle-w
 
 Pass: every line `PASS`, `held=` equals `before=` (no mutation during the drag), a previewed target is present for the real moves and `rejectedStack` for the constrained drag (the no-op cases may preview the unchanged layout), script exit 0, `daemons=1`. Evidence lands in `dist/verification/evidence-<timestamp>/` (`results.json`, `trace-<case>.log`, `held-<case>.png`, `before.status`, `after.status`).
 
-Screenshots show the native windows under the overlay unless `defaults write com.qeude.defi RibbonProxyCapturable -bool true` was set before the daemon started; restore it afterwards. The script requires exactly one monitor and exits otherwise. Drive cross-monitor drops by hand: drag a window's title bar onto the other display between two columns, then check `list-workspaces --json` window counts and `defi status` `focused=`.
+Screenshots include the overlay. The script requires exactly one monitor and exits otherwise. Drive cross-monitor drops by hand: drag a window's title bar onto the other display between two columns, then check `list-workspaces --json` window counts and `defi status` `focused=`.
 
 ## Gotchas
 

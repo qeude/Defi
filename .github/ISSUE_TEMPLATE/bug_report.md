@@ -44,9 +44,8 @@ For flicker, jumps, or windows that look wrong for a moment:
 
 - Does it still happen with **Settings > Appearance > Animation > Enable
   animations** turned off?
-- Screen recordings leave Defi's animations out. Turn on **Settings > General >
-  Diagnostics > Show animations in screen recordings** before you record, and
-  turn it off afterwards.
+- A screen recording of the glitch helps. It shows Defi's animations as you
+  see them.
 
 ## Diagnostics, if useful
 
