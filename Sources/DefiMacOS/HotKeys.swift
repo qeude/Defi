@@ -5,6 +5,8 @@ import DefiRuntime
 import Darwin
 import Foundation
 
+/// NSEventType.gesture: trackpad touches, which CGEventType does not name.
+let gestureEventType: UInt32 = 29
 let hotKeyEventTapPlacement = CGEventTapPlacement.tailAppendEventTap
 let inputMonitorTapOptions = CGEventTapOptions.listenOnly
 
@@ -36,6 +38,8 @@ public final class HotKeyManager {
     @NavigationActor @Sendable (TimeInterval, pid_t?) -> Void
   public typealias OverviewHandler =
     @NavigationActor @Sendable (OverviewKeyAction) -> Void
+  public typealias ScrollGestureHandler =
+    @NavigationActor @Sendable (ScrollGestureAction) -> Void
 
   private let bindings: [Key: (accelerator: String, command: String)]
   private let handler: Handler
@@ -51,6 +55,9 @@ public final class HotKeyManager {
   private let overviewCancelHandler: (@Sendable () -> Void)?
   private let cheatsheetHandler: @NavigationActor @Sendable (CheatsheetInput) -> Void
   private let cheatsheetModifierBits: UInt64?
+  private let scrollGestureHandler: ScrollGestureHandler?
+  private let scrollGestureModifierBits: UInt64
+  private let scrollGestureFingers: Int
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
@@ -97,6 +104,7 @@ public final class HotKeyManager {
     overviewHandler: @escaping OverviewHandler = { _ in },
     overviewCancelHandler: (@Sendable () -> Void)? = nil,
     cheatsheetHandler: @escaping @NavigationActor @Sendable (CheatsheetInput) -> Void = { _ in },
+    scrollGestureHandler: ScrollGestureHandler? = nil,
     registrationHandler: @escaping @NavigationActor @Sendable (Bool, HotKeyError?, [String]) -> Void = { _, _, _ in },
     handler: @escaping Handler
   ) {
@@ -116,6 +124,15 @@ public final class HotKeyManager {
       accelerator: "mod-a",
       aliases: config.modifierAliases
     ).modifierBits
+    scrollGestureFingers = config.input.scrollGestureFingers
+    let gestureModifierBits = config.scrollGestureModifier == "none" ? 0 : try? Key(
+      accelerator: "\(config.scrollGestureModifier)-a",
+      aliases: config.modifierAliases
+    ).modifierBits
+    scrollGestureModifierBits = gestureModifierBits ?? 0
+    // Two-finger swipes without a modifier would take every app's scrolling.
+    self.scrollGestureHandler = config.input.scrollGestures && gestureModifierBits != nil
+      && (scrollGestureModifierBits != 0 || scrollGestureFingers >= 3) ? scrollGestureHandler : nil
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     self.displayPointerRouter = displayPointerRouter
@@ -174,6 +191,7 @@ public final class HotKeyManager {
     let overviewHandler = self.overviewHandler
     let overviewCancelHandler = self.overviewCancelHandler
     let cheatsheetHandler = self.cheatsheetHandler
+    let scrollGestureHandler = self.scrollGestureHandler
     let context = InputMonitor(
       bindings: bindings.mapValues(\.command),
       userInputTracker: userInputTracker,
@@ -185,6 +203,11 @@ public final class HotKeyManager {
         NavigationActor.enqueue {
           cheatsheetHandler(input)
         }
+      },
+      scrollGestureModifierBits: scrollGestureHandler == nil ? nil : scrollGestureModifierBits,
+      scrollGestureFingers: scrollGestureFingers,
+      deliverScrollGesture: { action in
+        NavigationActor.enqueue { scrollGestureHandler?(action) }
       }
     ) { invocation in
       NavigationActor.enqueue {
@@ -216,13 +239,15 @@ public final class HotKeyManager {
     }
     // Install interception first so passive observation sees routed pointer events.
     // Ordinary shortcuts always pass through the filtering callback unchanged.
+    // Scrolling crosses the active tap only when gestures may consume it.
+    // Swipes with three or four fingers arrive only as gesture events, with their touches.
     let interceptorMask = mask & ~CGEventMask(
       (1 << CGEventType.flagsChanged.rawValue)
         | (1 << CGEventType.leftMouseDown.rawValue)
         | (1 << CGEventType.rightMouseDown.rawValue)
         | (1 << CGEventType.otherMouseDown.rawValue)
-        | (1 << CGEventType.scrollWheel.rawValue)
-    )
+        | (scrollGestureHandler == nil || scrollGestureModifierBits == 0 ? 1 << CGEventType.scrollWheel.rawValue : 0)
+    ) | (scrollGestureHandler != nil && scrollGestureFingers >= 3 ? 1 << gestureEventType : 0)
     let interceptorCallback: CGEventTapCallBack = { _, type, event, userInfo in
       guard let userInfo else { return Unmanaged.passUnretained(event) }
       return Unmanaged<InputMonitor>.fromOpaque(userInfo).takeUnretainedValue()
@@ -339,6 +364,16 @@ final class InputMonitor: @unchecked Sendable {
   private var cheatsheetVisible = false
   private let cheatsheetModifierBits: UInt64?
   private let deliverCheatsheet: @Sendable (CheatsheetInput) -> Void
+  /// Nil when scroll gestures are off; the recognizer lives on the tap thread.
+  private let scrollGestureModifierBits: UInt64?
+  private let deliverScrollGesture: @Sendable (ScrollGestureAction) -> Void
+  private var scrollGestures: ScrollGestureRecognizer
+  /// Two for scroll events; three or four for swipes read from the touches.
+  private let scrollGestureFingers: Int
+  private var fingerSwipe: FingerSwipe
+  /// Modifiers the latest key or flags event announced. A Hyper key remapped in software
+  /// announces them only there: the trackpad's scroll events never carry them.
+  private var announcedModifierBits: UInt64 = 0
   private let textInputFocused: @Sendable () -> Bool
   private let keyboardCaptured: @Sendable () -> Bool
 
@@ -350,6 +385,9 @@ final class InputMonitor: @unchecked Sendable {
     tracksPointerWindowTransitions: Bool,
     cheatsheetModifierBits: UInt64? = nil,
     deliverCheatsheet: @escaping @Sendable (CheatsheetInput) -> Void = { _ in },
+    scrollGestureModifierBits: UInt64? = nil,
+    scrollGestureFingers: Int = 2,
+    deliverScrollGesture: @escaping @Sendable (ScrollGestureAction) -> Void = { _ in },
     deliver: @escaping @Sendable (HotKeyInvocation) -> Void,
     deliverOverview: @escaping @Sendable (OverviewKeyAction) -> Void,
     deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void,
@@ -363,6 +401,14 @@ final class InputMonitor: @unchecked Sendable {
     self.keyboardCaptured = keyboardCaptured
     self.cheatsheetModifierBits = cheatsheetModifierBits
     self.deliverCheatsheet = deliverCheatsheet
+    self.scrollGestureModifierBits = scrollGestureModifierBits
+    self.deliverScrollGesture = deliverScrollGesture
+    self.scrollGestureFingers = scrollGestureFingers
+    fingerSwipe = FingerSwipe(fingers: scrollGestureFingers)
+    let system = systemTrackpadSwipes(fingers: scrollGestureFingers)
+    scrollGestures = ScrollGestureRecognizer(
+      modifierIncludesShift: (scrollGestureModifierBits ?? 0) & CGEventFlags.maskShift.rawValue != 0,
+      horizontal: !system.horizontal, vertical: !system.vertical)
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     self.displayPointerRouter = displayPointerRouter
@@ -462,6 +508,8 @@ final class InputMonitor: @unchecked Sendable {
         return Unmanaged.passUnretained(event)
       }
       reenables += 1
+      // A release missed while the tap was off must not keep gestures armed.
+      announcedModifierBits = 0
       pointerTransitionState.reset()
       pendingPointerMotion = nil
       pointerDeliveryGeneration &+= 1
@@ -498,6 +546,10 @@ final class InputMonitor: @unchecked Sendable {
     }
     let isKeyDown = type == .keyDown
     if isKeyDown { noteKeyboardType(of: event) }
+    if isKeyDown || type == .flagsChanged {
+      let bits = hotKeyModifierBits(event.flags)
+      lock.withLock { announcedModifierBits = bits }
+    }
     let eventTargetPID = pid_t(exactly: event.getIntegerValueField(.eventTargetUnixProcessID))
     let isDefiTextInput = hotKeyTargetIsCurrentApplication(
       eventTargetPID, currentPID: getpid(),
@@ -639,6 +691,17 @@ final class InputMonitor: @unchecked Sendable {
       }
       return Unmanaged.passUnretained(event)
     }
+    if type.rawValue == gestureEventType, let bits = scrollGestureModifierBits, scrollGestureFingers >= 3 {
+      let announced = lock.withLock { announcedModifierBits }
+      if let input = ScrollGestureInput(gesture: event, swipe: &fingerSwipe, modifierBits: bits,
+        announcedModifierBits: announced) {
+        _ = route(input)
+      }
+      return Unmanaged.passUnretained(event)
+    }
+    if type == .scrollWheel, let bits = scrollGestureModifierBits, bits != 0 {
+      return interceptScroll(event, modifierBits: bits)
+    }
     guard type == .keyDown else { return Unmanaged.passUnretained(event) }
     if let record = ShortcutRecorderButton.captureHandler.withLock({ $0 }) {
       capturedModifierReleaseState.reset()
@@ -673,6 +736,34 @@ final class InputMonitor: @unchecked Sendable {
       return nil
     }
     return Unmanaged.passUnretained(event)
+  }
+
+  /// Runs on the tap thread for every scroll: it must stay cheap.
+  private func interceptScroll(_ event: CGEvent, modifierBits: UInt64) -> Unmanaged<CGEvent>? {
+    let announced = lock.withLock { announcedModifierBits }
+    let input = ScrollGestureInput(event, modifierBits: modifierBits, announcedModifierBits: announced)
+    // With more fingers, two-finger swipes stay the apps'; the wheel still steps.
+    if scrollGestureFingers >= 3, input.phase != 0 || input.momentumPhase != 0 {
+      return Unmanaged.passUnretained(event)
+    }
+    return route(input) ? nil : Unmanaged.passUnretained(event)
+  }
+
+  /// Returns whether the gesture took the input.
+  private func route(_ input: ScrollGestureInput) -> Bool {
+    let enabled = lock.withLock { !overviewModeEnabled }
+    let before = scrollGestures.pan
+    let (consumed, actions) = scrollGestures.handle(input, enabled: enabled)
+    // A held modifier that drives a gesture is not asking for the cheatsheet.
+    if consumed, input.momentumPhase == 0, input.phase != 2, input.phase != 4, input.phase != 8 {
+      deliverCheatsheet(.dismiss)
+    }
+    // Kept after the fingers lift: the overlay holds the last travel until the settle.
+    if let pan = scrollGestures.pan, pan.id != before?.id || pan.travel != before?.travel {
+      RibbonProxyPointerTrack.shared.setPanTravel(pan)
+    }
+    for action in actions { deliverScrollGesture(action) }
+    return consumed
   }
 
   var isEnabled: Bool {

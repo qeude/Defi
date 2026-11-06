@@ -180,6 +180,7 @@ final class Daemon {
   var mouseGesturePreempted = false
   var floatingWindowFrames: [WindowID: Rect] = [:]
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
+  var scrollPan: ScrollPan?
   var lastCommandDurationMS = 0.0
   var latestCommandInputTimestamp: TimeInterval = 0
   var commandGeneration: UInt64 = 0
@@ -328,7 +329,7 @@ final class Daemon {
     if active { invalidateDisplayArrangement() }
     displayPointerRouter.setActive(active)
     desktopSessionActive = active
-    if !active { handleCheatsheetInput(.dismiss) }
+    if !active { handleCheatsheetInput(.dismiss); cancelScrollPan() }
     desktopSessionGeneration &+= 1
     guard active else {
       cancelPendingCommandFrameRead()

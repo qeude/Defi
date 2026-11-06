@@ -123,6 +123,12 @@ struct ConfigTests {
       .invalidValue("input.focus_follows_mouse_max_scroll_amount")),
     ("[input]\nfocus_follows_mouse_max_scroll_amount = 1.1",
       .invalidValue("input.focus_follows_mouse_max_scroll_amount")),
+    ("[input]\nscroll_gesture_modifier = \"tab\"", .invalidValue("input.scroll_gesture_modifier")),
+    ("[input]\nscroll_gesture_modifier = \"\"", .invalidValue("input.scroll_gesture_modifier")),
+    ("[input]\nscroll_gesture_speed = 0", .invalidValue("input.scroll_gesture_speed")),
+    ("[input]\nscroll_gesture_fingers = 5", .invalidValue("input.scroll_gesture_fingers")),
+    ("[input]\nscroll_gesture_modifier = \"none\"", .invalidValue("input.scroll_gesture_modifier")),
+    ("[input]\nscroll_gesture_speed = 5.0", .invalidValue("input.scroll_gesture_speed")),
     ("[layout]\nouter_top_gap = 257", .invalidValue("layout.outer_top_gap")),
     ("[layout]\nouter_right_gap = 257", .invalidValue("layout.outer_right_gap")),
     ("[layout]\nouter_bottom_gap = 257", .invalidValue("layout.outer_bottom_gap")),
@@ -173,6 +179,8 @@ struct ConfigTests {
       focus_follows_mouse_max_scroll_amount = 0.1
       focus_follows_mouse_delay_ms = 50
       mouse_follows_focus = true
+      scroll_gestures = true
+      scroll_gesture_modifier = "cmd+shift"
 
       [layout]
       gaps = 8
@@ -190,6 +198,14 @@ struct ConfigTests {
       "mod-d" = "diagnostic-mark"
       """.utf8))
     #expect(config.overview.zoom == 0.25)
+    #expect(config.input.scrollGestures)
+    #expect(config.scrollGestureModifier == "cmd+shift")
+    #expect(Config().scrollGestureModifier == Config().mod)
+    let swipe = try Config.decode(Data("[input]\nscroll_gesture_fingers = 3\nscroll_gesture_modifier = \"none\"".utf8))
+    #expect(swipe.input.scrollGestureFingers == 3)
+    #expect(Config().input.scrollGestureFingers == 2)
+    #expect(Config().input.scrollGestureSnap)
+    #expect(try !Config.decode(Data("[input]\nscroll_gesture_snap = false".utf8)).input.scrollGestureSnap)
     #expect(!config.overview.windowPreviews)
     #expect(config.overview.windowCornerRadius == 18)
     #expect(config.decorations.borders.width == 3.5)

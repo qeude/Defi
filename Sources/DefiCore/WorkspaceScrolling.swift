@@ -98,12 +98,17 @@ public func focusedColumnScrollTarget(
   let pinned =
     recordedFocus.map { $0.pinned == true && selectedColumn?.windows.contains($0.windowID) == true }
     ?? false
+  let free =
+    recordedFocus.map { $0.free == true && selectedColumn?.windows.contains($0.windowID) == true }
+    ?? false
   // Exact centering may leave edge space; an oversized column stays left-aligned.
   let exactCenter =
     widths.indices.contains(workspace.focusedColumn) && focusedWidth <= 1 + 1e-9
     ? focusedLeft + focusedWidth / 2 - 0.5 : focusedLeft
   let offset: Double
-  if pinned || settings.centerFocusedColumn == .always
+  if free {
+    offset = revealed
+  } else if pinned || settings.centerFocusedColumn == .always
     || (settings.alwaysCenterSingleColumn && workspace.columns.count == 1)
   {
     offset = exactCenter
@@ -115,7 +120,7 @@ public func focusedColumnScrollTarget(
   return (
     offset,
     selectedWindowID.map {
-      ScrollFocus(windowID: $0, centered: overflows, pinned: pinned ? true : nil)
+      ScrollFocus(windowID: $0, centered: overflows, pinned: pinned ? true : nil, free: free ? true : nil)
     }
   )
 }
@@ -143,3 +148,135 @@ public func repairWorkspaceScroll(
   )
 }
 
+
+/// Where a scroll gesture released at `projected` settles: on the column whose resting
+/// place lies nearest, each placed as key presses stepping to it from the view before the
+/// gesture (`rest`) would place it under the centring policy. A flick reaches the next
+/// resting place at most. Offsets are in strip widths.
+public func scrollGestureSnap(
+  workspace: Workspace,
+  viewport: Rect,
+  windows: [Window] = [],
+  settings: LayoutSettings,
+  excludingWindowIDs: Set<WindowID> = [],
+  rest: Double,
+  current: Double,
+  projected: Double
+) -> (column: Int, offset: Double, focus: ScrollFocus?)? {
+  // Each column as successive key presses from the selected one would leave it. Starting
+  // from the released view instead would leave any column already fully in view where the
+  // fingers stopped, half-cut neighbours included.
+  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
+  var rests: [(column: Int, offset: Double, focus: ScrollFocus?)] = []
+  for direction in [-1, 1] {
+    var stepped = workspace
+    stepped.focusedLayer = .tiled
+    stepped.scrollOffset = rest
+    var column = workspace.focusedColumn
+    if direction == 1 {
+      let target = focusedColumnScrollTarget(
+        workspace: stepped, viewport: viewport, windows: windows,
+        settings: settings, excludingWindowIDs: excludingWindowIDs)
+      rests.append((column, target.offset, target.focus))
+    }
+    while workspace.columns.indices.contains(column + direction) {
+      column += direction
+      stepped.focusedColumn = column
+      let target = focusedColumnScrollTarget(
+        workspace: stepped, viewport: viewport, windows: windows,
+        settings: settings, excludingWindowIDs: excludingWindowIDs)
+      stepped.scrollOffset = target.offset
+      stepped.scrollFocus = target.focus
+      rests.append((column, target.offset, target.focus))
+    }
+  }
+  rests.sort { $0.column < $1.column }
+  let offsets = rests.map(\.offset).sorted()
+  // A flick carries to the next resting place at most, never several columns at once:
+  // macOS's accelerated scroll speeds would otherwise make the landing hard to predict.
+  let forward = projected >= current
+  let limit = forward
+    ? offsets.first { $0 > current + 1e-6 } ?? offsets.last
+    : offsets.last { $0 < current - 1e-6 } ?? offsets.first
+  let projected = limit.map { forward ? min(projected, $0) : max(projected, $0) } ?? projected
+  guard let nearest = rests.min(by: { abs($0.offset - projected) < abs($1.offset - projected) - 1e-9 })
+  else { return nil }
+  // Columns resting at the same place are all in view there. Springing back keeps the
+  // selection; otherwise the furthest in the gesture's direction takes focus, as in Niri.
+  let tied = rests.filter { abs($0.offset - nearest.offset) < 1e-6 }
+  let towards = abs(projected - current) > 1e-6 ? forward : current >= rest
+  guard let chosen = tied.first(where: { $0.column == workspace.focusedColumn })
+    ?? (towards ? tied.last : tied.first) else { return nil }
+  return (chosen.column, chosen.offset, chosen.focus)
+}
+
+/// Where an unsnapped scroll gesture released at `projected` rests: there, within the strip,
+/// with focus on the column fully in view nearest the middle. When none is fully in view,
+/// the strip slides just enough to show the nearest one. Offsets are in strip widths.
+public func scrollGestureFreeRest(
+  workspace: Workspace,
+  viewport: Rect,
+  windows: [Window] = [],
+  settings: LayoutSettings,
+  excludingWindowIDs: Set<WindowID> = [],
+  projected: Double
+) -> (column: Int, offset: Double, focus: ScrollFocus?)? {
+  // Where each column is fully in view, whatever the centring policy.
+  var revealing = settings
+  revealing.centerFocusedColumn = .never
+  revealing.alwaysCenterSingleColumn = false
+  let extents = scrollGestureExtents(workspace: workspace, viewport: viewport, windows: windows,
+    settings: revealing, excludingWindowIDs: excludingWindowIDs)
+  guard let lowest = extents.map(\.lowerBound).min(), let highest = extents.map(\.upperBound).max()
+  else { return nil }
+  let wanted = min(max(projected, lowest), highest)
+  let distance = { (extent: ClosedRange<Double>) in
+    (max(extent.lowerBound - wanted, wanted - extent.upperBound, 0),
+      abs((extent.lowerBound + extent.upperBound) / 2 - wanted))
+  }
+  guard let column = extents.indices.min(by: { distance(extents[$0]) < distance(extents[$1]) })
+  else { return nil }
+  let extent = extents[column]
+  let rows = workspace.columns[column]
+  let windowID = rows.windows.indices.contains(rows.focusedWindow) ? rows.windows[rows.focusedWindow] : nil
+  return (column, min(max(wanted, extent.lowerBound), extent.upperBound),
+    windowID.map { ScrollFocus(windowID: $0, centered: false, free: true) })
+}
+
+/// Each column's resting offsets: the focus policy pushed from the right, then from the
+/// left. The column is fully in view anywhere between them.
+public func scrollGestureExtents(
+  workspace: Workspace,
+  viewport: Rect,
+  windows: [Window] = [],
+  settings: LayoutSettings,
+  excludingWindowIDs: Set<WindowID> = []
+) -> [ClosedRange<Double>] {
+  workspace.columns.indices.map { column in
+    var candidate = workspace
+    candidate.focusedColumn = column
+    candidate.focusedLayer = .tiled
+    candidate.scrollFocus = nil
+    let offsets = [-1e9, 1e9].map { start in
+      candidate.scrollOffset = start
+      return focusedColumnScrollTarget(
+        workspace: candidate, viewport: viewport, windows: windows,
+        settings: settings, excludingWindowIDs: excludingWindowIDs
+      ).offset
+    }
+    return min(offsets[0], offsets[1])...max(offsets[0], offsets[1])
+  }
+}
+
+/// A rubber band: past `bounds`, travel meets growing resistance and never exceeds
+/// `dimension`. macOS's stiffness by default.
+public func rubberBanded(
+  _ value: Double, bounds: ClosedRange<Double>, dimension: Double, stiffness: Double = 0.55
+) -> Double {
+  func resist(_ overshoot: Double) -> Double {
+    (1 - 1 / (overshoot * stiffness / dimension + 1)) * dimension
+  }
+  if value < bounds.lowerBound { return bounds.lowerBound - resist(bounds.lowerBound - value) }
+  if value > bounds.upperBound { return bounds.upperBound + resist(value - bounds.upperBound) }
+  return value
+}

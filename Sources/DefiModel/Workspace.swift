@@ -39,11 +39,15 @@ public struct ScrollFocus: Equatable, Codable, Sendable {
   /// `true` after `center-column`, until selection leaves the column. Never `false`:
   /// optional so stores written before it existed still decode.
   public var pinned: Bool?
+  /// `true` where an unsnapped swipe left the strip, until selection leaves the column:
+  /// the strip stays put while the column is in view. Never `false`, like `pinned`.
+  public var free: Bool?
 
-  public init(windowID: WindowID, centered: Bool, pinned: Bool? = nil) {
+  public init(windowID: WindowID, centered: Bool, pinned: Bool? = nil, free: Bool? = nil) {
     self.windowID = windowID
     self.centered = centered
     self.pinned = pinned
+    self.free = free
   }
 }
 

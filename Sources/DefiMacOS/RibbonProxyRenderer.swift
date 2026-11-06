@@ -404,6 +404,10 @@ final class RibbonProxyPresenter {
   /// Where the dragged window will land, shown under it for the whole drag.
   private var placeholder: CALayer?
   private var drag = RibbonProxyDrag.idle
+  /// The released scroll gesture's velocity, in layer space: the next motion starts from
+  /// the drawn ribbon at that speed.
+  private var panRelease: CGPoint?
+  var releasesPan: Bool { panRelease != nil }
   /// Resized windows whose fresh capture the landing waits for.
   private var awaitingFresh: Set<WindowID> = []
   /// Windows shown with their icon, until a picture newer than `veiledSince` arrives.
@@ -482,9 +486,13 @@ final class RibbonProxyPresenter {
       DispatchQueue.main.async { WindowCaptureCache.shared.requestBackground(screen) }
       return fallback("background")
     }
+    // A released gesture also brings back windows it drew on screen but that rest off it.
+    let drawnOnScreen = panRelease == nil ? [] : Set(windowLayers.compactMap { id, layer in
+      ribbonProxyShows((layer.presentation() ?? layer).frame, in: layers.root.bounds) ? id : nil
+    })
     var shown = windows.filter {
       $0.id != draggedWindowID
-        && (keepsOffscreen || $0.from.ribbonIntersects(area) || $0.to.ribbonIntersects(area))
+        && (keepsOffscreen || drawnOnScreen.contains($0.id) || $0.from.ribbonIntersects(area) || $0.to.ribbonIntersects(area))
     }
     guard !shown.isEmpty || holds else { return fallback("no-visible-window") }
     // Visible ordinary windows Defi does not manage stay still on the overlay,
@@ -529,6 +537,8 @@ final class RibbonProxyPresenter {
     }
 
     let previous = presenting ? windowLayers.mapValues { ($0.presentation() ?? $0).frame } : [:]
+    let releasedPan = panRelease
+    panRelease = nil
     generation &+= 1
     selectedID = selectedWindowID
     borderRestore?.cancel(); borderRestore = nil
@@ -563,6 +573,9 @@ final class RibbonProxyPresenter {
     let phaseLayers = CACurrentMediaTime()
     var pictured = 0, badged = 0
     var travel = 0.0
+    // A released gesture moved the whole stack as one: what this motion leaves out (the
+    // other neighbour workspace) settles with it.
+    var rigid = CGPoint.zero
     for window in shown {
       let layer = windowLayers[window.id] ?? makeLayer()
       windowLayers[window.id] = layer
@@ -570,7 +583,10 @@ final class RibbonProxyPresenter {
       // Mid-flight windows continue from where they are drawn. A layer left off screen
       // by an earlier motion starts from the planned place instead: continuing it came
       // in diagonally from a corner.
-      let current = previous[window.id].flatMap { ribbonProxyShows($0, in: layers.root.bounds) ? $0 : nil }
+      // A released gesture continues every window from where it was drawn, on screen or not.
+      let current = previous[window.id].flatMap {
+        releasedPan != nil || ribbonProxyShows($0, in: layers.root.bounds) ? $0 : nil
+      }
       var from = current ?? local(window.from, area)
       var to = local(window.to, area)
       // Already leaving the screen (a switch cut short by a focus change): it keeps its
@@ -588,10 +604,13 @@ final class RibbonProxyPresenter {
       let now = CACurrentMediaTime()
       // Rapid commands retarget mid-flight: carry the current velocity, as Niri does,
       // instead of restarting the spring from rest.
-      let velocity = current == nil ? .zero : slides[window.id].map {
+      let velocity = current == nil ? .zero : releasedPan ?? slides[window.id].map {
         ribbonProxySpringVelocity(from: $0.from, to: $0.to, elapsed: now - $0.start)
       } ?? .zero
       slides[window.id] = (CGPoint(x: from.midX, y: from.midY), CGPoint(x: to.midX, y: to.midY), now)
+      if releasedPan != nil, current != nil, hypot(to.midX - from.midX, to.midY - from.midY) > hypot(rigid.x, rigid.y) {
+        rigid = CGPoint(x: to.midX - from.midX, y: to.midY - from.midY)
+      }
       travel = max(travel, hypot(to.midX - from.midX, to.midY - from.midY)
         + hypot(velocity.x, velocity.y) / 800.0.squareRoot()
         + abs(to.width - from.width) + abs(to.height - from.height))
@@ -624,6 +643,12 @@ final class RibbonProxyPresenter {
       let starts = Dictionary(sublayerFrames(layer, size: from.size).map { (ObjectIdentifier($0.0), $0.1) }) { a, _ in a }
       for (sublayer, end) in sublayerFrames(layer, size: to.size) {
         ribbonProxyMove(sublayer, from: starts[ObjectIdentifier(sublayer)] ?? end, to: end)
+      }
+    }
+    if let releasedPan {
+      for (id, layer) in windowLayers where !shownIDs.contains(id) {
+        let from = (layer.presentation() ?? layer).frame
+        ribbonProxyMove(layer, from: from, to: from.offsetBy(dx: rigid.x, dy: rigid.y), velocity: releasedPan)
       }
     }
     if case .dropping = drag { drag = .idle }
@@ -1126,7 +1151,7 @@ final class RibbonProxyPresenter {
     holdUntil = 0
     expectedTargets = [:]; requestedTargets = [:]
     releasePointerTrack()
-    drag = .idle; ownSlot = nil; previewSlot = nil; awaitingFresh = []; veiled = []; refreshing = []; standIns = []
+    drag = .idle; panRelease = nil; ownSlot = nil; previewSlot = nil; awaitingFresh = []; veiled = []; refreshing = []; standIns = []
     removeRejection()
     guard presenting, let layers else { return }
     removePlaceholder()
@@ -1203,6 +1228,60 @@ final class RibbonProxyPresenter {
     showSlot(in: layers)
     ribbonProxyCommit(#line)
     RibbonProxyPointerTrack.shared.set(.carry(id: id, layer: layer, area: layers.area, grab: nil))
+  }
+
+  /// Hands this display's ribbon to a scroll gesture: it follows the fingers on the
+  /// overlay at each display refresh, while no native window moves. `ribbon` are the
+  /// windows on the strip; the others stay still. Returns how far right of its resting
+  /// place the ribbon is drawn (a motion still running), nil when the overlay cannot draw.
+  func pan(_ id: UInt64, windows: [RibbonProxyWindow], ribbon: Set<WindowID>, vertical: Bool,
+    viewport: Rect, generation submission: UInt64, selectedWindowID: WindowID?, scale: Double,
+    bounds: ClosedRange<Double>, dimension: Double, stiffness: Double) -> Double? {
+    guard case .idle = drag else { return nil }
+    let drawn = presenting ? windowLayers.mapValues { ($0.presentation() ?? $0).frame } : [:]
+    guard begin(windows: windows, viewport: viewport, generation: submission, nativeTargets: [:],
+      duration: ribbonProxySpringDuration, selectedWindowID: selectedWindowID, keepsOffscreen: true),
+      let layers
+    else { return nil }
+    drag = .panning
+    // A gesture lasts: opaque at once, or the compositor redraws every window below the
+    // overlay at each frame of it (measured: about one hitch in three frames until then).
+    letWindowsDraw(false)
+    var rests: [(CALayer, CGPoint)] = []
+    var shift = 0.0
+    for window in windows where ribbon.contains(window.id) {
+      guard let layer = windowLayers[window.id] else { continue }
+      let rest: CGRect = local(window.to, layers.area)
+      rests.append((layer, CGPoint(x: rest.midX, y: rest.midY)))
+      // A motion still running continues from where it is drawn, if it only runs along this axis.
+      if window.id == selectedWindowID, let frame = drawn[window.id] {
+        if vertical, abs(frame.minX - rest.minX) < 1 { shift = Double(rest.minY - frame.minY) }
+        if !vertical, abs(frame.minY - rest.minY) < 1 { shift = Double(frame.minX - rest.minX) }
+      }
+    }
+    RibbonProxyPointerTrack.shared.set(.pan(RibbonProxyPan(id: id, area: layers.area, ribbon: rests,
+      vertical: vertical, start: shift, scale: scale, bounds: ribbonPanBounds(bounds, start: shift),
+      dimension: dimension, stiffness: stiffness)))
+    // Placed now: the first display refresh may come after the spring began() started.
+    RibbonProxyPointerTrack.shared.move(to: .zero)
+    ribbonProxyLogger.notice("pan id=\(id) shift=\(Int(shift))")
+    return shift
+  }
+
+  /// The fingers lifted: the next layout settles the ribbon from where it is drawn, at
+  /// `velocity` points per second (global coordinates). Without one soon, the overlay lifts.
+  func endPan(velocity: Double, vertical: Bool) {
+    guard drag == .panning else { return }
+    releasePointerTrack()
+    drag = .idle
+    panRelease = vertical ? CGPoint(x: 0, y: -velocity) : CGPoint(x: velocity, y: 0)
+    let token = generation
+    Task { [weak self] in
+      try? await Task.sleep(for: .milliseconds(150))
+      guard let self, generation == token, panRelease != nil else { return }
+      panRelease = nil
+      cancel("pan-unsettled")
+    }
   }
 
   /// Another display's carried window entered this one: this ribbon goes on the overlay
@@ -1343,7 +1422,7 @@ final class RibbonProxyPresenter {
   private func releasePointerTrack() {
     if case .hosting(let id) = drag {
       RibbonProxyPointerTrack.shared.removeGuest(windowLayers[id])
-    } else if drag.heldWindowID != nil {
+    } else if drag.heldWindowID != nil || drag == .panning {
       RibbonProxyPointerTrack.shared.set(nil)
     }
   }
@@ -1702,7 +1781,10 @@ func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoi
   let squared = distance.x * distance.x + distance.y * distance.y
   // CASpringAnimation takes velocity as a fraction of the travel per second.
   if squared > 1 {
-    position.initialVelocity = (velocity.x * distance.x + velocity.y * distance.y) / squared
+    // Beyond the spring's own rate a critically damped motion overshoots and springs back:
+    // a short landing would bounce.
+    position.initialVelocity = min((velocity.x * distance.x + velocity.y * distance.y) / squared,
+      800.0.squareRoot())
     position.duration = position.settlingDuration
   }
   ribbonProxyStartNow(position, on: layer)
@@ -1724,11 +1806,13 @@ enum RibbonProxyDrag: Equatable {
   /// Another display's carried window is over this one: it previews the drop here.
   case hosting(WindowID)
   case dropping(WindowID)
+  /// A scroll gesture moves the whole ribbon.
+  case panning
 
   var heldWindowID: WindowID? {
     switch self {
     case .carrying(let id), .stretching(let id), .hosting(let id): id
-    case .idle, .dropping: nil
+    case .idle, .dropping, .panning: nil
     }
   }
 }
@@ -1822,6 +1906,33 @@ struct RibbonProxyStretch {
   var anchor: (pointerX: Double, frame: Rect, movesLeft: Bool)?
 }
 
+/// The ribbon following a scroll gesture: each layer's resting centre, shifted by the
+/// travel. Past `bounds` the shift meets the rubber band.
+struct RibbonProxyPan {
+  let id: UInt64
+  let area: Rect
+  let ribbon: [(CALayer, CGPoint)]
+  /// Down the workspace stack instead of along the strip; shifts are in global
+  /// coordinates (y grows downward).
+  let vertical: Bool
+  /// Where the ribbon is drawn when the gesture starts, from rest.
+  let start: Double
+  let scale: Double
+  let bounds: ClosedRange<Double>
+  let dimension: Double
+  let stiffness: Double
+
+  func shift(travel: Double) -> Double {
+    rubberBanded(start + travel * scale, bounds: bounds, dimension: dimension, stiffness: stiffness)
+  }
+}
+
+/// The resting bounds widened to where the overlay drew the strip, so a gesture starting
+/// mid-motion does not jump into the rubber band.
+public func ribbonPanBounds(_ bounds: ClosedRange<Double>, start: Double) -> ClosedRange<Double> {
+  min(bounds.lowerBound, start)...max(bounds.upperBound, start)
+}
+
 /// Follows the pointer on the main thread at every display refresh. Mouse events
 /// were not enough: while the WindowServer drags a window by its title bar they
 /// arrive irregularly, and the proxy jumped between them.
@@ -1831,6 +1942,8 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
     case carry(id: WindowID, layer: CALayer, area: Rect, grab: CGPoint?)
     /// The held edge follows the pointer; the ribbon shifts with it.
     case stretch(RibbonProxyStretch)
+    /// The ribbon follows a scroll gesture's travel.
+    case pan(RibbonProxyPan)
   }
 
   static let shared = RibbonProxyPointerTrack()
@@ -1838,12 +1951,17 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
   private var mode: Mode?
   /// Copies of the carried window on the other displays previewing its drop.
   private var guests: [(layer: CALayer, area: Rect)] = []
+  /// The running scroll gesture's travel, written from the input thread.
+  private var panTravel: (id: UInt64, travel: Double)?
+
+  func setPanTravel(_ travel: (id: UInt64, travel: Double)?) { lock.withLock { panTravel = travel } }
 
   func set(_ mode: Mode?) {
     lock.withLock { self.mode = mode; if mode == nil { guests = [] } }
     let area: Rect? = switch mode {
     case .carry(_, _, let area, _): area
     case .stretch(let stretch): stretch.area
+    case .pan(let pan): pan.area
     case nil: nil
     }
     DispatchQueue.main.async { MainActor.assumeIsolated { RibbonProxyPointerTicker.shared.run(on: area) } }
@@ -1856,7 +1974,8 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
 
   /// `point` is in global top-left coordinates.
   func move(to point: CGPoint) {
-    guard let (current, guests) = lock.withLock({ self.mode.map { ($0, self.guests) } }) else { return }
+    guard let (current, guests, panTravel) = lock.withLock({ self.mode.map { ($0, self.guests, self.panTravel) } })
+    else { return }
     var mode = current
     CATransaction.begin(); CATransaction.setDisableActions(true)
     switch mode {
@@ -1906,6 +2025,12 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
         }
       }
       mode = .stretch(stretch)
+    case .pan(let pan):
+      let shift = pan.shift(travel: panTravel.flatMap { $0.id == pan.id ? $0.travel : nil } ?? 0)
+      for (layer, rest) in pan.ribbon {
+        layer.removeAnimation(forKey: "position")
+        layer.position = pan.vertical ? CGPoint(x: rest.x, y: rest.y - shift) : CGPoint(x: rest.x + shift, y: rest.y)
+      }
     }
     ribbonProxyCommit(#line)
     let updated = mode

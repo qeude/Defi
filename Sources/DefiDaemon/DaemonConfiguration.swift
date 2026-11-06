@@ -230,10 +230,15 @@ extension Daemon {
       || previous.showCheatsheetOnModifierHold != next.showCheatsheetOnModifierHold
       || previous.input.focusFollowsMouse != next.input.focusFollowsMouse
       || previous.input.mouseFollowsFocus != next.input.mouseFollowsFocus
+      || previous.input.scrollGestures != next.input.scrollGestures
+      || previous.scrollGestureModifier != next.scrollGestureModifier
+      || previous.input.scrollGestureFingers != next.input.scrollGestureFingers
   }
 
   func installHotKeys() {
     guard windowManagementStarted else { return }
+    // The new tap starts without the running gesture.
+    cancelScrollPan()
     let generation = hotKeyGeneration.withLock { value in
       value &+= 1
       return value
@@ -317,6 +322,10 @@ extension Daemon {
       cheatsheetHandler: { [weak self] input in
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         self.handleCheatsheetInput(input)
+      },
+      scrollGestureHandler: { [weak self] action in
+        guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
+        self.handleScrollGesture(action)
       },
       registrationHandler: { [weak self] enabled, error, held in
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }

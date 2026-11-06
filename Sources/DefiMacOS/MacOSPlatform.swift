@@ -143,6 +143,41 @@ public final class MacOSPlatform {
     presentPendingWindowProxyPreview()
   }
 
+  /// Puts the windows of the display showing `viewport` on the overlay, following scroll
+  /// gesture `id`: `moving` shift by `scale` points per travel point along the axis,
+  /// rubber-banded past `bounds`; the others stay still. `neighbors` are the workspaces
+  /// above and below, drawn at these frames. Returns where the strip is drawn from rest
+  /// (a motion still running), nil without overlay.
+  public func beginScrollPan(_ id: UInt64, viewport: Rect, vertical: Bool, moving: Set<WindowID>,
+    neighbors: [WindowID: Rect], scale: Double, bounds: ClosedRange<Double>, dimension: Double,
+    stiffness: Double) -> Double? {
+    guard windowProxiesEnabled, !RibbonProxyPresenter.isCarrying,
+      let monitor = windowProxyMonitors.first(where: { $0.viewport == viewport }),
+      let display = RibbonProxyStore.shared.screen(containing: viewport)?.displayID
+    else { return nil }
+    scrollPanDisplay = display
+    let windows = windowProxyCarryWindows(monitor).filter { neighbors[$0.id] == nil }
+      + lastSnapshotWindows.compactMap { window in
+        guard let frame = neighbors[window.id], let processID = window.processID else { return nil }
+        return RibbonProxyWindow(id: window.id, appID: window.appID, processID: processID, from: frame, to: frame)
+      }
+    return RibbonProxyPresenter.on(display).pan(id, windows: windows, ribbon: moving, vertical: vertical,
+      viewport: viewport, generation: frameSubmissionGeneration, selectedWindowID: desiredSelectedWindowID,
+      scale: scale, bounds: bounds, dimension: dimension, stiffness: stiffness)
+  }
+
+  /// The gesture released: the next animated layout settles the strip from where it is drawn.
+  public func endScrollPan(velocity: Double, vertical: Bool) {
+    scrollPanDisplay.map { RibbonProxyPresenter.on($0).endPan(velocity: velocity, vertical: vertical) }
+    scrollPanDisplay = nil
+  }
+
+  /// The gesture gave way to something else: the windows show where they really are.
+  public func cancelScrollPan() {
+    scrollPanDisplay.map { RibbonProxyPresenter.on($0).cancel("scroll-pan") }
+    scrollPanDisplay = nil
+  }
+
   /// Starts the stretch at the first drag event of a resize, without waiting for a
   /// snapshot: the native edge moved while the neighbours stood still. Pressed on a side
   /// edge, a horizontal move is enough; an app that resizes in steps (a terminal's cells)
@@ -166,6 +201,7 @@ public final class MacOSPlatform {
     carryWindowProxy(windowID, stretches: true)
   }
   private var pressedWindow: (id: WindowID, frame: Rect, edgePointerX: Double?)?
+  private var scrollPanDisplay: CGDirectDisplayID?
 
   private func presentPendingWindowProxyPreview() {
     guard let (frames, id, rejectedFrame) = windowProxyPreview else { return }

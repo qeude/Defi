@@ -101,6 +101,9 @@ public struct Config: Equatable, Sendable {
   /// The aliases accelerators resolve: `mod` alone.
   public var modifierAliases: [String: String] { ["mod": mod] }
 
+  /// The modifier held for scroll gestures.
+  public var scrollGestureModifier: String { input.scrollGestureModifier ?? mod }
+
   public static var defaultURL: URL {
     FileManager.default.homeDirectoryForCurrentUser
       .appending(path: ".config/defi/config.toml")
@@ -121,6 +124,19 @@ public struct Config: Equatable, Sendable {
     }
     guard (0...1_000).contains(input.focusFollowsMouseDelayMS) else {
       throw ConfigError.invalidValue("input.focus_follows_mouse_delay_ms")
+    }
+    guard (2...4).contains(input.scrollGestureFingers) else {
+      throw ConfigError.invalidValue("input.scroll_gesture_fingers")
+    }
+    // Two fingers without a modifier would take every app's scrolling.
+    guard scrollGestureModifier == "none"
+      ? input.scrollGestureFingers >= 3
+      : normalizedAccelerator("\(scrollGestureModifier)-a", aliases: modifierAliases) != nil
+    else {
+      throw ConfigError.invalidValue("input.scroll_gesture_modifier")
+    }
+    guard (0.25...4).contains(input.scrollGestureSpeed) else {
+      throw ConfigError.invalidValue("input.scroll_gesture_speed")
     }
     guard (0.05...1).contains(layout.defaultColumnWidth) else {
       throw ConfigError.invalidValue("layout.default_column_width")
