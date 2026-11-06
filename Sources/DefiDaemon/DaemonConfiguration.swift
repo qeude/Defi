@@ -339,9 +339,11 @@ extension Daemon {
     do {
       try manager.start()
       hotKeys = manager
+      // Registration finishes asynchronously and reports through registrationHandler; saying
+      // "unavailable" before then flashes a false alarm on every reload.
       let keyboardMessage = manager.bindingError.map {
         "Keyboard shortcuts unavailable: \($0.description)"
-      } ?? (manager.isHotKeyCaptureEnabled ? nil : "Keyboard shortcuts unavailable")
+      }
       Task { @MainActor [weak self] in
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(keyboardMessage)
