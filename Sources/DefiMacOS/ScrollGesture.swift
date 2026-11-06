@@ -63,7 +63,7 @@ struct ScrollGestureRecognizer {
   /// Whether the shift key itself is the gesture modifier: shift then cannot turn a wheel sideways.
   let modifierIncludesShift: Bool
   /// The axes a swipe may pan; a swipe locking onto another axis is left alone.
-  let horizontal: Bool, vertical: Bool
+  var horizontal: Bool, vertical: Bool
 
   init(modifierIncludesShift: Bool = false, horizontal: Bool = true, vertical: Bool = true) {
     self.modifierIncludesShift = modifierIncludesShift
@@ -238,11 +238,13 @@ public func systemTrackpadSwipes(
   }
 ) -> (horizontal: Bool, vertical: Bool) {
   guard fingers >= 3 else { return (false, false) }
+  let domains = ["com.apple.AppleMultitouchTrackpad", "com.apple.driver.AppleBluetoothMultitouch.trackpad"]
+  // Drops this process's cached copy, so a change in System Settings shows up.
+  for domain in domains { CFPreferencesAppSynchronize(domain as CFString) }
   // System Settings writes the same value for the built-in and the Bluetooth trackpad.
   // A key never written keeps macOS's default: swipes taken, three-finger drag off.
   func enabled(_ key: String) -> Bool {
-    let value = read(key, "com.apple.AppleMultitouchTrackpad")
-      ?? read(key, "com.apple.driver.AppleBluetoothMultitouch.trackpad")
+    let value = read(key, domains[0]) ?? read(key, domains[1])
     return (value ?? (key.hasSuffix("Drag") ? 0 : 2)) != 0
   }
   let name = fingers == 3 ? "Three" : "Four"

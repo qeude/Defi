@@ -165,6 +165,11 @@ public final class HotKeyManager {
         | (1 << CGEventType.scrollWheel.rawValue)
     )
     mask |= CGEventMask(1 << CGEventType.flagsChanged.rawValue)
+    // Swipes with three or four fingers arrive only as gesture events, with their touches;
+    // the passive tap reads them, so no touch on the trackpad waits for Defi.
+    if scrollGestureHandler != nil && scrollGestureFingers >= 3 {
+      mask |= CGEventMask(1 << gestureEventType)
+    }
     if tracksPointerMotion {
       for eventType in [
         CGEventType.mouseMoved,
@@ -240,14 +245,14 @@ public final class HotKeyManager {
     // Install interception first so passive observation sees routed pointer events.
     // Ordinary shortcuts always pass through the filtering callback unchanged.
     // Scrolling crosses the active tap only when gestures may consume it.
-    // Swipes with three or four fingers arrive only as gesture events, with their touches.
     let interceptorMask = mask & ~CGEventMask(
       (1 << CGEventType.flagsChanged.rawValue)
         | (1 << CGEventType.leftMouseDown.rawValue)
         | (1 << CGEventType.rightMouseDown.rawValue)
         | (1 << CGEventType.otherMouseDown.rawValue)
+        | (1 << gestureEventType)
         | (scrollGestureHandler == nil || scrollGestureModifierBits == 0 ? 1 << CGEventType.scrollWheel.rawValue : 0)
-    ) | (scrollGestureHandler != nil && scrollGestureFingers >= 3 ? 1 << gestureEventType : 0)
+    )
     let interceptorCallback: CGEventTapCallBack = { _, type, event, userInfo in
       guard let userInfo else { return Unmanaged.passUnretained(event) }
       return Unmanaged<InputMonitor>.fromOpaque(userInfo).takeUnretainedValue()
@@ -405,10 +410,8 @@ final class InputMonitor: @unchecked Sendable {
     self.deliverScrollGesture = deliverScrollGesture
     self.scrollGestureFingers = scrollGestureFingers
     fingerSwipe = FingerSwipe(fingers: scrollGestureFingers)
-    let system = systemTrackpadSwipes(fingers: scrollGestureFingers)
     scrollGestures = ScrollGestureRecognizer(
-      modifierIncludesShift: (scrollGestureModifierBits ?? 0) & CGEventFlags.maskShift.rawValue != 0,
-      horizontal: !system.horizontal, vertical: !system.vertical)
+      modifierIncludesShift: (scrollGestureModifierBits ?? 0) & CGEventFlags.maskShift.rawValue != 0)
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     self.displayPointerRouter = displayPointerRouter
@@ -499,6 +502,20 @@ final class InputMonitor: @unchecked Sendable {
     type: CGEventType,
     event: CGEvent
   ) -> Unmanaged<CGEvent>? {
+    if type.rawValue == gestureEventType, let bits = scrollGestureModifierBits, scrollGestureFingers >= 3 {
+      let announced = lock.withLock { announcedModifierBits }
+      if let input = ScrollGestureInput(gesture: event, swipe: &fingerSwipe, modifierBits: bits,
+        announcedModifierBits: announced) {
+        // The Trackpad settings may have changed since the last swipe.
+        if input.phase == 1 {
+          let system = systemTrackpadSwipes(fingers: scrollGestureFingers)
+          scrollGestures.horizontal = !system.horizontal
+          scrollGestures.vertical = !system.vertical
+        }
+        _ = route(input)
+      }
+      return Unmanaged.passUnretained(event)
+    }
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       let timestamp = Double(event.timestamp) / 1_000_000_000
       lock.lock()
@@ -688,14 +705,6 @@ final class InputMonitor: @unchecked Sendable {
     if eventTracksPhysicalPointerMotion(type) {
       if displayPointerRouter?.route(event) == true {
         event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: 0)
-      }
-      return Unmanaged.passUnretained(event)
-    }
-    if type.rawValue == gestureEventType, let bits = scrollGestureModifierBits, scrollGestureFingers >= 3 {
-      let announced = lock.withLock { announcedModifierBits }
-      if let input = ScrollGestureInput(gesture: event, swipe: &fingerSwipe, modifierBits: bits,
-        announcedModifierBits: announced) {
-        _ = route(input)
       }
       return Unmanaged.passUnretained(event)
     }

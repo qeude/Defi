@@ -217,8 +217,9 @@ ends, so the app under the pointer never sees part of it (no half-started swipe 
 in a browser). A gesture that starts without the modifier stays the app's, even if the
 modifier is pressed later. Defi only reads three- and four-finger swipes, so it leaves
 alone each direction macOS gives them in Trackpad settings (Mission Control, Spaces,
-three-finger drag); Defi reads those settings when its configuration loads. Without Screen Recording permission or with animations off,
-the strip moves once the fingers lift.
+three-finger drag), read again at the start of each swipe. Three- and four-finger
+swipes move the strip with the fingers, whatever the scrolling direction setting. Without
+Screen Recording permission or with animations off, the strip moves once the fingers lift.
 
 Bare `focus_follows_mouse = true` does not scroll.
 Raise `focus_follows_mouse_max_scroll_amount` to allow bounded scrolling. Both
