@@ -231,6 +231,26 @@ that every third-party or default AppKit window reorders while inactive.
 - Add or run desktop validation for focus, parking, animation, hotkeys, mouse,
   or multi-monitor behavior.
 
+## Configuration migrations
+
+A change that renames or replaces a configuration key rewrites old files in
+place, keeping comments and layout, so users never edit their file by hand:
+
+1. Add a function to `Sources/DefiMacOS/ConfigMigration.swift` that returns the
+   rewritten source, or nil when nothing needs migrating, and test it with a
+   before/after fixture.
+2. Append it to `configMigrations` with `introducedIn` set to the next release
+   and `removeIn` two minor releases later.
+3. List the old and new keys under **Configuration changes** in the release notes.
+
+A migration only serves files from releases before it: Defi rewrites the file on
+its first launch. `ConfigMigrationTests` fails once `Support/Defi-Info.plist`
+reaches a migration's `removeIn`. The release that bumps the version then
+deletes the migration and adds each old key to `removedConfigKeys` in
+`Sources/DefiConfig/RemovedConfigKeys.swift` with a one-line replacement hint.
+A file that still sets a removed key fails to load with that hint instead of
+being silently ignored. Empty `removedConfigKeys` at the first stable release.
+
 ## Pull requests
 
 Describe the user-visible change, tests run, and known limitations. Use a
