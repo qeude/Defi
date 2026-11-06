@@ -195,8 +195,8 @@ files, so collect the following:
   frozen while an app opens a window, and `capture-fast` a new picture of a window.
   Read the lines within two seconds of the marker. A glitch with no `present` or
   `open-hold` near it did not come from a picture shown during a motion or a hold.
-- **Video.** Screen recordings show the overlay as the user sees it. Builds older
-  than this change leave it out, so there a clean recording does not rule Defi out;
+- **Video.** Screen recordings show the overlay as the user sees it. Builds up to
+  v0.7.1 leave it out, so there a clean recording does not rule Defi out;
   ask for a phone video of the screen instead.
 
 ## 6. Check upstream
