@@ -506,8 +506,8 @@ final class InputMonitor: @unchecked Sendable {
       let announced = lock.withLock { announcedModifierBits }
       if let input = ScrollGestureInput(gesture: event, swipe: &fingerSwipe, modifierBits: bits,
         announcedModifierBits: announced) {
-        // The Trackpad settings may have changed since the last swipe.
-        if input.phase == 1 {
+        // The Trackpad settings may have changed since the last swipe Defi could take.
+        if input.phase == 1, input.modifierHeld {
           let system = systemTrackpadSwipes(fingers: scrollGestureFingers)
           scrollGestures.horizontal = !system.horizontal
           scrollGestures.vertical = !system.vertical
