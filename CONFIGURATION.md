@@ -449,8 +449,8 @@ There is no default binding for `toggle-cheatsheet`. It keeps the help open afte
 modifier release. Toggle again, press Escape, click, or execute any Defi shortcut
 to close it. After a shortcut, release the modifiers before holding again.
 Configuration reload and display or session changes also dismiss the help.
-Settings → Input → Shortcut display controls whether matching Control–Option–Command
-combinations appear as `✧`, and whether Shift is included in that abbreviation.
+Settings → Input → Shortcut display shows modifiers as each key, as `✧` for
+Control–Option–Command (optionally with Shift), or as `Mod` for the `mod` combination.
 These display preferences also apply to the cheatsheet; they do not change key
 bindings or `mod`. Other combinations show their individual modifier
 symbols. The cheatsheet fade respects `[animation].enabled` and Reduce Motion.

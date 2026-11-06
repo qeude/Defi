@@ -152,10 +152,14 @@ struct DefiSettingsModelTests {
     let aliases = ["hyper": "Ctrl + Alt + Cmd"]
     #expect(shortcutKeyLabel("hyper-shift-k", aliases: aliases) == "✧⇧K")
     #expect(shortcutKeyLabel("ctrl-alt-cmd-k", aliases: [:]) == "✧K")
-    #expect(shortcutKeyLabel("hyper-k", aliases: aliases, displayHyper: false) == "⌃⌥⌘K")
+    #expect(shortcutKeyLabel("hyper-k", aliases: aliases, display: .keys) == "⌃⌥⌘K")
     #expect(shortcutKeyLabel("hyper-k", aliases: aliases, hyperIncludesShift: true) == "⌃⌥⌘K")
     #expect(shortcutKeyLabel("hyper-shift-k", aliases: aliases, hyperIncludesShift: true) == "✧K")
     #expect(shortcutKeyLabel("alt-k", aliases: [:]) == "⌥K")
+    let mod = ["mod": "ctrl+alt"]
+    #expect(shortcutKeyLabel("mod-shift-k", aliases: mod, display: .mod) == "Mod⇧K")
+    #expect(shortcutKeyLabel("ctrl-alt-cmd-k", aliases: mod, display: .mod) == "Mod⌘K")
+    #expect(shortcutKeyLabel("ctrl-k", aliases: mod, display: .mod) == "⌃K")
   }
 
   @Test

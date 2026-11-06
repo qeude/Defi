@@ -32,7 +32,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case animations
   case reservedTop
   case reservedBottom
-  case hyperSymbol
+  case modifierDisplay
   case hyperShift
   case focusFollowsPointer
   case pointerFollowsFocus
@@ -83,7 +83,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .animations: (.appearance, "Enable animations", "animation.enabled")
     case .reservedTop: (.layout, "Reserved top area", "layout.reserved_top")
     case .reservedBottom: (.layout, "Reserved bottom area", "layout.reserved_bottom")
-    case .hyperSymbol: (.input, "Show Hyper as ✧", "displayHyperSymbol hyper shortcut display")
+    case .modifierDisplay: (.input, "Show modifiers as", "hyper mod ✧ symbol shortcut display")
     case .hyperShift: (.input, "Include Shift in Hyper", "displayHyperIncludesShift shortcut display")
     case .focusFollowsPointer: (.input, "Focus follows pointer", "input.focus_follows_mouse mouse")
     case .pointerFollowsFocus: (.input, "Move pointer to keyboard focus", "input.mouse_follows_focus mouse")
@@ -231,7 +231,7 @@ enum SettingsSearchCatalog {
       let rows = bindings[command] ?? []
       let labels = rows.map { row in
         let label = shortcutKeyLabel(
-          row.accelerator, aliases: config.modifierAliases, displayHyper: false, resolved: resolution)
+          row.accelerator, aliases: config.modifierAliases, display: .keys, resolved: resolution)
         return label + (row.isEnabled ? "" : " (Disabled)")
       }
       let keys = rows.flatMap { row -> [String] in
@@ -240,9 +240,10 @@ enum SettingsSearchCatalog {
           .replacingOccurrences(of: "ctrl", with: "control")
           .replacingOccurrences(of: "cmd", with: "command")
         return [row.accelerator, normalized, words,
-          shortcutKeyLabel(row.accelerator, aliases: config.modifierAliases, displayHyper: false, resolved: resolution),
+          shortcutKeyLabel(row.accelerator, aliases: config.modifierAliases, display: .keys, resolved: resolution),
           shortcutKeyLabel(row.accelerator, aliases: config.modifierAliases, resolved: resolution),
-          shortcutKeyLabel(row.accelerator, aliases: config.modifierAliases, hyperIncludesShift: true, resolved: resolution)]
+          shortcutKeyLabel(row.accelerator, aliases: config.modifierAliases, hyperIncludesShift: true, resolved: resolution),
+          shortcutKeyLabel(row.accelerator, aliases: config.modifierAliases, display: .mod, resolved: resolution)]
       }
       return SettingsSearchResult(destination: .shortcut(command), title: commandTitle(command),
         context: "Input · Keyboard shortcuts", detail: labels.isEmpty ? "Not assigned" : labels.joined(separator: " · "),
