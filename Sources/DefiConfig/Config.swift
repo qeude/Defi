@@ -10,8 +10,8 @@ public struct Config: Equatable, Sendable {
   public var decorations: DecorationsConfig
   public var menuBar: MenuBarConfig
   public var workspaces: WorkspacesConfig
-  public var modifierCombinations: [String: String]
-  public var defaultKeyModifier: String
+  /// The `+`-separated modifiers that `mod` stands for in every accelerator.
+  public var mod: String
   public var showCheatsheetOnModifierHold: Bool
   public var disabledKeys: [String]
   public var keys: [String: String]
@@ -26,8 +26,7 @@ public struct Config: Equatable, Sendable {
     decorations: DecorationsConfig = DecorationsConfig(),
     menuBar: MenuBarConfig = MenuBarConfig(),
     workspaces: WorkspacesConfig = WorkspacesConfig(),
-    modifierCombinations: [String: String] = [:],
-    defaultKeyModifier: String = "ctrl-alt",
+    mod: String = Config.defaultMod,
     showCheatsheetOnModifierHold: Bool = true,
     disabledKeys: [String] = [],
     keys: [String: String]? = nil,
@@ -40,23 +39,23 @@ public struct Config: Equatable, Sendable {
     self.decorations = decorations
     self.menuBar = menuBar
     self.workspaces = workspaces
-    self.modifierCombinations = modifierCombinations
-    self.defaultKeyModifier = defaultKeyModifier
+    self.mod = mod
+    let modifierAliases = ["mod": mod]
     self.showCheatsheetOnModifierHold = showCheatsheetOnModifierHold
     self.disabledKeys = disabledKeys
     self.keyOverrides = keys ?? [:]
     let defaults = Self.defaultKeys(
-      modifier: defaultKeyModifier, workspaceNames: workspaces.names,
-      aliases: modifierCombinations
+      modifier: "mod", workspaceNames: workspaces.names,
+      aliases: modifierAliases
     ).filter { accelerator, _ in
-      guard let normalized = normalizedAccelerator(accelerator, aliases: modifierCombinations) else {
+      guard let normalized = normalizedAccelerator(accelerator, aliases: modifierAliases) else {
         return true
       }
-      return !disabledKeys.contains { normalizedAccelerator($0, aliases: modifierCombinations) == normalized }
+      return !disabledKeys.contains { normalizedAccelerator($0, aliases: modifierAliases) == normalized }
     }
     self.keys = mergingKeyBindings(
       defaults,
-      overrides: keys ?? [:], aliases: modifierCombinations
+      overrides: keys ?? [:], aliases: modifierAliases
     )
     self.rules = rules
   }
@@ -71,7 +70,6 @@ public struct Config: Equatable, Sendable {
     }
     let raw = try TOMLDecoder().decode(RawConfig.self, from: data)
     let workspaces = raw.workspaces ?? WorkspacesConfig()
-    let modifier = raw.defaultKeyModifier ?? "ctrl-alt"
     let config = Config(
       input: raw.input ?? InputConfig(),
       layout: raw.layout ?? LayoutConfig(),
@@ -80,8 +78,7 @@ public struct Config: Equatable, Sendable {
       decorations: raw.decorations ?? DecorationsConfig(),
       menuBar: raw.menuBar ?? MenuBarConfig(),
       workspaces: workspaces,
-      modifierCombinations: raw.modifierCombinations ?? [:],
-      defaultKeyModifier: modifier,
+      mod: raw.mod ?? defaultMod,
       showCheatsheetOnModifierHold: raw.showCheatsheetOnModifierHold ?? true,
       disabledKeys: raw.disabledKeys ?? [],
       keys: raw.keys,
@@ -99,12 +96,20 @@ public struct Config: Equatable, Sendable {
     return try decode(Data(contentsOf: path))
   }
 
+  public static let defaultMod = "ctrl+alt"
+
+  /// The aliases accelerators resolve: `mod` alone.
+  public var modifierAliases: [String: String] { ["mod": mod] }
+
   public static var defaultURL: URL {
     FileManager.default.homeDirectoryForCurrentUser
       .appending(path: ".config/defi/config.toml")
   }
 
   public func validate() throws {
+    guard normalizedAccelerator("mod-a", aliases: modifierAliases) != nil else {
+      throw ConfigError.invalidValue("mod")
+    }
     if let maximumScrollAmount = input.focusFollowsMouseMaxScrollAmount {
       guard maximumScrollAmount.isFinite,
         (0...1).contains(maximumScrollAmount)
@@ -204,7 +209,7 @@ public struct Config: Equatable, Sendable {
 
     var overrideAccelerators: [String: String] = [:]
     for accelerator in keyOverrides.keys {
-      guard let normalized = normalizedAccelerator(accelerator, aliases: modifierCombinations) else {
+      guard let normalized = normalizedAccelerator(accelerator, aliases: modifierAliases) else {
         throw ConfigError.invalidValue("keys.\(accelerator)")
       }
       if let existing = overrideAccelerators[normalized] {
@@ -214,7 +219,7 @@ public struct Config: Equatable, Sendable {
     }
     var disabledAccelerators = Set<String>()
     for accelerator in disabledKeys {
-      guard let normalized = normalizedAccelerator(accelerator, aliases: modifierCombinations) else {
+      guard let normalized = normalizedAccelerator(accelerator, aliases: modifierAliases) else {
         throw ConfigError.invalidValue("disabled_keys.\(accelerator)")
       }
       guard disabledAccelerators.insert(normalized).inserted else {
@@ -222,7 +227,7 @@ public struct Config: Equatable, Sendable {
       }
     }
     for (accelerator, command) in keys {
-      guard normalizedAccelerator(accelerator, aliases: modifierCombinations) != nil else {
+      guard normalizedAccelerator(accelerator, aliases: modifierAliases) != nil else {
         throw ConfigError.invalidValue("keys.\(accelerator)")
       }
       if command == "diagnostic-mark" { continue }
@@ -399,8 +404,7 @@ private struct RawConfig: Decodable {
   var decorations: DecorationsConfig?
   var menuBar: MenuBarConfig?
   var workspaces: WorkspacesConfig?
-  var modifierCombinations: [String: String]?
-  var defaultKeyModifier: String?
+  var mod: String?
   var showCheatsheetOnModifierHold: Bool?
   var disabledKeys: [String]?
   var keys: [String: String]?
@@ -414,8 +418,7 @@ private struct RawConfig: Decodable {
     case decorations
     case menuBar = "menu_bar"
     case workspaces
-    case modifierCombinations = "modifier_combinations"
-    case defaultKeyModifier = "default_key_modifier"
+    case mod
     case showCheatsheetOnModifierHold = "show_cheatsheet_on_modifier_hold"
     case disabledKeys = "disabled_keys"
     case keys

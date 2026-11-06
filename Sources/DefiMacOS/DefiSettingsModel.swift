@@ -79,6 +79,7 @@ public final class DefiSettingsModel {
   public private(set) var config: Config {
     didSet {
       refreshRuleRows()
+      shortcutRows = makeShortcutRows()
       refreshShortcutResolution()
     }
   }
@@ -87,6 +88,8 @@ public final class DefiSettingsModel {
   }
   private(set) var shortcutResolution = ShortcutResolution(config: Config(), layout: nil)
   public private(set) var ruleRows: [SettingsRuleRow] = []
+  /// Cached: every shortcut row in Settings reads it on each render.
+  public private(set) var shortcutRows: [SettingsShortcutRow] = []
   public private(set) var displays: [SettingsDisplayOption] = []
   public private(set) var message: String?
   public private(set) var accessibilityGranted = false
@@ -111,6 +114,7 @@ public final class DefiSettingsModel {
       message = "The configuration file is invalid. Defi keeps its last valid settings. \(error)"
     }
     refreshRuleRows()
+    shortcutRows = makeShortcutRows()
     refreshShortcutResolution()
     refreshSystemStatus()
     refreshDisplays()
@@ -137,8 +141,8 @@ public final class DefiSettingsModel {
     // An unchanged accelerator keeps the chord it already holds among its siblings.
     if let excluded, sameAccelerator(accelerator, excluded) { return nil }
     let alone = ShortcutResolution(
-      bindings: [accelerator: ""], aliases: config.modifierCombinations, layout: keyboardLayout)
-    guard let normalized = normalizedAccelerator(accelerator, aliases: config.modifierCombinations),
+      bindings: [accelerator: ""], aliases: config.modifierAliases, layout: keyboardLayout)
+    guard let normalized = normalizedAccelerator(accelerator, aliases: config.modifierAliases),
       let key = alone.key(for: normalized),
       let holder = shortcutResolution.resolution.keys[key],
       !(excluded.map { sameAccelerator($0, holder.accelerator) } ?? false)
@@ -170,7 +174,7 @@ public final class DefiSettingsModel {
     }
   }
 
-  public var shortcutRows: [SettingsShortcutRow] {
+  private func makeShortcutRows() -> [SettingsShortcutRow] {
     let inherited = inheritedBindings
     var rows = config.keys.sorted { $0.key < $1.key }.map { accelerator, command in
       let defaultAccelerator = inherited.keys.sorted().first { inherited[$0] == command }
@@ -584,7 +588,7 @@ public final class DefiSettingsModel {
   public func moveShortcut(_ row: SettingsShortcutRow, to rawAccelerator: String) {
     let proposed = rawAccelerator.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     let accelerator =
-      normalizedAccelerator(proposed, aliases: config.modifierCombinations) ?? proposed
+      normalizedAccelerator(proposed, aliases: config.modifierAliases) ?? proposed
     guard !accelerator.isEmpty, !sameAccelerator(accelerator, row.accelerator) else { return }
     if let conflict = config.keys.first(where: { sameAccelerator($0.key, accelerator) })?.value
       ?? chordConflict(accelerator, excluding: row.accelerator)
@@ -616,7 +620,7 @@ public final class DefiSettingsModel {
   }
 
   public func saveShortcut(_ row: SettingsShortcutRow?, accelerator rawAccelerator: String, command rawCommand: String) {
-    let accelerator = normalizedAccelerator(rawAccelerator.lowercased(), aliases: config.modifierCombinations)
+    let accelerator = normalizedAccelerator(rawAccelerator.lowercased(), aliases: config.modifierAliases)
       ?? rawAccelerator.lowercased()
     let command = rawCommand.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !command.isEmpty else { message = "Choose a command for this shortcut."; return }
@@ -736,8 +740,7 @@ public final class DefiSettingsModel {
   private var inheritedBindings: [String: String] {
     Config(
       workspaces: config.workspaces,
-      modifierCombinations: config.modifierCombinations,
-      defaultKeyModifier: config.defaultKeyModifier
+      mod: config.mod
     ).keys
   }
 
@@ -746,8 +749,8 @@ public final class DefiSettingsModel {
   }
 
   private func sameAccelerator(_ lhs: String, _ rhs: String) -> Bool {
-    normalizedAccelerator(lhs, aliases: config.modifierCombinations)
-      == normalizedAccelerator(rhs, aliases: config.modifierCombinations)
+    normalizedAccelerator(lhs, aliases: config.modifierAliases)
+      == normalizedAccelerator(rhs, aliases: config.modifierAliases)
   }
 
   private func validateRule(_ rule: Rule) -> Bool {

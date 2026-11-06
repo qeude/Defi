@@ -113,8 +113,8 @@ public final class HotKeyManager {
     self.overviewCancelHandler = overviewCancelHandler
     self.cheatsheetHandler = cheatsheetHandler
     cheatsheetModifierBits = try? Key(
-      accelerator: "\(config.defaultKeyModifier)-a",
-      aliases: config.modifierCombinations
+      accelerator: "mod-a",
+      aliases: config.modifierAliases
     ).modifierBits
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
@@ -130,7 +130,7 @@ public final class HotKeyManager {
     self.bindings = bindings
     self.bindingError = bindingError
     configurationError = bindingError
-    let (keys, aliases, written) = (config.keys, config.modifierCombinations, Set(config.keyOverrides.keys))
+    let (keys, aliases, written) = (config.keys, config.modifierAliases, Set(config.keyOverrides.keys))
     resolveBindings = followsKeyboardLayout
       ? { @MainActor () -> HotKeyResolution? in
         try? resolveHotKeys(keys, aliases: aliases, layout: currentKeyboardLayout(), userWritten: written)

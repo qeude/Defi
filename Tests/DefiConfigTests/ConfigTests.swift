@@ -7,7 +7,7 @@ struct ConfigTests {
   @Test(arguments: ["a", "alt-fn", "typo-left", "-left", "alt--left", "alt-left-", ""])
   func malformedAcceleratorsAreRejectedWithoutReplacingDefaults(accelerator: String) throws {
     let config = Config(keys: [accelerator: "diagnostic-mark"])
-    #expect(config.keys["ctrl-alt-left"] == "focus-column left")
+    #expect(config.keys["mod-left"] == "focus-column left")
     #expect(throws: ConfigError.invalidValue("keys.\(accelerator)")) {
       try config.validate()
     }
@@ -33,19 +33,24 @@ struct ConfigTests {
     #expect(config.keys["ctrl-alt-¥"] == "toggle-floating")
   }
 
-  @Test(arguments: ["ctrl-alt", "ctrl-alt-shift", "ctrl-cmd", "ctrl-cmd-shift"])
+  @Test(arguments: ["ctrl+alt", "ctrl+alt+shift", "ctrl+cmd", "ctrl+cmd+shift"])
   func collidingMonitorKeysPreserveConfiguredNavigation(modifier: String) throws {
-    let config = try Config.decode(Data("default_key_modifier = \"\(modifier)\"".utf8))
-    #expect(config.keys["\(modifier)-left"] == "focus-column left")
-    #expect(config.keys["\(modifier)-shift-left"] == (modifier.contains("shift") ? nil : "move-column left"))
-    let overridden = Config(defaultKeyModifier: modifier, keys: ["\(modifier)-left": "focus-monitor left"])
-    #expect(overridden.keys["\(modifier)-left"] == "focus-monitor left")
+    let config = try Config.decode(Data("mod = \"\(modifier)\"".utf8))
+    #expect(config.keys["mod-left"] == "focus-column left")
+    #expect(config.keys["mod-shift-left"] == (modifier.contains("shift") ? nil : "move-column left"))
+    let overridden = Config(mod: modifier, keys: ["mod-left": "focus-monitor left"])
+    #expect(overridden.keys["mod-left"] == "focus-monitor left")
+  }
+
+  @Test(arguments: ["", "ctrl+fn", "hyper"])
+  func invalidModIsRejected(mod: String) {
+    #expect(throws: ConfigError.invalidValue("mod")) { try Config.decode(Data("mod = \"\(mod)\"".utf8)) }
   }
 
   @Test
   func defaultControlOptionBindingsKeepEveryMonitorShortcut() {
     let keys = Config().keys
-    #expect(keys["ctrl-alt-shift-left"] == "move-column left")
+    #expect(keys["mod-shift-left"] == "move-column left")
     #expect(keys["ctrl-cmd-alt-left"] == "move-workspace-to-monitor left")
     #expect(keys["ctrl-cmd-left"] == "focus-monitor left")
     #expect(keys["ctrl-cmd-shift-left"] == "move-column-to-monitor left")
@@ -60,26 +65,25 @@ struct ConfigTests {
       names = ["dev"]
       monitor_ids = { dev = "display-uuid" }
       """.utf8))
-    #expect(config.keys["ctrl-alt-left"] == nil)
-    #expect(config.keys["ctrl-alt-right"] == "focus-column right")
+    #expect(config.keys["mod-left"] == nil)
+    #expect(config.keys["mod-right"] == "focus-column right")
     #expect(config.workspaces.monitorIDs == ["dev": "display-uuid"])
   }
 
   @Test
   func aliasedOverrideAcceleratorCollisionsAreRejected() throws {
     let data = Data("""
-      [modifier_combinations]
-      hyper = "Alt"
+      mod = "alt"
 
       [keys]
       "alt-left" = "focus-column left"
-      "hyper-left" = "focus-monitor left"
+      "mod-left" = "focus-monitor left"
       """.utf8)
     #expect {
       try Config.decode(data)
     } throws: { error in
       guard case ConfigError.conflictingAccelerators(let first, let second) = error else { return false }
-      return Set([first, second]) == Set(["alt-left", "hyper-left"])
+      return Set([first, second]) == Set(["alt-left", "mod-left"])
     }
   }
 
@@ -182,11 +186,8 @@ struct ConfigTests {
       [menu_bar]
       enabled = false
 
-      [modifier_combinations]
-      hyper = "Alt + Cmd + Ctrl"
-
       [keys]
-      "hyper-d" = "diagnostic-mark"
+      "mod-d" = "diagnostic-mark"
       """.utf8))
     #expect(config.overview.zoom == 0.25)
     #expect(!config.overview.windowPreviews)
@@ -208,7 +209,7 @@ struct ConfigTests {
     #expect(config.layout.reservedTop == 11)
     #expect(config.layout.reservedBottom == 4)
     #expect(!config.menuBar.enabled)
-    #expect(config.keys["hyper-d"] == "diagnostic-mark")
+    #expect(config.keys["mod-d"] == "diagnostic-mark")
   }
 
   @Test(arguments: [
@@ -235,7 +236,7 @@ struct ConfigTests {
   func `Decodes example shape and generates named workspace keys`() throws {
     let data = Data(
       """
-      default_key_modifier = "hyper"
+      mod = "ctrl+alt+cmd"
 
       [layout]
       gaps = 4
@@ -245,9 +246,6 @@ struct ConfigTests {
 
       [workspaces]
       names = ["dev", "web"]
-
-      [modifier_combinations]
-      hyper = "Alt + Cmd + Ctrl"
 
       [[rules]]
       app_id = "com.apple.dt.Xcode"
@@ -261,18 +259,18 @@ struct ConfigTests {
     #expect(config.layout.gaps == 4)
     #expect(!config.animation.enabled)
     #expect(config.workspaces.defaultName == "dev")
-    #expect(config.keys["hyper-1"] == "workspace dev")
-    #expect(config.keys["hyper-shift-1"] == "move-column-to-workspace-name dev")
-    #expect(config.keys["hyper-3"] == "focus-workspace-position 3")
-    #expect(config.keys["hyper-minus"] == "cycle-width previous")
-    #expect(config.keys["hyper-equal"] == "cycle-width next")
-    #expect(config.keys["hyper-f"] == "maximize-column")
-    #expect(config.keys["hyper-c"] == "center-column")
-    #expect(config.keys["hyper-backslash"] == "toggle-floating")
-    #expect(config.keys["hyper-shift-backslash"] == "activate-floating")
-    #expect(config.keys["hyper-comma"] == "focus-floating previous")
-    #expect(config.keys["hyper-period"] == "focus-floating next")
-    #expect(config.modifierCombinations["hyper"] == "Alt + Cmd + Ctrl")
+    #expect(config.keys["mod-1"] == "workspace dev")
+    #expect(config.keys["mod-shift-1"] == "move-column-to-workspace-name dev")
+    #expect(config.keys["mod-3"] == "focus-workspace-position 3")
+    #expect(config.keys["mod-minus"] == "cycle-width previous")
+    #expect(config.keys["mod-equal"] == "cycle-width next")
+    #expect(config.keys["mod-f"] == "maximize-column")
+    #expect(config.keys["mod-c"] == "center-column")
+    #expect(config.keys["mod-backslash"] == "toggle-floating")
+    #expect(config.keys["mod-shift-backslash"] == "activate-floating")
+    #expect(config.keys["mod-comma"] == "focus-floating previous")
+    #expect(config.keys["mod-period"] == "focus-floating next")
+    #expect(config.mod == "ctrl+alt+cmd")
   }
 
   @Test
@@ -330,7 +328,7 @@ struct ConfigTests {
       .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
     let config = try Config.load(from: repository.appending(path: "config.example.toml"))
     #expect(config.workspaces.names.first == "dev")
-    #expect(config.keys["hyper-left"] == "focus-column left")
+    #expect(config.keys["mod-left"] == "focus-column left")
   }
 
   @Test

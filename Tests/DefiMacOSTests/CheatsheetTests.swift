@@ -73,7 +73,7 @@ struct CheatsheetHotKeyTests {
       ShortcutGroup(title: "Monitors", rows: [
         row("←↑↓→", "Focus monitor", "Move column to monitor",
           modifiers: "⌃⌘", shiftedModifiers: "⌃⇧⌘"),
-        row("←↑↓→", "Move workspace to monitor", modifiers: "✧"),
+        row("←↑↓→", "Move workspace to monitor", modifiers: "⌃⌥⌘"),
       ]),
       ShortcutGroup(title: "Size", rows: [
         row("−", "Narrower"), row("=", "Wider"), row("F", "Maximize column"),
@@ -86,13 +86,12 @@ struct CheatsheetHotKeyTests {
   }
 
   @Test
-  func `Help includes configured overrides and abbreviates Hyper`() {
+  func `Help includes configured overrides and can abbreviate mod`() {
     let config = Config(
-      modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"],
-      defaultKeyModifier: "hyper",
-      keys: ["hyper-left": "focus-column first", "hyper-slash": "toggle-cheatsheet"]
+      mod: "alt+cmd+ctrl",
+      keys: ["mod-left": "focus-column first", "mod-slash": "toggle-cheatsheet"]
     )
-    let groups = shortcutGroups(config: config)
+    let groups = shortcutGroups(config: config, displayMod: true)
     let rows = groups.flatMap(\.rows)
     #expect(rows.contains(ShortcutRow(modifiers: "✧", key: "←", action: "First column",
       shifted: ShiftedShortcut(modifiers: "✧⇧", action: "Move column left"))))
@@ -136,7 +135,7 @@ struct CheatsheetPanelTests {
   func `Panel fits its content and never restores a closed panel or takes focus`() async throws {
     let wasActive = NSApplication.shared.isActive
     let controller = CheatsheetController(config: Config(
-      modifierCombinations: ["hyper": "Alt + Cmd + Ctrl"], defaultKeyModifier: "hyper"
+      mod: "alt+cmd+ctrl"
     ))
     defer { controller.close() }
     func visiblePanel() -> NSWindow? {

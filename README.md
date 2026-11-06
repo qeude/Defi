@@ -124,9 +124,8 @@ shortcut guide, or start with these:
 | Open Overview | Control + Option + O |
 
 For a single-key modifier, map a key such as Caps Lock to a **Hyper key**
-(Control + Option + Command) and set
-[`default_key_modifier`](CONFIGURATION.md#default_key_modifier) to a matching
-`hyper` alias.
+(Control + Option + Command) and set [`mod`](CONFIGURATION.md#mod) to
+`"ctrl+alt+cmd"`, or pick the same modifiers in Settings → Input → Mod key.
 
 ## Configuration
 
@@ -179,8 +178,8 @@ Other Defi app bundles are preserved, but they share the removed user data.
 
 If shortcuts do not respond, check Accessibility permission for the installed
 Defi app; newly granted access is detected automatically. Check
-`default_key_modifier` in your config:
-custom Hyper bindings require a matching keyboard remap. Temporarily quit
+`mod` in your config:
+a Hyper `mod` requires a matching keyboard remap. Temporarily quit
 other window managers to rule out conflicting shortcuts or window moves.
 
 To stop Defi, choose **Quit Defi** in the menu bar. If the menu is unavailable,

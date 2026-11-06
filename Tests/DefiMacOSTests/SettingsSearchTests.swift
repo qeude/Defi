@@ -47,11 +47,11 @@ struct SettingsSearchTests {
     #expect(commands.filter(SettingsShortcutFilter.query(query).includes) == (keepsShortcuts ? commands : []))
   }
 
-  @Test(arguments: ["hyper-left", "control+option+command+left", "⌃⌥⌘←", "✧←"])
+  @Test(arguments: ["mod-left", "control+option+command+left", "⌃⌥⌘←", "✧←"])
   func findsConfiguredCombinationAndAliases(query: String) throws {
     var config = Config()
-    config.modifierCombinations["hyper"] = "ctrl+alt+cmd"
-    let rows = [binding("hyper-left", "focus-column left")]
+    config.mod = "ctrl+alt+cmd"
+    let rows = [binding("mod-left", "focus-column left")]
     let results = SettingsSearchCatalog.results(matching: query, config: config, shortcuts: rows)
     let result = try #require(results.first)
     #expect(result.destination == .shortcut("focus-column left"))
