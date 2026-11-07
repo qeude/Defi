@@ -8,6 +8,7 @@
 - Focused column centering: `center_focused_column` `never`, `always`, `on-overflow`.
 - Lone column centering: `always_center_single_column`.
 - `center-column`, which centers the focused column until selection leaves it.
+- `center-visible-columns`, which centers the columns fully in view as one group.
 
 ## How to get to it (user POV)
 

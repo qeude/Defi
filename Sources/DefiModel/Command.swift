@@ -43,6 +43,7 @@ public enum Command: Equatable, Codable, Sendable {
   case setColumnWidth(ColumnWidthChange)
   case expandColumnToAvailableWidth
   case centerColumn
+  case centerVisibleColumns
   case toggleFloating
   case activateFloating
   case joinWindow(Direction)

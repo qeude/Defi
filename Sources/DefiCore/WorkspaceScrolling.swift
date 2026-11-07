@@ -101,12 +101,18 @@ public func focusedColumnScrollTarget(
   let free =
     recordedFocus.map { $0.free == true && selectedColumn?.windows.contains($0.windowID) == true }
     ?? false
+  let held = recordedFocus.flatMap {
+    selectedColumn?.windows.contains($0.windowID) == true ? $0.heldOffset : nil
+  }
   // Exact centering may leave edge space; an oversized column stays left-aligned.
   let exactCenter =
     widths.indices.contains(workspace.focusedColumn) && focusedWidth <= 1 + 1e-9
     ? focusedLeft + focusedWidth / 2 - 0.5 : focusedLeft
   let offset: Double
-  if free {
+  if let held {
+    // Width changes may move the strip only as far as keeps the column in view.
+    offset = min(max(held, focusedRight - 1), focusedLeft)
+  } else if free {
     offset = revealed
   } else if pinned || settings.centerFocusedColumn == .always
     || (settings.alwaysCenterSingleColumn && workspace.columns.count == 1)
@@ -120,7 +126,9 @@ public func focusedColumnScrollTarget(
   return (
     offset,
     selectedWindowID.map {
-      ScrollFocus(windowID: $0, centered: overflows, pinned: pinned ? true : nil, free: free ? true : nil)
+      ScrollFocus(
+        windowID: $0, centered: overflows, pinned: pinned ? true : nil, free: free ? true : nil,
+        heldOffset: held.map { _ in offset })
     }
   )
 }
@@ -155,6 +163,36 @@ public func focusedColumnAvailableWidth(
   let width = min(current + 1 - visible.map { widths[$0] }.reduce(0, +), maximumWidth ?? 1)
   guard width >= current + point else { return nil }
   return (width, lefts[first])
+}
+
+/// Where `center-visible-columns` scrolls: the columns fully in view at the target
+/// offset, centered together as one group. Nil when the focused column is not fully in
+/// view, when the group fills the screen, or when it is already centered.
+public func visibleColumnsCenteredOffset(
+  workspace: Workspace,
+  viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
+  windows: [Window] = [],
+  settings: LayoutSettings,
+  excludingWindowIDs: Set<WindowID> = []
+) -> Double? {
+  let offset = workspace.targetScrollOffset
+  let workspace = workspaceForLayout(workspace, excludingWindowIDs: excludingWindowIDs)
+  let widths = columnWidthsInViewports(
+    workspace.columns, viewport: viewport,
+    windowsByID: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) }), settings: settings
+  )
+  let lefts = widths.indices.map { widths.prefix($0).reduce(0, +) }
+  // Column slots include their gaps, so a slot spanning exactly the screen is in view.
+  let inView = widths.indices.filter {
+    lefts[$0] >= offset - 1e-9 && lefts[$0] + widths[$0] <= offset + 1 + 1e-9
+  }
+  guard inView.contains(workspace.focusedColumn), let first = inView.first, let last = inView.last
+  else { return nil }
+  let left = lefts[first]
+  let right = lefts[last] + widths[last]
+  guard right - left < 1 - 1e-9 else { return nil }
+  let centered = (left + right) / 2 - 0.5
+  return abs(centered - offset) > 1e-9 ? centered : nil
 }
 
 private func columnWidthsInViewports(
