@@ -413,17 +413,18 @@ struct NativeFullscreenRuntimeTests {
       nativeFullscreenWindowIDs: [WindowID(rawValue: 2)],
       state: &state
     )
-    _ = focusWindow(WindowID(rawValue: 3), state: &state)
+    // The fullscreen column sits at the end of the strip, right of window 4.
+    #expect(columnWindowIDs(in: state) == [[1], [3], [4], [2]])
+    _ = focusWindow(WindowID(rawValue: 4), state: &state)
     let before = state
 
-    try reduce(.consumeOrExpelWindow(.left), on: monitorID, state: &state)
-    try reduce(.swapWindow(.left), on: monitorID, state: &state)
+    try reduce(.consumeOrExpelWindow(.right), on: monitorID, state: &state)
+    try reduce(.swapWindow(.right), on: monitorID, state: &state)
     #expect(state == before)
 
-    _ = focusWindow(WindowID(rawValue: 4), state: &state)
     try reduce(.joinWindow(.left), on: monitorID, state: &state)
-    try reduce(.consumeOrExpelWindow(.left), on: monitorID, state: &state)
-    #expect(columnWindowIDs(in: state) == [[1], [2], [4], [3]])
+    try reduce(.consumeOrExpelWindow(.right), on: monitorID, state: &state)
+    #expect(columnWindowIDs(in: state) == [[1], [3], [4], [2]])
   }
 
   @Test(arguments: [1, 2, 3, 4], [[], [1], [3], [1, 3], [1, 2, 3, 4]])

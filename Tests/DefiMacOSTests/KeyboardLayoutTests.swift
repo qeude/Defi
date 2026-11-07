@@ -61,11 +61,13 @@ private let defaultRows: [Row] = [
   ("mod-minus", "ctrl-alt-27", "ctrl-alt-24", "ctrl-alt-39", "ctrl-alt-27"),
   ("mod-equal", "ctrl-alt-24", "ctrl-alt-44", "ctrl-alt-30", "ctrl-alt-shift-27"),
   ("mod-period", "ctrl-alt-47", "ctrl-alt-shift-43", "ctrl-alt-14", "ctrl-alt-47"),
-  ("mod-shift-comma", "ctrl-alt-shift-43", "?", "?", "?"),
-  ("mod-shift-period", "ctrl-alt-shift-47", "?", "?", "?"),
-  ("mod-shift-slash", "ctrl-alt-shift-44", "?", "?", "?"),
+  ("mod-shift-comma", "ctrl-alt-shift-43", "ctrl-alt-shift-46", "ctrl-alt-shift-13", "ctrl-alt-shift-43"),
+  // French `.` needs Shift, which mod-period already holds, and its US position 47 holds `/`, so
+  // it takes the first free key printing a symbol: `&` at 18.
+  ("mod-shift-period", "ctrl-alt-shift-47", "ctrl-alt-shift-18", "ctrl-alt-shift-14", "ctrl-alt-shift-47"),
+  ("mod-shift-slash", "ctrl-alt-shift-44", "ctrl-alt-shift-47", "ctrl-alt-shift-33", "ctrl-alt-shift-44"),
   ("mod-semicolon", "ctrl-alt-41", "ctrl-alt-43", "ctrl-alt-6", "ctrl-alt-41"),
-  ("mod-quote", "ctrl-alt-39", "ctrl-alt-39", "ctrl-alt-12", "ctrl-alt-39"),
+  ("mod-quote", "ctrl-alt-39", "ctrl-alt-39", "ctrl-alt-12", "ctrl-alt-shift-26"),
   // Digits, arrows and navigation keys never follow the layout.
   ("mod-1", "ctrl-alt-18", "ctrl-alt-18", "ctrl-alt-18", "ctrl-alt-18"),
   ("mod-cmd-9", "ctrl-alt-cmd-25", "ctrl-alt-cmd-25", "ctrl-alt-cmd-25", "ctrl-alt-cmd-25"),
@@ -74,8 +76,11 @@ private let defaultRows: [Row] = [
   ("mod-pagedown", "ctrl-alt-121", "ctrl-alt-121", "ctrl-alt-121", "ctrl-alt-121"),
 ]
 
-// The former `\` and Shift-bracket defaults still exercise the fallback search.
-private let backslashKeys = ["mod-backslash": "toggle-floating", "mod-shift-backslash": "activate-floating"]
+// The former `\`, `,` and Shift-digit defaults still exercise the fallback search.
+private let backslashKeys = [
+  "mod-backslash": "toggle-floating", "mod-shift-backslash": "activate-floating",
+  "mod-comma": "focus-floating previous",
+].merging((1...9).map { ("mod-shift-\($0)", "move-column-to-workspace-position \($0)") }) { $1 }
 private let shiftedBracketKeys = [
   "mod-shift-leftbracket": "move-column first", "mod-shift-rightbracket": "move-column last",
 ]
@@ -125,15 +130,17 @@ struct KeyboardLayoutResolverTests {
   @Test
   func germanShiftedBackslashTakesTheFirstFreeSymbolKey() throws {
     let result = try chords(Config(), installed("German"), generated: backslashKeys)
-    #expect(result["mod-shift-backslash"] == "ctrl-alt-shift-24")
-    #expect(result["mod-backslash"] == "ctrl-alt-42")
+    let shifted = result["mod-shift-backslash"], plain = result["mod-backslash"]
+    #expect(shifted == "ctrl-alt-shift-24")
+    #expect(plain == "ctrl-alt-42")
   }
 
   // Spanish: `\` is Option-6 (the 6 key) and `'` holds key 42, so the first free key printing a symbol
   // is `<` at 50, after `=` `-` and the bracket pair's `` ` `` and `´`. Swedish: `´` at 24 is free.
   @Test(arguments: [("Spanish", "ctrl-alt-50"), ("Swedish", "ctrl-alt-24")])
   func backslashFallsBackToTheFirstFreeSymbolKey(name: String, expected: String) throws {
-    #expect(try chords(Config(), installed(name), generated: backslashKeys)["mod-backslash"] == expected)
+    let result = try chords(Config(), installed(name), generated: backslashKeys)["mod-backslash"]
+    #expect(result == expected)
   }
 
   // UCKeyTranslate prints a character for key 10 (§) and keys 93 and 94 on every keyboard type, but
@@ -248,7 +255,7 @@ struct KeyboardLayoutResolverTests {
   func literalsOnJapaneseKeyboard() throws {
     let layout = try installed("ABC", type: jis)
     let config = Config(keys: ["ctrl-alt-¥": "maximize-column", "ctrl-alt-_": "toggle-floating"])
-    let result = try chords(config, layout)
+    let result = try chords(config, layout, generated: backslashKeys)
     #expect(result["ctrl-alt-¥"] == "ctrl-alt-93")
     #expect(result["ctrl-alt-_"] == "ctrl-alt-94")
     // ¥ took the key backslash would use, and `]` took its physical key, so backslash takes the
@@ -371,7 +378,7 @@ struct KeyboardLayoutLabelTests {
   @Test
   func cheatsheetShowsTheResolvedKeys() throws {
     let rows = shortcutGroups(config: Config(), layout: try installed("French")).flatMap(\.rows)
-    #expect(rows.contains { $0.action == "Last column" && $0.modifiers == "⌃⌥" && $0.key == "$" })
+    #expect(rows.contains { $0.action == "Join or leave stack right" && $0.modifiers == "⌃⌥" && $0.key == "$" })
     #expect(rows.contains { $0.action == "Workspace 1–9" && $0.key == "1–9" })
   }
 
