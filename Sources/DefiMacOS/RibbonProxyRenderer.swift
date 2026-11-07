@@ -431,7 +431,7 @@ final class RibbonProxyPresenter {
   private var previewSlot: Rect?
   private var rejectionMarker: CALayer?
   /// Running slide of each proxy centre, so a retarget keeps its velocity.
-  private var slides: [WindowID: (from: CGPoint, to: CGPoint, start: CFTimeInterval)] = [:]
+  private var slides: [WindowID: (from: CGPoint, to: CGPoint, start: CFTimeInterval, velocity: Double)] = [:]
   private var presenting = false
   /// Outgoing windows of earlier motions not yet seen off screen: a quick next motion
   /// (a focus change right after a switch) must still wait for them before lifting.
@@ -579,7 +579,7 @@ final class RibbonProxyPresenter {
     }
     let phaseLayers = CACurrentMediaTime()
     var pictured = 0, badged = 0
-    var travel = 0.0
+    var stop = 0.0
     // A released gesture moved the whole stack as one: what this motion leaves out (the
     // other neighbour workspace) settles with it.
     var rigid = CGPoint.zero
@@ -612,15 +612,11 @@ final class RibbonProxyPresenter {
       // Rapid commands retarget mid-flight: carry the current velocity instead of
       // restarting the spring from rest.
       let velocity = current == nil ? .zero : releasedPan ?? slides[window.id].map {
-        ribbonProxySpringVelocity(from: $0.from, to: $0.to, elapsed: now - $0.start)
+        ribbonProxySpringVelocity(from: $0.from, to: $0.to, elapsed: now - $0.start, velocity: $0.velocity)
       } ?? .zero
-      slides[window.id] = (CGPoint(x: from.midX, y: from.midY), CGPoint(x: to.midX, y: to.midY), now)
       if releasedPan != nil, current != nil, hypot(to.midX - from.midX, to.midY - from.midY) > hypot(rigid.x, rigid.y) {
         rigid = CGPoint(x: to.midX - from.midX, y: to.midY - from.midY)
       }
-      travel = max(travel, hypot(to.midX - from.midX, to.midY - from.midY)
-        + hypot(velocity.x, velocity.y) / RibbonProxyStore.shared.spring.omega
-        + abs(to.width - from.width) + abs(to.height - from.height))
       layer.removeAllAnimations()
       layer.isHidden = false
       for sublayer in layer.sublayers ?? [] { sublayer.removeAllAnimations() }
@@ -634,7 +630,10 @@ final class RibbonProxyPresenter {
       if pictures.picture(window.id)?.isReduced == true { standIns.insert(window.id) } else { standIns.remove(window.id) }
       // The active window travels above the windows it crosses, as in Niri.
       layer.zPosition = window.id == selectedWindowID ? 100_000 : depth[window.id] ?? 0
-      ribbonProxyMove(layer, from: from, to: to, velocity: velocity)
+      let launched = ribbonProxyMove(layer, from: from, to: to, velocity: velocity)
+      slides[window.id] = (CGPoint(x: from.midX, y: from.midY), CGPoint(x: to.midX, y: to.midY), now, launched)
+      stop = max(stop, ribbonProxyVisualStop(travel: hypot(to.midX - from.midX, to.midY - from.midY), velocity: launched),
+        ribbonProxyVisualStop(travel: abs(to.width - from.width) + abs(to.height - from.height)))
       layer.opacity = 1
       if window.appears {
         // A new window grows in at its place, like Niri's open animation. A short reveal:
@@ -736,7 +735,7 @@ final class RibbonProxyPresenter {
     }.map(\.id)).union(unsettledLeaving.subtracting(expected.keys).subtracting([draggedWindowID].compactMap { $0 }))
     unsettledLeaving = leaving
     let drawn = Set(shown.map(\.id) + [draggedWindowID].compactMap { $0 })
-    let stop = holds ? 0 : ribbonProxyVisualStop(travel: travel)
+    if holds { stop = 0 }
     // The windows below redraw at their new place first; a long motion or a drag then
     // goes opaque, which spares the compositor drawing them under every frame.
     // Opaque from the start occluded every window below at each step: apps stopped
@@ -1328,11 +1327,11 @@ final class RibbonProxyPresenter {
       guard abs(to.minX - current.minX) >= 3 || abs(to.width - current.width) >= 3
         || abs(to.minY - current.minY) >= 3 || abs(to.height - current.height) >= 3 else { continue }
       let velocity = slides[id].map {
-        ribbonProxySpringVelocity(from: $0.from, to: $0.to, elapsed: now - $0.start)
+        ribbonProxySpringVelocity(from: $0.from, to: $0.to, elapsed: now - $0.start, velocity: $0.velocity)
       } ?? .zero
-      slides[id] = (CGPoint(x: current.midX, y: current.midY), CGPoint(x: to.midX, y: to.midY), now)
       layer.removeAllAnimations()
-      ribbonProxyMove(layer, from: current, to: to, velocity: velocity)
+      let launched = ribbonProxyMove(layer, from: current, to: to, velocity: velocity)
+      slides[id] = (CGPoint(x: current.midX, y: current.midY), CGPoint(x: to.midX, y: to.midY), now, launched)
       // Stacking shrinks the window in place: its picture is cropped to the new frame
       // instead of overflowing it at full height.
       if let content = layer.sublayers?.first(where: { $0.name == "content" }),
@@ -1732,20 +1731,22 @@ func ribbonProxyOnScreenWindows() -> [RibbonProxyOnScreenWindow] {
 extension AnimationConfig {
   var omega: Double { stiffness.squareRoot() }
 
-  /// Fraction of the travel still ahead `t` seconds after leaving rest; negative past the target.
-  func remaining(after t: Double) -> Double {
+  /// Fraction of the travel still ahead `t` seconds after a launch at `velocity` (a fraction
+  /// of the travel per second toward the target, as CASpringAnimation takes it); negative past it.
+  func remaining(after t: Double, velocity: Double = 0) -> Double {
     let decay = exp(-dampingRatio * omega * t)
-    guard dampingRatio < 1 else { return (1 + omega * t) * decay }
+    guard dampingRatio < 1 else { return (1 + (omega - velocity) * t) * decay }
     let damped = omega * (1 - dampingRatio * dampingRatio).squareRoot()
-    return decay * (cos(damped * t) + dampingRatio * omega / damped * sin(damped * t))
+    return decay * (cos(damped * t) + (dampingRatio * omega - velocity) / damped * sin(damped * t))
   }
 
-  /// Rate of progress (travel per second, as a fraction) `t` seconds after leaving rest.
-  func rate(after t: Double) -> Double {
+  /// Rate of progress (a fraction of the travel per second) `t` seconds after that launch.
+  func rate(after t: Double, velocity: Double = 0) -> Double {
     let decay = exp(-dampingRatio * omega * t)
-    guard dampingRatio < 1 else { return omega * omega * t * decay }
+    guard dampingRatio < 1 else { return (velocity + omega * (omega - velocity) * t) * decay }
     let damped = omega * (1 - dampingRatio * dampingRatio).squareRoot()
-    return omega * omega / damped * decay * sin(damped * t)
+    let sine = (dampingRatio * omega * (dampingRatio * omega - velocity) / damped + damped) * sin(damped * t)
+    return decay * (velocity * cos(damped * t) + sine)
   }
 }
 
@@ -1763,10 +1764,10 @@ var ribbonProxySpringDuration: TimeInterval { ribbonProxySpringAnimation("positi
 
 /// When a motion of `travel` points last has two points or more left (an overshoot
 /// counts): the ribbon visibly stops there, and the landing fade glides over the rest.
-func ribbonProxyVisualStop(travel: Double) -> TimeInterval {
+func ribbonProxyVisualStop(travel: Double, velocity: Double = 0) -> TimeInterval {
   let config = RibbonProxyStore.shared.spring, duration = ribbonProxySpringDuration
-  let steps = Int(duration * 240)
-  let last = (0..<steps).last { abs(config.remaining(after: Double($0) / 240)) * travel >= 2 }
+  let steps = Int((duration * 240).rounded(.up))
+  let last = (0..<steps).last { abs(config.remaining(after: Double($0) / 240, velocity: velocity)) * travel >= 2 }
   return min(max(Double((last ?? -1) + 1) / 240, 0.12), duration)
 }
 
@@ -1787,19 +1788,22 @@ func ribbonProxyStartNow(_ animation: CAAnimation, on layer: CALayer) {
   layer.add(animation, forKey: (animation as? CAPropertyAnimation)?.keyPath)
 }
 
-/// Velocity of the overlay spring `from` → `to` after `elapsed` seconds.
-func ribbonProxySpringVelocity(from: CGPoint, to: CGPoint, elapsed: TimeInterval) -> CGPoint {
-  let factor = RibbonProxyStore.shared.spring.rate(after: max(elapsed, 0))
+/// Velocity of the overlay spring `from` → `to`, launched at `velocity`, after `elapsed` seconds.
+func ribbonProxySpringVelocity(from: CGPoint, to: CGPoint, elapsed: TimeInterval,
+  velocity: Double = 0) -> CGPoint {
+  let factor = RibbonProxyStore.shared.spring.rate(after: max(elapsed, 0), velocity: velocity)
   return CGPoint(x: (to.x - from.x) * factor, y: (to.y - from.y) * factor)
 }
 
-func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoint = .zero) {
+/// Returns the launch velocity applied, as a fraction of the travel per second.
+@discardableResult
+func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoint = .zero) -> Double {
   layer.frame = to
   // A still layer gets no spring: a sublayer animated in place under its moving window made
   // the compositor redraw the whole tree each frame, about three dropped frames per motion.
   guard from != to else {
     layer.removeAnimation(forKey: "position"); layer.removeAnimation(forKey: "bounds.size")
-    return
+    return 0
   }
   let start = CGPoint(x: from.midX, y: from.midY), end = CGPoint(x: to.midX, y: to.midY)
   let position = ribbonProxySpringAnimation("position")
@@ -1821,6 +1825,7 @@ func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoi
   } else {
     layer.removeAnimation(forKey: "bounds.size")
   }
+  return position.initialVelocity
 }
 
 

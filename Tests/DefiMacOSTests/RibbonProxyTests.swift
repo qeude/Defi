@@ -77,6 +77,12 @@ struct RibbonProxyTests {
     #expect(abs(ribbonProxyVisualStop(travel: 1_440) - 0.275) < 0.02)
     #expect(ribbonProxyVisualStop(travel: 2) == 0.12)
     #expect(ribbonProxyVisualStop(travel: 1_000_000) == ribbonProxySpringDuration)
+    // A retarget launched against its travel lands only once its overshoot comes back.
+    let reversed = AnimationConfig(stiffness: 800, dampingRatio: 0.9)
+    let stop = ribbonProxyVisualStop(travel: 100, velocity: -100)
+    #expect(stride(from: stop, to: ribbonProxySpringDuration, by: 0.001)
+      .allSatisfy { abs(reversed.remaining(after: $0, velocity: -100)) * 100 < 2.1 })
+    #expect(stop > ribbonProxyVisualStop(travel: 100))
   }
 
   @Test func resizedWindowInvalidatesItsPicture() {
@@ -259,11 +265,15 @@ struct RibbonProxyTests {
 
   @Test func springRateIsTheSlopeOfTheRemainingTravel() {
     for ratio in [0.5, 0.9, 1] {
-      let spring = AnimationConfig(stiffness: 800, dampingRatio: ratio)
-      #expect(spring.remaining(after: 0) == 1)
-      for t in stride(from: 0.01, to: 0.5, by: 0.03) {
-        let slope = (spring.remaining(after: t - 1e-6) - spring.remaining(after: t + 1e-6)) / 2e-6
-        #expect(abs(slope - spring.rate(after: t)) < 1e-3)
+      for launch in [0.0, 20, -40] {
+        let spring = AnimationConfig(stiffness: 800, dampingRatio: ratio)
+        #expect(spring.remaining(after: 0, velocity: launch) == 1)
+        #expect(abs(spring.rate(after: 0, velocity: launch) - launch) < 1e-9)
+        for t in stride(from: 0.01, to: 0.5, by: 0.03) {
+          let slope = (spring.remaining(after: t - 1e-6, velocity: launch)
+            - spring.remaining(after: t + 1e-6, velocity: launch)) / 2e-6
+          #expect(abs(slope - spring.rate(after: t, velocity: launch)) < 1e-3)
+        }
       }
     }
     // The default barely overshoots: under two points on a 1,300-point column step.
