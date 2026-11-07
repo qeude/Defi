@@ -74,7 +74,7 @@ extension Daemon {
   }
 
   /// Without the overlay carrying the window nothing draws the scroll, so the strip stays.
-  func dragEdgeScrollIsCurrent(_ edge: DragEdgeScroll) -> Bool {
+  private func dragEdgeScrollIsCurrent(_ edge: DragEdgeScroll) -> Bool {
     platform.windowProxyCarrying
       && edge.isCurrent(state: state, viewports: viewportsByMonitor, monitorFrames: physicalMonitorFrames)
   }

@@ -819,7 +819,10 @@ extension Daemon {
         let previewedTarget = proxyPreviewTarget
         proxyPreviewTarget = nil
         platform.endWindowProxyPreview()
-        let edgeScroll = dragEdgeScroll.flatMap { dragEdgeScrollIsCurrent($0) ? $0 : nil }
+        // The release already ended the overlay's carry: only the topology must still hold.
+        let edgeScroll = dragEdgeScroll.flatMap {
+          $0.isCurrent(state: state, viewports: viewportsByMonitor, monitorFrames: physicalMonitorFrames) ? $0 : nil
+        }
         dragEdgeScroll = nil
         // The drop lands on the strip as the edge scroll left it.
         var dropState = edgeScroll?.applied(to: state) ?? state
