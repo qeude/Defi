@@ -7,18 +7,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 VM="${DEFI_VM:-defi-e2e}"
+# shellcheck source=script/vm_session.sh
+source "$ROOT_DIR/script/vm_session.sh"
 command -v tart >/dev/null || { echo "Install Tart first: https://tart.run" >&2; exit 2; }
-KEY="$HOME/.tart/${VM}_ed25519"
 FILTER="${1:-DesktopE2ETests}"
 [[ "$FILTER" == DesktopE2ETests* ]] || { echo "Filter must start with DesktopE2ETests" >&2; exit 2; }
 tart get "$VM" >/dev/null || {
   echo "Create the VM first: tart clone ghcr.io/cirruslabs/macos-golden-gate-base:latest $VM && tart set $VM --cpu 4 --memory 4096" >&2
   exit 2
-}
-
-vm() {
-  ssh -i "$KEY" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o BatchMode=yes \
-    "admin@$(tart ip "$VM")" "$@"
 }
 
 # Build before queueing. Concurrent runs would share one guest desktop, and one could stop the VM under another.
@@ -32,50 +28,7 @@ if [[ -z "${DEFI_VM_LOCKED:-}" ]]; then
   exec lockf -k "$HOME/.tart/$VM.lock" "$ROOT_DIR/script/test_vm.sh" "$@"
 fi
 
-# Restart a VM left running: it may lack the Xcode share. Holding the lock makes this safe.
-tart stop "$VM" >/dev/null 2>&1 || true
-XCODE="$(cd "$(xcode-select -p)/../.." && pwd)"
-nohup tart run "$VM" --no-graphics --no-audio "--dir=xcode:$XCODE:ro" >/dev/null 2>&1 &
-trap 'tart stop "$VM" >/dev/null || true' EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-tart ip "$VM" --wait 180 >/dev/null
-for attempt in {1..60}; do
-  tart exec "$VM" /usr/bin/true 2>/dev/null && break
-  [[ "$attempt" -lt 60 ]] || { echo "The VM guest agent did not answer" >&2; exit 1; }
-  sleep 2
-done
-[[ -f "$KEY" ]] || ssh-keygen -q -t ed25519 -N '' -C "$VM" -f "$KEY"
-tart exec "$VM" /bin/sh -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && grep -qsF '$(cat "$KEY.pub")' ~/.ssh/authorized_keys || echo '$(cat "$KEY.pub")' >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys"
-vm 'sudo -n mdutil -a -i off >/dev/null 2>&1; defaults write com.apple.WindowManager StandardHideWidgets -int 1; mkdir -p ~/defi-e2e'
-
-# Trim services Defi never touches; launchd keeps this across reboots, so it applies from the next boot.
-vm 'sudo -n sh -s' <<'GUEST'
-[ ! -e /var/db/defi-e2e-tuned ] || exit 0
-pattern='intelligen|siri|workflow|shortcut|imagent|imtransfer|facetime|cloud|bird|photo|mediaanalysis|knowledge|suggest|parsec|maps|news|weather|stocks|calendar|remind|game|music|podcast|appstore|commerce|triald|modelcatalog|generative|homed|backupd|corespotlight|biome'
-for plist in /System/Library/LaunchAgents/*.plist; do
-  label="$(basename "$plist" .plist)"
-  if echo "$label" | grep -Eiq "$pattern"; then launchctl disable "gui/501/$label"; fi
-done
-for plist in /System/Library/LaunchDaemons/*.plist; do
-  label="$(basename "$plist" .plist)"
-  if echo "$label" | grep -Eiq "$pattern"; then launchctl disable "system/$label"; fi
-done
-# The image's login-item banner would otherwise stay up and block the pointer over it.
-rm -rf "/Users/admin/Library/Group Containers/group.com.apple.usernoted/db2"
-pkill -x usernoted
-pkill -x NotificationCenter
-touch /var/db/defi-e2e-tuned
-GUEST
-
-# Post-boot daemons saturate the guest and would slow the tests' own timing.
-# Read instantaneous idle time: the load average keeps decaying for minutes after the burst ends.
-calm=0
-for _ in {1..60}; do
-  if [[ "$(vm "top -l 2 -s 3 -n 0 | awk '/CPU usage/ {idle = \$7} END {print int(idle)}'")" -ge 70 ]]; then calm=$((calm + 1)); else calm=0; fi
-  [[ "$calm" -ge 3 ]] && break
-done
+vm_start
 
 COPYFILE_DISABLE=1 tar -C .build/debug -cf - DefiMacOSTests.xctest $(cd .build/debug && ls -d ./*.bundle 2>/dev/null) | vm 'tar -C ~/defi-e2e -xf -'
 vm 'cat > ~/defi-e2e/fixture && chmod +x ~/defi-e2e/fixture' < .build/desktop-fixtures/DefiDesktopFocusFixture

@@ -38,6 +38,11 @@ jobs:
           git merge-base --is-ancestor HEAD origin/main
           if [[ "$RELEASE_EVENT" == push ]]; then
             [[ "$GITHUB_REF" == "refs/tags/v$version" ]] || exit 1
+            # The release performance check runs locally in the VM; its stored result must ship with the tag.
+            jq -e --arg v "$version" '.builds[.candidate].version == $v' "perf/releases/v$version.json" >/dev/null || {
+              echo "::error::Run script/perf_release.sh and commit perf/releases/v$version.{json,md}"
+              exit 1
+            }
           else
             [[ "$GITHUB_REF" == refs/heads/main ]] || exit 1
           fi

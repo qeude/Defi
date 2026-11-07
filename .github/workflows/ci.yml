@@ -50,3 +50,4 @@ jobs:
           bash Tests/Release/test_homebrew_release.sh
           bash Tests/Release/test_install_script.sh
           bash Tests/Verification/test_verification.sh
+          python3 -m unittest discover -s Tests/Verification -p 'test_*.py'
