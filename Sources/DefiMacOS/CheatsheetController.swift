@@ -145,6 +145,7 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("focus-window-or-workspace up", "Window or workspace up"),
   ("focus-window-or-workspace down", "Window or workspace down"),
   ("focus-workspace-previous", "Previous workspace"),
+  ("focus-window-previous", "Previous window"),
   ("focus-workspace-name", "Workspace"), ("workspace", "Workspace"),
   ("focus-workspace-position", "Workspace"), ("toggle-overview", "Overview"),
   ("focus-monitor", "Focus monitor"), ("move-workspace-to-monitor", "Move workspace to monitor"),
@@ -176,7 +177,10 @@ private struct ShortcutBinding {
   }
   var section: String {
     if verb.contains("monitor") { return "Monitors" }
-    if verb.contains("workspace") || verb == "toggle-overview" { return "Workspaces" }
+    // Previous window may cross workspaces, so it sits beside previous workspace.
+    if verb.contains("workspace") || ["toggle-overview", "focus-window-previous"].contains(verb) {
+      return "Workspaces"
+    }
     if verb.contains("width") || verb == "maximize-column" { return "Size" }
     if verb.contains("floating") { return "Floating" }
     if verb.contains("window") { return "Windows in a column" }

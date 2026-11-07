@@ -48,6 +48,8 @@ public func parseCommand(_ input: String) throws -> Command {
     )
   case "focus-window":
     return .focusWindow(try parseDirection(argument("direction")))
+  case "focus-window-previous":
+    return .focusWindowPrevious
   case "focus-window-or-workspace":
     return .focusWindowOrWorkspace(try parseVerticalDirection(argument("direction")))
   case "move-window-to-workspace":

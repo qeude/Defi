@@ -614,6 +614,7 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `focus-window down` | Focus next window in current stack. | `<mod>-j` |
 | `focus-window first` | Focus first window in current stack. | unset |
 | `focus-window last` | Focus last window in current stack. | unset |
+| `focus-window-previous` | Return to the managed window that held focus before the current one, on any workspace or monitor, and activate its workspace. Press it again to go back. Any committed focus change counts, including a click, the Dock, Command-Tab, and the Overview; windows passed over during rapid navigation do not. If the current window closes, the entry stays on the last window still open. Nothing happens when the previous window has closed or left Defi's management. The entry survives daemon restarts in the same macOS session. | unset |
 | `focus-window-or-workspace up\|down` | Focus the previous or next window in the current stack. At the top or bottom of the stack, or with no tiled window selected, focus the adjacent workspace instead. The new workspace keeps its remembered selection. It clamps at the first workspace and does not wrap. A floating selection beside tiled columns moves to the tiled layer like `focus-window`. | unset |
 | `move-column left` | Move focused column left. | `<mod>-shift-left` |
 | `move-column right` | Move focused column right. | `<mod>-shift-right` |

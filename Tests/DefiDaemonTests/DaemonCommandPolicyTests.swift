@@ -801,6 +801,48 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test
+  func focusWindowPreviousSwitchesWorkspacesOnlyWhenTheWindowIsHidden() throws {
+    let monitor = MonitorID(rawValue: 1)
+    let other = MonitorID(rawValue: 2)
+    var state = RuntimeState(config: Config(workspaces: WorkspacesConfig(names: ["one", "two"])))
+    state.attachMonitor(monitor)
+    state.attachMonitor(other)
+    let (a, b, c) = (WindowID(rawValue: 1), WindowID(rawValue: 2), WindowID(rawValue: 3))
+    for id in [a, b, c] {
+      state.windows[id] = Window(
+        id: id, appID: "app", title: "", frame: Rect(x: 0, y: 0, width: 800, height: 700),
+        monitorID: monitor
+      )
+    }
+    state.monitors[0].workspaces[0].columns = [Column(window: a, width: .fraction(0.5))]
+    state.monitors[0].workspaces[1].columns = [Column(window: b, width: .fraction(0.5))]
+    state.monitors[1].workspaces[0].columns = [Column(window: c, width: .fraction(0.5))]
+    state.monitors[0].activeWorkspace = WorkspaceID(rawValue: "one")
+    state.maintainWorkspaceLifecycle()
+    let command = Command.focusWindowPrevious
+
+    #expect(!commandActivatesWorkspace(command, state: state))
+    #expect(workspaceTargetID(for: command, on: monitor, state: state) == nil)
+
+    state.recordCommittedFocus(b)
+    state.recordCommittedFocus(a)
+    #expect(commandActivatesWorkspace(command, state: state))
+    let target = try #require(workspaceTargetID(for: command, on: monitor, state: state))
+    #expect(target == WorkspaceID(rawValue: "two"))
+    #expect(workspaceTransitionIntent(targetWorkspaceID: target, state: state)?.direction == 1)
+
+    // A window already selected on another monitor's active workspace is still a destination.
+    state.recordCommittedFocus(c)
+    state.recordCommittedFocus(a)
+    #expect(!commandActivatesWorkspace(command, state: state))
+    #expect(try changedState(after: command, on: monitor, from: state) == nil)
+    #expect(!commandValidationIsNoOp(
+      hasValidationState: false, rebasesPendingFrame: false, command: command,
+      workspaceFocusMonitorID: other, activeMonitorID: monitor, selectedWindowIsNativelyFocused: false
+    ))
+  }
+
+  @Test
   func focusWindowOrWorkspaceInsideAStackStaysAWindowFocus() {
     let monitor = MonitorID(rawValue: 1)
     var state = RuntimeState(config: Config())

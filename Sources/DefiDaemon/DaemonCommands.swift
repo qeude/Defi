@@ -173,9 +173,20 @@ func workspaceTargetID(
     }
   case .moveWorkspaceToMonitor:
     return state.monitors[monitorIndex].activeWorkspace
+  case .focusWindowPrevious:
+    return state.previousFocusedWindowTarget.flatMap { state.location(containing: $0)?.workspaceID }
   default:
     return nil
   }
+}
+
+/// `focus-window-previous` switches workspaces only when the window's workspace is inactive;
+/// otherwise it scrolls like any focus command.
+func commandActivatesWorkspace(_ command: Command, state: RuntimeState) -> Bool {
+  guard command == .focusWindowPrevious else { return command.activatesWorkspace }
+  guard let location = state.previousFocusedWindowTarget.flatMap({ state.location(containing: $0) })
+  else { return false }
+  return state.monitors.contains { $0.id == location.monitorID && $0.activeWorkspace != location.workspaceID }
 }
 
 func workspaceTransitionIntent(
@@ -437,7 +448,8 @@ extension Daemon {
       }
       let command = resolvedCommand(parsedCommand, on: commandMonitorID, state: state)
       if !floatingFramesRefreshed, platform.hasPendingMouseResizeGesture,
-        command.activatesWorkspace || command.movesWindowBetweenWorkspaces || command.movesWindowsAcrossMonitors,
+        commandActivatesWorkspace(command, state: state) || command.movesWindowBetweenWorkspaces
+          || command.movesWindowsAcrossMonitors,
         commandMonitorID != nil
       {
         let windowIDs = commandMonitorID.map {
@@ -611,7 +623,7 @@ extension Daemon {
         commandHandledAt: commandStartedAt
       )
       pendingWindowRemovalFocusGuard = nil
-      let switchesWorkspace = command.activatesWorkspace
+      let switchesWorkspace = commandActivatesWorkspace(command, state: state)
       let mutatesWorkspaceWindows = command.movesWindowBetweenWorkspaces
       let movesAcrossMonitors = command.movesWindowsAcrossMonitors
       let animatesManagedLayout = command.animatesManagedLayout
@@ -714,7 +726,7 @@ extension Daemon {
         }
       }
       let commandTransfersFocus: Bool
-      if command.activatesWorkspace {
+      if switchesWorkspace {
         commandTransfersFocus = true
       } else if let resultMonitorID,
         let selectedWindowID = state.selectedWindowID(on: resultMonitorID)
@@ -1035,7 +1047,7 @@ func commandValidationIsNoOp(
     return false
   }
   switch command {
-  case .switchWorkspace, .focusWorkspace:
+  case .switchWorkspace, .focusWorkspace, .focusWindowPrevious:
     // Logical monitor selection is optimistic. A repeated activation must retry
     // native focus when the selected window has not actually received it.
     return workspaceFocusMonitorID == nil

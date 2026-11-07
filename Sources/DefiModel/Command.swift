@@ -27,6 +27,7 @@ public enum Command: Equatable, Codable, Sendable {
   case moveWindowToMonitor(Direction)
   case focusWindow(Direction)
   case focusWindowOrWorkspace(Direction)
+  case focusWindowPrevious
   case moveWindowToWorkspace(WorkspaceID)
   case sendWindowToWorkspace(WorkspaceID)
   case switchWorkspace(WorkspaceID)

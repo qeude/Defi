@@ -303,6 +303,10 @@ public func reduce(
         viewports: viewports,
         state: &state
       )
+    case .focusWindowPrevious:
+      if let windowID = state.previousFocusedWindowTarget {
+        focusWindow(windowID, state: &state)
+      }
     case .focusMonitor, .focusWindowOrWorkspace:
       break
     case .joinWindow(let direction):
@@ -393,8 +397,8 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .reorderWorkspace, .moveWorkspaceToMonitor,
     .maximizeColumn, .centerColumn, .toggleFloating, .joinWindow, .unjoinWindows:
     true
-  case .focusColumn, .focusFloating, .focusWindow, .focusWindowOrWorkspace, .switchWorkspace,
-    .focusWorkspace, .focusMonitor,
+  case .focusColumn, .focusFloating, .focusWindow, .focusWindowOrWorkspace, .focusWindowPrevious,
+    .switchWorkspace, .focusWorkspace, .focusMonitor,
     .activateFloating, .toggleOverview, .toggleCheatsheet, .openSettings, .runStartupCommands:
     false
   }

@@ -26,6 +26,7 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
   public var nativeFullscreenTiledPlacements: [WindowID: SuspendedTiledPlacement]
   public var pendingNativeFullscreenWidthResetWindowIDs: Set<WindowID>
   public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
+  public var windowFocusHistory: WindowFocusHistory?
 
   public init(state: RuntimeState) {
     monitorStableIDs = state.monitorStableIDs
@@ -41,6 +42,18 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
     pendingNativeFullscreenWidthResetWindowIDs =
       state.pendingNativeFullscreenWidthResetWindowIDs
     suspendedTiledPlacements = state.suspendedTiledPlacements
+    windowFocusHistory = state.windowFocusHistory
+  }
+}
+
+/// The managed window with the latest committed focus and the one focused before it.
+public struct WindowFocusHistory: Equatable, Codable, Sendable {
+  public var current: WindowID?
+  public var previous: WindowID?
+
+  public init(current: WindowID? = nil, previous: WindowID? = nil) {
+    self.current = current
+    self.previous = previous
   }
 }
 
@@ -62,6 +75,7 @@ public struct RuntimeState: Equatable, Sendable {
   public var pendingNativeFullscreenWidthResetWindowIDs: Set<WindowID>
   public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
   public var reservedEdgesByMonitor: [MonitorID: ReservedEdges]
+  public var windowFocusHistory = WindowFocusHistory()
 
   public init(config: Config) {
     let names = config.workspaces.names.map(WorkspaceID.init(rawValue:))
@@ -106,6 +120,7 @@ public struct RuntimeState: Equatable, Sendable {
     pendingNativeFullscreenWidthResetWindowIDs =
       topology.pendingNativeFullscreenWidthResetWindowIDs
     suspendedTiledPlacements = topology.suspendedTiledPlacements
+    windowFocusHistory = topology.windowFocusHistory ?? WindowFocusHistory()
     clearChangedWorkspaceAffinities(
       previousIDs: topology.workspaceMonitorIDs ?? workspaceMonitorIDs,
       nextIDs: workspaceMonitorIDs,
@@ -689,6 +704,23 @@ public struct RuntimeState: Equatable, Sendable {
 
   public func monitorID(containing windowID: WindowID) -> MonitorID? {
     location(containing: windowID)?.monitorID
+  }
+
+  /// Records a window that holds both native focus and the selection. A closed window
+  /// never becomes the previous one, so the history keeps the last window still open.
+  public mutating func recordCommittedFocus(_ windowID: WindowID) {
+    guard windowFocusHistory.current != windowID else { return }
+    if let current = windowFocusHistory.current, windows[current] != nil {
+      windowFocusHistory.previous = current
+    } else if windowFocusHistory.previous == windowID {
+      windowFocusHistory.previous = nil
+    }
+    windowFocusHistory.current = windowID
+  }
+
+  /// The window `focus-window-previous` focuses, while it is still managed in a workspace.
+  public var previousFocusedWindowTarget: WindowID? {
+    windowFocusHistory.previous.flatMap { location(containing: $0) == nil ? nil : $0 }
   }
 
   public mutating func updateWindowFrame(_ frame: Rect, for windowID: WindowID) {
