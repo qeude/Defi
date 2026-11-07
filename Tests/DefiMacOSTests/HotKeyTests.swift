@@ -43,6 +43,8 @@ struct OverviewHotKeyTests {
     (123, hyper, "focus-monitor left", .monitor(.left)),
     (124, hyperShift, "move-column-to-monitor right", .moveToMonitor(.right)),
     (125, hyperShift, "move-window-to-monitor down", .moveToMonitor(.down)),
+    (124, hyper, "focus-column-or-monitor right", .right),
+    (124, hyperShift, "move-column-or-to-monitor right", .layout(.moveColumn(.right))),
     (36, 0, nil, .select), (36, hyper, "focus-column left", nil), (53, 0, nil, .cancel), (0, 0, nil, nil),
   ] as [(CGKeyCode, UInt64, String?, OverviewKeyAction?)])
   func overviewKeyActionFollowsKeyAndBinding(keyCode: CGKeyCode, modifiers: UInt64, command: String?,
