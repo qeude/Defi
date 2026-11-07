@@ -6,7 +6,8 @@ import Testing
 
 struct SettingsSearchTests {
   @Test(arguments: [
-    ("version", .option(.about)), ("github", .option(.about)), ("updates", .option(.about)),
+    ("version", .option(.about)), ("github", .option(.about)), ("updates", .option(.automaticUpdates)),
+    ("sponsor", .option(.about)), ("triage", .option(.logs)),
     ("release notes", .option(.about)), ("default gap", .option(.screenMargins)),
     ("gap between windows", .option(.screenMargins)), ("outer_left_gap", .option(.screenMargins)),
     ("screen margins", .option(.screenMargins)), ("enable animations", .option(.animations)),
