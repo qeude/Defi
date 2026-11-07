@@ -415,30 +415,56 @@ public func reduce(
       focusWindow(windowID, state: &state)
     case .focusMonitor, .focusWindowOrWorkspace, .focusColumnOrMonitor, .moveColumnOrToMonitor:
       break
-    case .joinWindow(let direction):
+    case .joinWindow(let direction), .consumeOrExpelWindow(let direction),
+      .swapWindow(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       let workspace = state.monitors[monitorIndex].workspaces[index]
-      if !workspace.columns.isEmpty,
-        !joinTargetsNativeFullscreenColumn(
+      guard !workspace.columns.isEmpty else { break }
+      let expels =
+        command == .consumeOrExpelWindow(direction)
+        && workspace.columns.indices.contains(workspace.focusedColumn)
+        && workspace.columns[workspace.focusedColumn].windows.count > 1
+      // Only an expel leaves the neighboring column untouched.
+      if !expels,
+        joinTargetsNativeFullscreenColumn(
           direction,
           workspace: workspace,
           nativeFullscreenWindowIDs: state.nativeFullscreenWindowIDs
         )
       {
-        let windowsByID = state.windows
-        let viewport = viewports[state.monitors[monitorIndex].id]
+        break
+      }
+      let windowsByID = state.windows
+      let viewport = viewports[state.monitors[monitorIndex].id]
+      let fit: ([WindowID]) -> StackFit = { windowIDs in
+        viewport.map {
+          stackFit(windowIDs, windowsByID: windowsByID, viewport: $0, settings: layout)
+        } ?? .fits
+      }
+      switch command {
+      case .consumeOrExpelWindow:
+        try consumeOrExpelFocusedWindow(
+          direction,
+          in: &state.monitors[monitorIndex].workspaces[index],
+          settings: layout,
+          stackFit: fit
+        )
+      case .swapWindow:
+        try swapFocusedWindow(
+          direction,
+          in: &state.monitors[monitorIndex].workspaces[index],
+          settings: layout,
+          stackFit: fit
+        )
+      default:
         try joinFocusedWindow(
           direction,
           in: &state.monitors[monitorIndex].workspaces[index],
           settings: layout,
-          stackFit: { windowIDs in
-            viewport.map {
-              stackFit(windowIDs, windowsByID: windowsByID, viewport: $0, settings: layout)
-            } ?? .fits
-          }
+          stackFit: fit
         )
-        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
       }
+      state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
     case .unjoinWindows:
       let index = try workspaceIndex(state.monitors[monitorIndex])
       if !state.monitors[monitorIndex].workspaces[index].columns.isEmpty {
@@ -523,7 +549,7 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .moveColumnToWorkspace, .moveWindowToWorkspaceTarget,
     .reorderWorkspace, .moveWorkspaceToMonitor,
     .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn, .centerVisibleColumns,
-    .toggleFloating, .joinWindow, .unjoinWindows:
+    .toggleFloating, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow:
     true
   case .focusColumn, .focusColumnOrMonitor, .focusFloating, .focusWindow, .focusWindowOrWorkspace,
     .focusWindowPrevious, .focusWindowID, .switchWorkspace, .focusWorkspace, .focusMonitor,

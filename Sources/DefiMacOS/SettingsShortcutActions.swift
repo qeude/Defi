@@ -15,6 +15,7 @@ enum SettingsShortcutActions {
     "move-workspace-to-monitor", "focus-monitor", "cycle-width", "maximize-column",
     "set-column-width", "expand-column-to-available-width", "center-column", "center-visible-columns",
     "toggle-floating", "activate-floating", "join-window", "unjoin-windows",
+    "consume-or-expel-window", "swap-window",
     "toggle-cheatsheet", "toggle-overview", "open-settings", "run-startup-commands",
   ]
   static let noArgumentActions: Set<String> = [
@@ -78,6 +79,8 @@ enum SettingsShortcutActions {
     "focus-monitor": ["left", "right", "up", "down"],
     "cycle-width": ["previous", "next"],
     "join-window": ["left", "right"],
+    "consume-or-expel-window": ["left", "right"],
+    "swap-window": ["left", "right"],
   ]
 
 }

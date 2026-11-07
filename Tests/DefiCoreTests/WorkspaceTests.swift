@@ -73,6 +73,64 @@ struct WorkspaceTests {
   }
 
   @Test
+  func `Consume or expel joins a lone window and expels a stacked one on that side`() throws {
+    var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
+    for id: UInt64 in 1...3 { insertNewWindow(WindowID(rawValue: id), into: &workspace, settings: settings) }
+    workspace.focusedColumn = 1
+
+    try consumeOrExpelFocusedWindow(.right, in: &workspace, settings: settings)
+    #expect(workspace.columns.map(\.windows) == [[1], [3, 2]].map { $0.map(WindowID.init(rawValue:)) })
+    #expect(workspace.focusedColumn == 1)
+    #expect(workspace.columns[1].focusedWindow == 1)
+
+    try consumeOrExpelFocusedWindow(.left, in: &workspace, settings: settings)
+    #expect(workspace.columns.map(\.windows) == [[1], [2], [3]].map { $0.map(WindowID.init(rawValue:)) })
+    #expect(workspace.focusedColumn == 1)
+    #expect(workspace.columns[1].width == .fraction(settings.defaultColumnWidth))
+
+    workspace.focusedColumn = 0
+    try consumeOrExpelFocusedWindow(.left, in: &workspace, settings: settings)
+    #expect(workspace.columns.count == 3)
+  }
+
+  @Test
+  func `Swap exchanges the same row and clamps to a shorter neighbor`() throws {
+    var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
+    workspace.columns = [
+      Column(windows: [1, 2, 3].map(WindowID.init(rawValue:)), focusedWindow: 2, width: .fraction(0.5)),
+      Column(windows: [4, 5].map(WindowID.init(rawValue:)), focusedWindow: 0, width: .pixels(300)),
+    ]
+
+    try swapFocusedWindow(.right, in: &workspace, settings: settings)
+    #expect(workspace.columns.map(\.windows) == [[1, 2, 5], [4, 3]].map { $0.map(WindowID.init(rawValue:)) })
+    #expect(workspace.columns.map(\.width) == [.fraction(0.5), .pixels(300)])
+    #expect(workspace.focusedColumn == 1)
+    #expect(workspace.columns[1].focusedWindow == 1)
+
+    try swapFocusedWindow(.right, in: &workspace, settings: settings)
+    #expect(workspace.focusedColumn == 1)
+    #expect(workspace.columns[1].windows == [4, 3].map(WindowID.init(rawValue:)))
+  }
+
+  @Test
+  func `Swap that would overflow a stack changes nothing`() {
+    var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
+    workspace.columns = [
+      Column(windows: [1, 2].map(WindowID.init(rawValue:)), focusedWindow: 0, width: .fraction(0.5)),
+      Column(window: WindowID(rawValue: 3), width: .fraction(0.5)),
+    ]
+    let before = workspace
+    let rejection = StackRejection(requiredHeight: 900, availableHeight: 800)
+
+    #expect(throws: rejection) {
+      try swapFocusedWindow(
+        .right, in: &workspace, settings: settings,
+        stackFit: { $0.contains(WindowID(rawValue: 3)) && $0.count > 1 ? .rejected(rejection) : .fits })
+    }
+    #expect(workspace == before)
+  }
+
+  @Test
   func `Maximized column restores pixel width`() {
     var column = Column(window: WindowID(rawValue: 1), width: .pixels(420))
 

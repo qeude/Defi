@@ -10,6 +10,8 @@ struct ModelTests {
     ("focus-window-or-workspace down", Command.focusWindowOrWorkspace(.down)),
     ("move-column last", Command.moveColumn(.last)),
     ("move-window down", Command.moveWindow(.down)),
+    ("consume-or-expel-window left", Command.consumeOrExpelWindow(.left)),
+    ("swap-window right", Command.swapWindow(.right)),
     ("move-column-to-monitor left", Command.moveColumnToMonitor(.left)),
     ("move-window-to-monitor up", Command.moveWindowToMonitor(.up)),
     ("focus-column-or-monitor left", Command.focusColumnOrMonitor(.left)),
@@ -63,6 +65,8 @@ struct ModelTests {
 
   @Test(arguments: [
     ("move-window right", CommandParseError.invalidDirection("right")),
+    ("consume-or-expel-window next", .invalidDirection("next")),
+    ("swap-window up", .invalidDirection("up")),
     ("move-column-to-monitor next", .invalidDirection("next")),
     ("focus-window-or-workspace next", .invalidDirection("next")),
     ("focus-column-or-monitor up", .invalidDirection("up")),
@@ -133,6 +137,8 @@ struct ModelTests {
     (Command.toggleFloating, true),
     (Command.joinWindow(.left), true),
     (Command.unjoinWindows, true),
+    (Command.consumeOrExpelWindow(.left), true),
+    (Command.swapWindow(.right), true),
     (Command.focusColumn(.right), false),
     (Command.toggleOverview, false),
   ])

@@ -390,12 +390,22 @@ public func joinFocusedWindow(
 }
 
 public func unjoinFocusedWindow(
+  toward direction: Direction = .right,
   in workspace: inout Workspace,
   settings: LayoutSettings
 ) throws {
   let columnIndex = workspace.focusedColumn
   guard workspace.columns.indices.contains(columnIndex) else {
     throw LayoutError.emptyWorkspace
+  }
+  let insertionIndex: Int
+  switch direction {
+  case .left, .previous:
+    insertionIndex = columnIndex
+  case .right, .next:
+    insertionIndex = columnIndex + 1
+  case .up, .down, .first, .last:
+    throw LayoutError.unsupportedDirection
   }
   guard workspace.columns[columnIndex].windows.count > 1 else { return }
 
@@ -410,9 +420,73 @@ public func unjoinFocusedWindow(
   )
   workspace.columns.insert(
     Column(window: windowID, width: .fraction(settings.defaultColumnWidth)),
-    at: columnIndex + 1
+    at: insertionIndex
   )
-  workspace.focusedColumn = columnIndex + 1
+  workspace.focusedColumn = insertionIndex
+  repairWorkspaceScroll(&workspace, settings: settings)
+}
+
+/// Joins a lone window into the neighboring stack, or expels a stacked window
+/// into a new column on that side.
+public func consumeOrExpelFocusedWindow(
+  _ direction: Direction,
+  in workspace: inout Workspace,
+  settings: LayoutSettings,
+  stackFit: ([WindowID]) -> StackFit = { _ in .fits }
+) throws {
+  guard workspace.columns.indices.contains(workspace.focusedColumn) else {
+    throw LayoutError.emptyWorkspace
+  }
+  if workspace.columns[workspace.focusedColumn].windows.count > 1 {
+    try unjoinFocusedWindow(toward: direction, in: &workspace, settings: settings)
+  } else {
+    try joinFocusedWindow(direction, in: &workspace, settings: settings, stackFit: stackFit)
+  }
+}
+
+/// Swaps the focused window with the window at the same row of the neighboring
+/// column, or with its last window when that column is shorter. Columns keep
+/// their widths and focus follows the moved window.
+public func swapFocusedWindow(
+  _ direction: Direction,
+  in workspace: inout Workspace,
+  settings: LayoutSettings,
+  stackFit: ([WindowID]) -> StackFit = { _ in .fits }
+) throws {
+  let sourceColumnIndex = workspace.focusedColumn
+  guard workspace.columns.indices.contains(sourceColumnIndex) else {
+    throw LayoutError.emptyWorkspace
+  }
+  let targetColumnIndex: Int
+  switch direction {
+  case .left, .previous:
+    targetColumnIndex = sourceColumnIndex - 1
+  case .right, .next:
+    targetColumnIndex = sourceColumnIndex + 1
+  case .up, .down, .first, .last:
+    throw LayoutError.unsupportedDirection
+  }
+  guard workspace.columns.indices.contains(targetColumnIndex),
+    !workspace.columns[targetColumnIndex].windows.isEmpty
+  else { return }
+  let sourceRow = workspace.columns[sourceColumnIndex].focusedWindow
+  guard workspace.columns[sourceColumnIndex].windows.indices.contains(sourceRow) else {
+    throw LayoutError.emptyWorkspace
+  }
+  let targetRow = min(sourceRow, workspace.columns[targetColumnIndex].windows.count - 1)
+
+  var sourceWindows = workspace.columns[sourceColumnIndex].windows
+  var targetWindows = workspace.columns[targetColumnIndex].windows
+  (sourceWindows[sourceRow], targetWindows[targetRow]) =
+    (targetWindows[targetRow], sourceWindows[sourceRow])
+  // Reject before mutating, as join-window does, when either new stack would not fit.
+  for windows in [sourceWindows, targetWindows] {
+    if case .rejected(let rejection) = stackFit(windows) { throw rejection }
+  }
+  workspace.columns[sourceColumnIndex].windows = sourceWindows
+  workspace.columns[targetColumnIndex].windows = targetWindows
+  workspace.columns[targetColumnIndex].focusedWindow = targetRow
+  workspace.focusedColumn = targetColumnIndex
   repairWorkspaceScroll(&workspace, settings: settings)
 }
 
