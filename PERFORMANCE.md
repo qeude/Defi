@@ -103,9 +103,9 @@ move-window-to-monitor left|right|up|down
   one unit.
 - Cross-monitor motion uses the normal animation only while Accessibility keeps
   pace. Otherwise it commits one final frame.
-- Generated column bindings use `<mod>-shift-h/j/k/l` for
-  left/down/up/right. The single-window command is available to the CLI and
-  custom key bindings without a generated shortcut.
+- Generated column bindings use `<mod>-shift-cmd-<arrow>` and
+  `<mod>-shift-cmd-h/j/k/l`. The single-window command is available to the CLI
+  and custom key bindings without a generated shortcut.
 - Local `move-column left|right` never implicitly crosses a monitor boundary.
 
 ## Benchmark matrix

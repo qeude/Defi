@@ -76,6 +76,11 @@ func overviewKeyAction(
       case .relative(.down): return .workspaceDown
       default: return .workspace(target)
       }
+    // Letter aliases such as mod-h navigate like the arrows.
+    case .focusColumn(.left): return .left
+    case .focusColumn(.right): return .right
+    case .focusWindow(.up): return .up
+    case .focusWindow(.down): return .down
     case .focusMonitor(let direction): return .monitor(direction)
     // shortcut: the overview moves the selected window alone, even for move-column-to-monitor;
     // move whole columns once overview drops can carry a column.
@@ -328,8 +333,8 @@ func resolveHotKeys(
         added: added, follows: follows, userFirst: written && [0, 1, 3].contains(rank)))
     }
     let physical = acceleratorKeyCodes[name]
-    // Digits and arrows (codes from 123) never follow the layout.
-    if let physical, layout == nil || Int(name) != nil || physical >= 123 {
+    // Digits and navigation keys never follow the layout.
+    if let physical, layout == nil || Int(name) != nil || physical >= firstNavigationKeyCode {
       claim(0, modifiers, physical)
       continue
     }
@@ -456,9 +461,9 @@ struct ShortcutResolution {
   func key(for normalizedAccelerator: String) -> Key? { chords[normalizedAccelerator] }
   func inactivity(for normalizedAccelerator: String) -> HotKeyInactivity? { reasons[normalizedAccelerator] }
 
-  /// Digits and arrows keep their name; any other key is named for the keycap at its resolved code.
+  /// Digits and navigation keys keep their name; any other key is named for the keycap at its resolved code.
   func keyName(for key: Key, named name: String) -> String {
-    guard let layout, Int(name) == nil, (acceleratorKeyCodes[name] ?? 0) < 123,
+    guard let layout, Int(name) == nil, (acceleratorKeyCodes[name] ?? 0) < firstNavigationKeyCode,
       let character = layout.baseCharacter(code: key.code, command: key.modifierNames.contains("cmd"))
     else { return name }
     return canonicalKeyName(character)
