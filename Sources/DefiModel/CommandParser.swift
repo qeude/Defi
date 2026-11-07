@@ -7,6 +7,7 @@ public enum CommandParseError: Error, Equatable, Sendable {
   case invalidDirection(String)
   case invalidPosition(String)
   case invalidWidth(String)
+  case invalidWindowID(String)
 }
 
 public func parseCommand(_ input: String) throws -> Command {
@@ -51,6 +52,10 @@ public func parseCommand(_ input: String) throws -> Command {
     return .focusWindow(try parseDirection(argument("direction")))
   case "focus-window-previous":
     return .focusWindowPrevious
+  case "focus-window-id":
+    let value = try argument("window-id")
+    guard let rawValue = UInt64(value) else { throw CommandParseError.invalidWindowID(value) }
+    return .focusWindowID(WindowID(rawValue: rawValue))
   case "focus-window-or-workspace":
     return .focusWindowOrWorkspace(try parseVerticalDirection(argument("direction")))
   case "move-window-to-workspace":

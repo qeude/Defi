@@ -18,6 +18,11 @@ struct DefiCLI {
         try Uninstaller.purge()
         return
       }
+      if options.command.first == subscribeCommand {
+        guard options.command == [subscribeCommand, "--json"] else { throw CLIError.usage }
+        try subscribeToEvents(to: options.socketURL) { FileHandle.standardOutput.write($0) }
+        return
+      }
       guard !options.command.isEmpty else {
         print(Options.usage)
         exit(2)
@@ -50,6 +55,9 @@ struct Options {
       defi workspace 2
       defi --monitor 2 workspace web
       defi list-workspaces --json
+      defi list-windows --json
+      defi focus-window-id 1234
+      defi subscribe --json
       defi --monitor 1 set-reserved-area top 36
       defi status
       defi trace

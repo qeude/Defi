@@ -715,12 +715,44 @@ CLI-only integration commands:
 | --- | --- |
 | `list-workspaces` | Print current workspace labels per display. |
 | `list-workspaces --json` | Print versioned per-display identity, position, name, kind, and application state. |
+| `list-windows` | Print one managed window per line: ID, application name, and title. |
+| `list-windows --json` | Print versioned managed windows: ID, bundle ID, application name, title, workspace, display, column, row, floating, and focus. |
+| `focus-window-id <id>` | Focus the window with that `list-windows` ID, switching its display to its workspace. |
+| `subscribe --json` | Keep the connection open and print one versioned JSON event per line. See [Event stream](#event-stream). |
 | `--monitor <index> <command>` | Execute command on 1-based `NSScreen.screens`/SketchyBar display index. |
 | `set-reserved-area top\|bottom <points>` | Override extra reserved edge on every display, or targeted `--monitor`. |
 | `clear-reserved-area` | Restore configured reserved edges. |
 | `triage [--agent claude\|codex]` | Write machine facts and a support playbook to `~/Library/Application Support/Defi/triage/`, then start your `claude` or `codex` to investigate a problem and draft an issue. Never sent to the daemon. |
 
 See [SketchyBar integration](contrib/sketchybar/README.md) for event contract and example scripts.
+
+#### Event stream
+
+`defi subscribe --json` prints a `snapshot` event first, with the same
+`workspaces` object as `list-workspaces --json` and the same `windows` array as
+`list-windows --json`, then one line per change. Every line carries `version`
+(currently 1) and `event`:
+
+| Event | Fields | Sent when |
+| --- | --- | --- |
+| `snapshot` | `workspaces`, `windows` | on connect |
+| `monitors-changed` | `workspaces` | a display connects, disconnects, or changes order |
+| `workspaces-changed` | `workspaces` | any workspace state changes, including activation, names, order, and occupancy |
+| `workspace-activated` | `monitorID`, `display`, `workspace` | a display shows another workspace |
+| `window-opened` | `window` | Defi starts managing a window |
+| `window-closed` | `windowID` | Defi stops managing a window |
+| `window-moved` | `window` | a window's workspace (including its position or name), display, column, row, or floating state changes |
+| `window-changed` | `window` | a window's title or application name changes |
+| `focus-changed` | `window`, `windowID`, `monitorID` | the focused window or display changes; `window` is absent on an empty workspace |
+
+Window IDs stay stable while the window exists; pass one to `focus-window-id`.
+Changes within about 30 ms arrive together. The daemon never waits for a
+subscriber: one that falls more than 1 MiB behind is disconnected and must
+reconnect for a new snapshot. Unknown events and fields may be added within a
+version; ignore them.
+
+`list-windows` and the event stream include window titles. They are served only
+over the per-user Unix socket, never written to diagnostics files.
 
 ### Native macOS fullscreen
 

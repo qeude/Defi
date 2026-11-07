@@ -12,6 +12,7 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
   case unknownMonitor(MonitorID)
   case unknownWorkspace(WorkspaceID)
   case noFocusedWindow
+  case unknownWindow(WindowID)
   case layout(LayoutError)
   case stackConstraint(StackRejection)
 
@@ -21,6 +22,7 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
     case .unknownMonitor(let monitorID): "unknown monitor: \(monitorID)"
     case .unknownWorkspace(let id): "unknown workspace: \(id)"
     case .noFocusedWindow: "no focused window"
+    case .unknownWindow(let id): "unknown window: \(id.rawValue)"
     case .layout(let error): "layout error: \(error)"
     case .stackConstraint(let rejection): "cannot join: \(rejection)"
     }
@@ -344,6 +346,11 @@ public func reduce(
       if let windowID = state.previousFocusedWindowTarget {
         focusWindow(windowID, state: &state)
       }
+    case .focusWindowID(let windowID):
+      guard state.monitorID(containing: windowID) != nil else {
+        throw ReducerError.unknownWindow(windowID)
+      }
+      focusWindow(windowID, state: &state)
     case .focusMonitor, .focusWindowOrWorkspace:
       break
     case .joinWindow(let direction):
@@ -457,7 +464,7 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .toggleFloating, .joinWindow, .unjoinWindows:
     true
   case .focusColumn, .focusFloating, .focusWindow, .focusWindowOrWorkspace, .focusWindowPrevious,
-    .switchWorkspace, .focusWorkspace, .focusMonitor,
+    .focusWindowID, .switchWorkspace, .focusWorkspace, .focusMonitor,
     .activateFloating, .toggleOverview, .toggleCheatsheet, .openSettings, .runStartupCommands:
     false
   }

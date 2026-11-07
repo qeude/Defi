@@ -68,7 +68,8 @@ private func ipcEventHandler(
   server: UnixSocketServer,
   clientQueue: DispatchQueue,
   daemon: Daemon,
-  readResponseCache: DaemonReadResponseCache
+  readResponseCache: DaemonReadResponseCache,
+  eventStreamHub: EventStreamHub
 ) -> @Sendable () -> Void {
   { [weak daemon] in
     do {
@@ -117,7 +118,8 @@ private func ipcEventHandler(
               guard let daemon, daemon.shouldShutdown else { return }
               daemon.shutdown()
             }
-          }
+          },
+          subscriber: { eventStreamHub.subscribe($0) }
         )
         if !handled { break }
       }
@@ -175,6 +177,8 @@ func workspaceTargetID(
     return state.monitors[monitorIndex].activeWorkspace
   case .focusWindowPrevious:
     return state.previousFocusedWindowTarget.flatMap { state.location(containing: $0)?.workspaceID }
+  case .focusWindowID(let windowID):
+    return state.windowLocationMap()[windowID]?.workspaceID
   default:
     return nil
   }
@@ -256,7 +260,8 @@ extension Daemon {
         server: server,
         clientQueue: clientQueue,
         daemon: self,
-        readResponseCache: readResponseCache
+        readResponseCache: readResponseCache,
+        eventStreamHub: eventStreamHub
       )
     )
     source.resume()
@@ -315,6 +320,19 @@ extension Daemon {
         return "\(monitor.display): \(labels.joined(separator: " "))"
       }
       return .success(lines.joined(separator: "\n"))
+    }
+    if rawCommand == "list-windows" {
+      let lines = currentWindowList().windows.map { window in
+        "\(window.id)\t\(window.appName ?? window.appID)\t\(window.title)"
+      }
+      return .success(lines.joined(separator: "\n"))
+    }
+    if rawCommand == "list-windows --json" {
+      do {
+        return .success(try sortedJSON(currentWindowList()))
+      } catch {
+        return .failure(String(describing: error))
+      }
     }
     if rawCommand == "list-workspaces --json" {
       do {
@@ -1047,7 +1065,7 @@ func commandValidationIsNoOp(
     return false
   }
   switch command {
-  case .switchWorkspace, .focusWorkspace, .focusWindowPrevious:
+  case .switchWorkspace, .focusWorkspace, .focusWindowPrevious, .focusWindowID:
     // Logical monitor selection is optimistic. A repeated activation must retry
     // native focus when the selected window has not actually received it.
     return workspaceFocusMonitorID == nil

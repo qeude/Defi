@@ -50,6 +50,7 @@ struct ModelTests {
     ("toggle-overview", Command.toggleOverview),
     ("toggle-cheatsheet", Command.toggleCheatsheet),
     ("open-settings", Command.openSettings),
+    ("focus-window-id 42", Command.focusWindowID(WindowID(rawValue: 42))),
   ])
   func `Parses shared commands`(
     testCase: (input: String, expected: Command)
@@ -70,6 +71,7 @@ struct ModelTests {
     ("set-column-width +-5%", .invalidWidth("+-5%")),
     ("set-column-width 1e3", .invalidWidth("1e3")),
     ("set-column-width inf", .invalidWidth("inf")),
+    ("focus-window-id safari", .invalidWindowID("safari")),
   ])
   func `Rejects invalid directions and obsolete commands`(input: String, error: CommandParseError) {
     #expect(throws: error) { try parseCommand(input) }

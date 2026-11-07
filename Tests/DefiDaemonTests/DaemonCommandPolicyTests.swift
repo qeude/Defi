@@ -713,14 +713,20 @@ struct DaemonCommandPolicyTests {
   }
 
   @Test(arguments: [Command.switchWorkspace(WorkspaceID(rawValue: "dev-secondary")),
-    .focusWorkspace(.named("dev-secondary"))])
+    .focusWorkspace(.named("dev-secondary")), .focusWindowID(WindowID(rawValue: 20))])
   func alreadyVisibleWorkspaceStillFocusesItsOwningMonitor(command: Command) throws {
     let local = MonitorID(rawValue: 1), remote = MonitorID(rawValue: 2)
     let dev = WorkspaceID(rawValue: "dev"), secondary = WorkspaceID(rawValue: "dev-secondary")
     var state = RuntimeState(config: Config())
     state.monitors = [
       Monitor(id: local, workspaces: [Workspace(id: dev)], activeWorkspace: dev),
-      Monitor(id: remote, workspaces: [Workspace(id: secondary)], activeWorkspace: secondary),
+      Monitor(
+        id: remote,
+        workspaces: [Workspace(id: secondary, columns: [
+          Column(window: WindowID(rawValue: 20), width: .fraction(0.5)),
+        ])],
+        activeWorkspace: secondary
+      ),
     ]
     state.maintainWorkspaceLifecycle()
     let validationState = try changedState(after: command, on: local, from: state)
