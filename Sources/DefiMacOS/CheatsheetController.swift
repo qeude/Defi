@@ -250,7 +250,10 @@ func shortcutGroups(
   let entries = bindings.filter { !paired.contains($0.chord($0.modifiers)) }
     .sorted { preference($0) < preference($1) }
     .map { (binding: $0, shifted: shifted[$0.chord($0.modifiers)]) }
-    .filter { shown.insert("\($0.binding.command)|\($0.shifted?.command ?? "")").inserted }
+    .filter {
+      shown.insert("\($0.binding.modifiers.sorted())|\($0.binding.command)|\($0.shifted?.command ?? "")")
+        .inserted
+    }
 
   let groups = shortcutSections.compactMap { title -> ShortcutGroup? in
     let section = entries.filter { $0.binding.section == title }

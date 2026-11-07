@@ -40,6 +40,7 @@ struct OverviewHotKeyTests {
     (126, hyper, "focus-window-or-workspace up", .up),
     (123, hyperShift, "move-column left", .layout(.moveColumn(.left))),
     (126, hyperShift, "move-window up", .moveUp), (125, hyperShift, "move-window down", .moveDown),
+    (40, hyper, "move-window up", .moveUp), (38, hyper, "move-window down", .moveDown),
     (123, hyper, "focus-monitor left", .monitor(.left)),
     (124, hyperShift, "move-column-to-monitor right", .moveToMonitor(.right)),
     (125, hyperShift, "move-window-to-monitor down", .moveToMonitor(.down)),

@@ -65,8 +65,6 @@ func overviewKeyAction(
 ) -> OverviewKeyAction? {
   let parts = configuredCommand?.split(whereSeparator: \.isWhitespace) ?? []
   let commandName = parts.first
-  if commandName == "move-window", keyCode == 125 { return .moveDown }
-  if commandName == "move-window", keyCode == 126 { return .moveUp }
   if let configuredCommand, let command = try? parseCommand(configuredCommand) {
     switch command {
     case .switchWorkspace(let id): return .workspace(.named(id.rawValue))
@@ -76,6 +74,8 @@ func overviewKeyAction(
       case .relative(.down): return .workspaceDown
       default: return .workspace(target)
       }
+    case .moveWindow(.down): return .moveDown
+    case .moveWindow(.up): return .moveUp
     // Letter aliases such as mod-h navigate like the arrows.
     case .focusColumn(.left): return .left
     case .focusColumn(.right): return .right
