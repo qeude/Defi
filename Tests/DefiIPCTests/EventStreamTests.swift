@@ -81,6 +81,25 @@ struct EventStreamTests {
   }
 
   @Test
+  func `Diff reports windows whose workspace position changed as moved`() {
+    let old = makeState()
+    let reordered = old.windows.map { window in
+      WindowSnapshot(
+        id: window.id, appID: window.appID, appName: window.appName, title: window.title,
+        workspace: .init(id: window.workspace.id, name: window.workspace.name,
+          position: window.workspace.position + 1),
+        monitorID: window.monitorID, display: window.display + 1,
+        column: window.column, row: window.row, floating: window.floating,
+        focused: window.focused
+      )
+    }
+
+    let events = streamEvents(from: old, to: EventStreamState(workspaces: old.workspaces, windows: reordered))
+
+    #expect(events.map(\.event) == Array(repeating: "window-moved", count: 4))
+  }
+
+  @Test
   func `Diff reports workspace activation once per display`() {
     let events = streamEvents(from: makeState(), to: makeState(active: web))
 

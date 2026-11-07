@@ -741,7 +741,7 @@ See [SketchyBar integration](contrib/sketchybar/README.md) for event contract an
 | `workspace-activated` | `monitorID`, `display`, `workspace` | a display shows another workspace |
 | `window-opened` | `window` | Defi starts managing a window |
 | `window-closed` | `windowID` | Defi stops managing a window |
-| `window-moved` | `window` | a window changes workspace, display, column, row, or floating state |
+| `window-moved` | `window` | a window's workspace (including its position or name), display, column, row, or floating state changes |
 | `window-changed` | `window` | a window's title or application name changes |
 | `focus-changed` | `window`, `windowID`, `monitorID` | the focused window or display changes; `window` is absent on an empty workspace |
 

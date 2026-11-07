@@ -25,7 +25,7 @@ public struct WindowSnapshot: Codable, Equatable, Sendable {
   public let focused: Bool
 
   func hasSameLocation(as other: WindowSnapshot) -> Bool {
-    workspace.id == other.workspace.id && monitorID == other.monitorID
+    workspace == other.workspace && monitorID == other.monitorID && display == other.display
       && column == other.column && row == other.row && floating == other.floating
   }
 }
