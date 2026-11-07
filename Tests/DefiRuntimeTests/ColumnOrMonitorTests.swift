@@ -67,7 +67,8 @@ struct ColumnOrMonitorTests {
     #expect(resolved(.moveColumnOrToMonitor(.right), state, frames: single) == .moveColumn(.right))
     #expect(
       try changedState(after: .moveColumnOrToMonitor(.right), on: left, from: state,
-        monitorFrames: single) == nil)
+        monitorFrames: single)
+        == changedState(after: .moveColumn(.right), on: left, from: state, monitorFrames: single))
   }
 
   @Test
