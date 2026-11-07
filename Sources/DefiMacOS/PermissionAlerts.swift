@@ -52,3 +52,16 @@ private func openDefiPrivacySettings(_ pane: String) {
   else { return }
   NSWorkspace.shared.open(url)
 }
+
+/// SwiftUI ignores `showSettingsWindow:` from code, so this triggers the app menu's ⌘, item that the
+/// `Settings` scene installs, which also works while the menu bar item is hidden.
+@MainActor
+public func openDefiSettings() {
+  guard let menu = NSApp.mainMenu?.items.first?.submenu,
+    let index = menu.items.firstIndex(where: {
+      $0.keyEquivalent == "," && $0.keyEquivalentModifierMask == .command
+    })
+  else { return }
+  NSApp.activate(ignoringOtherApps: true)
+  menu.performActionForItem(at: index)
+}

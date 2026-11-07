@@ -131,6 +131,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .toggleCheatsheet
   case "toggle-overview":
     return .toggleOverview
+  case "open-settings":
+    return .openSettings
   case "run-startup-commands":
     return .runStartupCommands
   default:

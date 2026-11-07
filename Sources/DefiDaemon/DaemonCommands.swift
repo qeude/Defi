@@ -389,6 +389,10 @@ extension Daemon {
       if parsedCommand == .toggleOverview {
         return toggleOverview()
       }
+      if parsedCommand == .openSettings {
+        DispatchQueue.main.async { openDefiSettings() }
+        return .success()
+      }
       if overviewState.isOpen, parsedCommand.editsSelectedLayout, monitorIndex == nil {
         let originatingSession = overviewToggleState.snapshot().sessionGeneration
         deferredResponse?.deferResponse()

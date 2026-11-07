@@ -45,6 +45,7 @@ public enum Command: Equatable, Codable, Sendable {
   case unjoinWindows
   case toggleCheatsheet
   case toggleOverview
+  case openSettings
   case runStartupCommands
 
   public var editsSelectedLayout: Bool {
