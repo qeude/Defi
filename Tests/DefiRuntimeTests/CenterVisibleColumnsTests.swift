@@ -29,10 +29,13 @@ struct CenterVisibleColumnsTests {
     synchronizeScrollOffsets(state: &state, viewports: [monitorID: viewport])
   }
 
+  /// Compares the scroll only: the fixture skips the workspace lifecycle any command runs.
   private func unchanged(_ state: RuntimeState) throws -> Bool {
-    try changedState(
-      after: .centerVisibleColumns, on: monitorID, from: state, viewports: [monitorID: viewport]
-    ) == nil
+    var next = state
+    try reduce(.centerVisibleColumns, on: monitorID, state: &next, viewports: [monitorID: viewport])
+    let (before, after) = (state.monitors[0].workspaces[0], next.monitors[0].workspaces[0])
+    return after.targetScrollOffset == before.targetScrollOffset
+      && after.scrollFocus == before.scrollFocus
   }
 
   private func offset(_ state: RuntimeState) -> Double {
