@@ -34,10 +34,11 @@ public struct DefiSettingsView: View {
                 .resizable()
                 .scaledToFit()
                 .foregroundStyle(.white)
-                .frame(width: 14, height: 14)
-                .frame(width: 20, height: 20)
-                .background(page.color, in: RoundedRectangle(cornerRadius: 4))
+                .frame(width: 15, height: 15)
+                .frame(width: 24, height: 24)
+                .background(page.color, in: RoundedRectangle(cornerRadius: 6))
             }
+            .padding(.vertical, 4)
             .tag(SettingsDestination.page(page))
           }
         } else {
@@ -282,6 +283,8 @@ private struct GeneralSettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
+        AutomaticUpdatesToggle()
+          .settingsSearchTarget(.automaticUpdates)
         Toggle(
           SettingsOption.menuBar.title,
           isOn: Binding(
@@ -312,6 +315,7 @@ private struct GeneralSettingsView: View {
       Section("Diagnostics") {
         Button(SettingsOption.logs.title) { model.openLogs() }
           .settingsSearchTarget(.logs)
+        TriageRow()
       }
     }
     .formStyle(.grouped)
@@ -1983,4 +1987,58 @@ private extension RuleWindow {
     case .forceTiled: "Force tiled"
     }
   }
+}
+
+@MainActor
+private struct AutomaticUpdatesToggle: View {
+  @AppStorage(AppUpdater.automaticChecksKey) private var automaticChecks = true
+
+  var body: some View {
+    if AppUpdater.shared.isEligible {
+      Toggle(SettingsOption.automaticUpdates.title, isOn: $automaticChecks)
+    }
+  }
+}
+
+@MainActor
+private struct TriageRow: View {
+  @State private var failure: String?
+
+  private var cliURL: URL? {
+    Bundle.main.executableURL?.deletingLastPathComponent().appending(path: "defi")
+  }
+
+  var body: some View {
+    if let cliURL, FileManager.default.isExecutableFile(atPath: cliURL.path) {
+      HStack(spacing: 12) {
+        Text(failure ?? "Let your own Claude or Codex investigate a problem in Terminal and draft an issue. It asks before it fixes or posts anything.")
+          .foregroundStyle(.secondary)
+        Spacer(minLength: 12)
+        Button("Start Triage") {
+          do {
+            let launcher = try writeTriageLauncher(
+              cli: cliURL, directory: FileManager.default.temporaryDirectory)
+            if NSWorkspace.shared.open(launcher) {
+              failure = nil
+            } else {
+              try? FileManager.default.removeItem(at: launcher)
+              failure = "Could not open a terminal. Run defi triage from one instead."
+            }
+          } catch {
+            failure = "Could not start triage: \(error.localizedDescription)"
+          }
+        }
+      }
+    }
+  }
+}
+
+/// Opening a `.command` file runs it in the user's terminal, with their login PATH, and needs no
+/// Automation permission.
+func writeTriageLauncher(cli: URL, directory: URL) throws -> URL {
+  let quoted = "'" + cli.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+  let url = directory.appending(path: "defi-triage-\(UUID().uuidString).command")
+  try "#!/bin/sh\nrm -f \"$0\"\nexec \(quoted) triage\n".write(to: url, atomically: true, encoding: .utf8)
+  try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+  return url
 }

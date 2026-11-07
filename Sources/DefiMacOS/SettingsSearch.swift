@@ -17,6 +17,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case accessibility
   case screenRecording
   case launchAtLogin
+  case automaticUpdates
   case menuBar
   case workspaceDisplay
   case configurationFile
@@ -65,12 +66,13 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .accessibility: (.general, "Accessibility", "permissions accessibility settings")
     case .screenRecording: (.general, "Screen Recording", "permissions screen recording capture animations previews")
     case .launchAtLogin: (.general, "Launch Defi at login", "startup launch login")
+    case .automaticUpdates: (.general, "Automatically check for updates", "updates automatic check")
     case .menuBar: (.general, "Show Defi in the menu bar", "menu_bar.enabled")
     case .workspaceDisplay: (.general, "Named workspace display", "menu_bar.workspace_style icon only icon and name name only")
     case .configurationFile: (.general, "Open Configuration File…", "configuration file config toml path")
     case .configurationGuide: (.general, "Configuration Guide…", "documentation configuration guide")
-    case .logs: (.general, "Open Logs Folder…", "diagnostics logs")
-    case .about: (.about, "About Defi", "version build github repository releases release notes updates documentation issues")
+    case .logs: (.general, "Open Logs Folder…", "diagnostics logs troubleshooting triage issue claude codex")
+    case .about: (.about, "About Defi", "version build github repository releases release notes updates documentation issues website twitter support sponsor donate")
     case .defaultColumnWidth: (.layout, "Default column width", "layout.default_column_width")
     case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center on overflow")
     case .centerLoneColumn: (.layout, "Center a lone column", "layout.always_center_single_column single only one column middle")
