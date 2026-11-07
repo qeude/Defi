@@ -18,6 +18,8 @@ struct FreeColumnWidthTests {
       return Column(window: id, width: .fraction(widths[$0]))
     }
     state.monitors[0].workspaces[0].focusedColumn = focused
+    // Adds the trailing workspace every reduce keeps, so a no-op command changes nothing.
+    state.maintainWorkspaceLifecycle()
     return state
   }
 
