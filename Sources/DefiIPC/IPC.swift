@@ -164,7 +164,7 @@ public struct CommandResponse: Codable, Equatable, Sendable {
 
 private let maximumIPCRequestBytes = 65_536
 /// Large enough for `list-windows --json` with hundreds of long titles.
-private let maximumIPCResponseBytes = 4 << 20
+let maximumIPCResponseBytes = 4 << 20
 
 /// The request that turns a connection into an event stream.
 public let subscribeCommand = "subscribe"

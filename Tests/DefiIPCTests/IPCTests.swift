@@ -73,13 +73,13 @@ struct IPCCompletionTests {
   @Test
   func oversizedResponseFailsWithinTheProtocolLimit() throws {
     let original = CommandResponse.success(
-      String(repeating: "trace \\\"value\\\"\n", count: 8_000)
+      String(repeating: "trace \\\"value\\\"\n", count: 300_000)
     )
 
     let data = try encodedResponseForIPC(original)
     let decoded = try JSONDecoder().decode(CommandResponse.self, from: data)
 
-    #expect(data.count <= 65_536)
+    #expect(data.count <= maximumIPCResponseBytes)
     #expect(decoded == .failure("IPC response too large"))
   }
 }
