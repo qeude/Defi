@@ -664,6 +664,13 @@ extension Daemon {
       acceptedNativeFocusMonitorID: acceptedNativeFocusMonitorID,
       fallbackMonitorID: state.monitors.first?.id
     )
+    // Only a window both natively focused and selected counts: transient selections during
+    // rapid navigation and stale native focus that Defi rejected never agree.
+    if let focusedWindowID = snapshot.focusedWindowID,
+      focusedWindowID == activeMonitorID.flatMap({ state.selectedWindowID(on: $0) })
+    {
+      state.recordCommittedFocus(focusedWindowID)
+    }
 
     var mouseReordered = false
     // A released tiled window glides from where it was dropped into its slot.

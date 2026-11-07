@@ -17,6 +17,7 @@ struct ModelTests {
     ("focus-workspace down", Command.focusWorkspace(.relative(.down))),
     ("focus-workspace-position 4", Command.focusWorkspace(.position(4))),
     ("focus-workspace-previous", Command.focusWorkspace(.lastActive)),
+    ("focus-window-previous", Command.focusWindowPrevious),
     (
       "move-column-to-workspace up",
       Command.moveColumnToWorkspace(.relative(.up), follow: true)
