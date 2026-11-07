@@ -13,12 +13,12 @@ enum SettingsShortcutActions {
     "reorder-workspace",
     "move-workspace-to-monitor", "focus-monitor", "cycle-width", "maximize-column",
     "center-column", "toggle-floating", "activate-floating", "join-window", "unjoin-windows",
-    "toggle-cheatsheet", "toggle-overview", "run-startup-commands",
+    "toggle-cheatsheet", "toggle-overview", "open-settings", "run-startup-commands",
   ]
   static let noArgumentActions: Set<String> = [
     "maximize-column", "center-column", "focus-workspace-previous", "toggle-floating",
     "activate-floating", "unjoin-windows",
-    "toggle-cheatsheet", "toggle-overview", "run-startup-commands",
+    "toggle-cheatsheet", "toggle-overview", "open-settings", "run-startup-commands",
   ]
   static let relativeWorkspaceActions: Set<String> = [
     "move-window-to-workspace", "send-window-to-workspace", "move-column-to-workspace",
