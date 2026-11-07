@@ -47,7 +47,7 @@ enum SettingsShortcutActions {
       } else if positionActions.contains(action) {
         arguments = (1...9).map(String.init)
       } else {
-        arguments = argumentOptions[action] ?? []
+        arguments = argumentOptions[action] ?? argumentSuggestions[action] ?? []
       }
       return arguments.map { "\(action) \($0)" }
     }
@@ -56,6 +56,9 @@ enum SettingsShortcutActions {
   static func commands(workspaces: [String], rows: [SettingsShortcutRow]) -> [String] {
     Set(availableCommands(workspaces: workspaces) + rows.map(\.command)).sorted()
   }
+
+  /// Listed unbound rows for actions whose argument is free text.
+  static let argumentSuggestions: [String: [String]] = ["set-column-width": ["-10%", "+10%"]]
 
   static let argumentOptions: [String: [String]] = [
     "focus-column": ["left", "right", "first", "last"],
@@ -71,7 +74,6 @@ enum SettingsShortcutActions {
     "move-workspace-to-monitor": ["left", "right", "up", "down"],
     "focus-monitor": ["left", "right", "up", "down"],
     "cycle-width": ["previous", "next"],
-    "set-column-width": ["-10%", "+10%"],
     "join-window": ["left", "right"],
   ]
 
