@@ -34,9 +34,8 @@ const APPS = {
   notes: { name: 'Notes', menus: ['File', 'Edit', 'Format', 'View', 'Window', 'Help'] },
   music: { name: 'Music', menus: ['File', 'Edit', 'Song', 'View', 'Controls', 'Account', 'Window', 'Help'] },
   mail: { name: 'Mail', menus: ['File', 'Edit', 'View', 'Mailbox', 'Message', 'Format', 'Window', 'Help'] },
-  figma: { name: 'Figma', menus: ['File', 'Edit', 'View', 'Object', 'Text', 'Arrange', 'Window', 'Help'] },
 };
-const DOCK_APPS = ['finder', 'safari', 'ghostty', 'xcode', 'messages', 'notes', 'mail', 'music', 'figma'];
+const DOCK_APPS = ['finder', 'safari', 'ghostty', 'xcode', 'messages', 'notes', 'mail', 'music'];
 
 const GLYPHS = {
   finder: '<svg viewBox="0 0 48 48"><path d="M24 0v48" stroke="#0b3b8c" stroke-width="2"/><circle cx="15" cy="19" r="2.4" fill="#0b2a5c"/><circle cx="33" cy="19" r="2.4" fill="#0b2a5c"/><path d="M14 31q10 7 20 0" fill="none" stroke="#0b2a5c" stroke-width="2.4" stroke-linecap="round"/></svg>',
@@ -47,7 +46,6 @@ const GLYPHS = {
   notes: '<svg viewBox="0 0 48 48"><rect x="0" y="0" width="48" height="13" fill="#f7c948"/><path d="M10 22h28M10 29h28M10 36h20" stroke="#c9c4b5" stroke-width="2"/></svg>',
   mail: '<svg viewBox="0 0 48 48"><rect x="9" y="14" width="30" height="21" rx="3" fill="#fff"/><path d="M10 16l14 10 14-10" fill="none" stroke="#1e6ff2" stroke-width="2"/></svg>',
   music: '<svg viewBox="0 0 48 48"><path d="M20 32V15l14-3v17" fill="none" stroke="#fff" stroke-width="3"/><circle cx="17" cy="32" r="4" fill="#fff"/><circle cx="31" cy="29" r="4" fill="#fff"/></svg>',
-  figma: '<svg viewBox="0 0 48 48"><circle cx="20" cy="12" r="5" fill="#f24e1e"/><circle cx="29" cy="12" r="5" fill="#ff7262"/><circle cx="20" cy="22" r="5" fill="#a259ff"/><circle cx="29" cy="22" r="5" fill="#1abcfe"/><circle cx="20" cy="32" r="5" fill="#0acf83"/></svg>',
 };
 export const appIcon = app => `<i class="app-icon" data-app="${app}">${GLYPHS[app]}</i>`;
 
@@ -114,7 +112,6 @@ Test Suite 'DefiCoreTests' started
   notes: () => `<div class="notes"><aside>${lights}<p class="h">iCloud</p><p class="on">Launch list</p><p>Shortcuts to learn</p><p>Ideas</p></aside><article><p class="date">27 October 2026 at 9:41</p><h4>Launch list</h4><p>☑ Record the new hero</p><p>☑ Columns, not tiles</p><p>☐ Try two monitors</p><p>☐ Name the dev workspace</p><p>☐ Send Doudi the link (promised)</p><h5>Shortcuts</h5><p>⌃⌥ ← → move between columns</p><p>⌃⌥ ↑ ↓ switch workspace</p><p>⌃⌥ O Overview</p><p>⌃⌥ − = column width</p></article></div>`,
   mail: () => `<div class="mail"><aside>${lights}<p class="h">Favorites</p><p class="on">Inbox <span>3</span></p><p>Sent</p><p>Drafts</p><p>Archive</p></aside><div class="list">${[['GitHub', '[qeude/Defi] New release', 'Defi tidies your desktop into scrolling columns…', true], ['Homebrew', 'qeude/tap updated', 'A new defi cask is available'], ['Hermance', 'Landing page', 'The interactive hero is great, can we…'], ['Apple Developer', 'macOS 26.1 is available', 'Download the release notes…']].map(([from, subject, preview, on]) => `<div class="row${on ? ' on' : ''}"><b>${from}</b><p>${subject}</p><em>${preview}</em></div>`).join('')}</div><article><h4>[qeude/Defi] New release</h4><p class="from">GitHub · 9:12</p><p>Defi tidies your desktop into scrolling columns. Workspace switches now slide on the overlay, and your layout survives a restart.</p></article></div>`,
   music: () => `<div class="music"><aside>${lights}<p class="h">Apple Music</p><p>Home</p><p>Radio</p><p class="h">Library</p><p class="on">Albums</p><p>Songs</p></aside><div class="albums">${['#fa2d55,#ffb86b', '#7a5cff,#2b6df2', '#0acf83,#1abcfe', '#ffcf7a,#ff7262', '#c099ff,#5b3cc4', '#1b1b1d,#5a5d6a'].map((c, i) => `<figure><i style="background:linear-gradient(135deg,${c})"></i><figcaption>${['Night Drive', 'Columns', 'Horizon', 'Late Light', 'Without the Edges', 'Doudi’s Mix'][i]}</figcaption></figure>`).join('')}</div><div class="player"><i></i><p><b>Night Drive</b>Defi Ensemble</p><span>⏮ ⏸ ⏭</span></div></div>`,
-  figma: () => `<div class="tb tb-figma">${lights}<span class="tb-title">Defi — Landing</span></div><div class="fig"><aside><p class="h">Layers</p><p>▾ Hero</p><p class="i1 on">Desk</p><p class="i1">Headline</p><p class="i1">Install</p><p>▸ Shortcuts</p><p>▸ Bento</p></aside><div class="canvas"><div class="frame"><b class="f-h">Meet Defi</b><i class="f-d"></i><i class="f-c"></i><i class="f-c two"></i></div></div><aside class="props"><p class="h">Frame</p><p>W 1440 · H 900</p><p class="h">Fill</p><p><i></i>#1B1B1D</p></aside></div>`,
 };
 
 // A column is a stack of windows (DefiCore's Column); floating windows sit above, at their own frame.
@@ -126,7 +123,7 @@ const workspace = cols => ({ focus: 0, scroll: 0, cols, floats: [], floatFocus: 
 const initialSpaces = () => [
   workspace([col('safari', 'GitHub — qeude/Defi', 0.66, [150, 64, 900, 600, 9]), col('ghostty', '~', 0.33, [700, 330, 560, 400, 6]), col('notes', 'Launch list', 0.5, [300, 230, 520, 480, 3]), col('mail', 'Inbox', 0.5, [830, 96, 560, 500, 4])]),
   workspace([col('xcode', 'WorkspaceScrolling.swift', 0.66, [60, 150, 980, 620, 2]), col('ghostty', 'tests', 0.33, [990, 380, 420, 360, 7]), col('messages', 'Hermance', 0.5, [440, 52, 600, 440, 5]), col('safari', 'docs', 0.5, [720, 250, 660, 500, 1])]),
-  workspace([col('figma', 'Defi — Landing', 0.66, [220, 320, 860, 460, 8]), col('music', 'Music', 0.33, [24, 40, 520, 400, 0])]),
+  workspace([col('music', 'Music', 0.66, [24, 40, 520, 400, 0])]),
 ];
 
 const KEYS = {
@@ -154,7 +151,7 @@ const cheatsheet = [
   ],
   [
     ['Monitors', [['⌃⌘', '←↑↓→', 'Focus monitor', '⌃⇧⌘', 'Move column to monitor'], ['⌃⌥⌘', '←↑↓→', 'Move workspace to monitor']]],
-    ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column']]],
+    ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column'], ['⌃⌥', 'C', 'Center column']]],
     ['Floating', [['⌃⌥', '\\', 'Float or tile window', '⌃⌥⇧', 'Show floating layer'], ['⌃⌥', ',', 'Previous floating'], ['⌃⌥', '.', 'Next floating']]],
   ],
 ];
@@ -166,7 +163,12 @@ export function windowMarkup({ app, title }) {
   return `<div class="ov-title" aria-hidden="true">${appIcon(app)}<span>${shown}</span></div><div class="app app-${app}" aria-hidden="true">${CONTENT[app](title)}</div>`;
 }
 
-export function mountDesk(root, { reducedMotion, onCommand = () => {}, size }) {
+export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, size }) {
+  // Any other command ends a swipe and its landing, so no row keeps a stale shift.
+  function onCommand(code, command) {
+    if (code !== 'Swipe') stopSwipe();
+    report(code, command);
+  }
   root.innerHTML = `<div class="screen">
     <div class="wallpaper"></div><div class="ov-backdrop"></div>
     <div class="track"></div>
@@ -277,6 +279,12 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {}, size }) {
     }
   }
 
+  // center_focused_column = "never": scroll from `scroll` only as far as needed to reveal `frame`.
+  function reveal(frame, scroll) {
+    if (frame.w > W - 2 * GAP || frame.x - GAP < scroll) return frame.x - GAP;
+    if (frame.x + frame.w + GAP > scroll + W) return frame.x + frame.w + GAP - W;
+    return scroll;
+  }
   function layout(space) {
     let x = GAP;
     return space.cols.map(column => {
@@ -318,11 +326,7 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {}, size }) {
       row.style.transform = `translate3d(0,${index * (overview ? OVERVIEW_ROW : H)}px,0)`;
       const frames = layout(space);
       const focused = frames[space.focus];
-      // center_focused_column = "never": scroll only as far as needed to reveal the focused column.
-      if (focused) {
-        if (focused.w > W - 2 * GAP || focused.x - GAP < space.scroll) space.scroll = focused.x - GAP;
-        else if (focused.x + focused.w + GAP > space.scroll + W) space.scroll = focused.x + focused.w + GAP - W;
-      }
+      if (focused) space.scroll = reveal(focused, space.scroll);
       const scroll = shownScroll(space, frames);
       const selected = !messy && index === active ? focusedWin(space) : null;
       space.cols.forEach((column, i) => column.wins.forEach((win, k) => place(win,
@@ -743,6 +747,197 @@ export function mountDesk(root, { reducedMotion, onCommand = () => {}, size }) {
   };
   tick();
   setInterval(tick, 15000);
+
+  // Trackpad swipes as Defi takes them with scroll_gestures on and the default mod: a swipe that
+  // starts with ⌃⌥ held. Its first 16 points pick the axis. Sideways the strip follows the fingers,
+  // with a rubber band past its ends; on release the column whose resting place lies nearest the
+  // projected stop takes focus, the next one at most. Vertically the workspaces follow, one at most.
+  // While the fingers move, one layer slides on the `translate` property, which no transition
+  // watches, once per frame; on release Defi's spring carries the fingers' speed into the landing.
+  // Browsers report no finger lift: the strip follows every event one to one, momentum included,
+  // as a native scroll does, and hands over to the spring once the motion has died down or stops.
+  let pan = null;
+  let glide = null;
+  let panTimer = 0;
+  let panFrame = 0;
+  const PROJECTION = -1 / (1000 * Math.log(0.997)); // seconds of release speed a flick carries, as Niri
+  const rubberBand = (value, low, high, dimension) => {
+    const resist = over => (1 - 1 / ((over * 0.55) / dimension + 1)) * dimension;
+    return value < low ? low - resist(low - value) : value > high ? high + resist(value - high) : value;
+  };
+  // Each column's resting scroll, as key presses stepping to it from the view before the swipe.
+  function columnRests(space, rest) {
+    const frames = layout(space);
+    if (!frames.length) return [{ column: space.focus, scroll: rest }]; // the empty workspace only rubber-bands
+    const rests = [{ column: space.focus, scroll: reveal(frames[space.focus], rest) }];
+    for (const step of [-1, 1]) {
+      let scroll = step < 0 ? rest : rests[0].scroll;
+      for (let i = space.focus + step; frames[i]; i += step) rests.push({ column: i, scroll: (scroll = reveal(frames[i], scroll)) });
+    }
+    return rests.sort((a, b) => a.column - b.column);
+  }
+  // How far the shown strip (x) or workspace stack (y) sits past its laid-out place, in desk points.
+  const shift = (axis, value) => {
+    if (axis === 'x') rowFor(spaces[active]).style.translate = value ? `${-value}px 0` : '';
+    else track.style.translate = value ? `0 ${-value}px` : '';
+  };
+  // Changes the layout under a shifted layer without visible motion: no transition sees it.
+  function commit(change, axis, value) {
+    root.classList.add('is-panning');
+    change();
+    render();
+    shift(axis, value);
+    void root.offsetWidth;
+    root.classList.remove('is-panning');
+  }
+  const panShift = () => (pan.axis === 'x'
+    ? rubberBand(pan.rest + pan.travel, pan.low, pan.high, W) - pan.rest
+    : rubberBand(pan.travel, pan.low, pan.high, H));
+  function stopSwipe() {
+    if (glide) cancelAnimationFrame(glide.frame);
+    cancelAnimationFrame(panFrame);
+    clearTimeout(panTimer);
+    glide = pan = null;
+    panFrame = 0;
+    track.style.translate = '';
+    rows.forEach(row => { row.style.translate = ''; });
+  }
+  function drawPan() {
+    panFrame = 0;
+    if (pan && !pan.lifted) shift(pan.axis, panShift());
+  }
+  // Defi's critically damped spring, started at the fingers' speed: x(t) = (x0 + (v0 + ωx0)t)e^(−ωt).
+  function startGlide(axis, from, velocity) {
+    if (reducedMotion.matches || Math.abs(from) < 0.5) return shift(axis, 0);
+    const begin = performance.now() - 8; // the hand-over lands mid-frame
+    const step = now => {
+      const t = Math.max(0, now - begin) / 1000;
+      const value = (from + (velocity + OMEGA * from) * t) * Math.exp(-OMEGA * t);
+      if (t > SPRING_S) { glide = null; return shift(axis, 0); }
+      glide.value = value;
+      shift(axis, value);
+      glide.frame = requestAnimationFrame(step);
+    };
+    glide = { axis, value: from, frame: requestAnimationFrame(step) };
+  }
+  // Travel per second over the events between `from` and `to` ms before the latest one.
+  function speedOver(from, to) {
+    const end = pan.history.at(-1).t;
+    const span = pan.history.filter(h => h.t <= end - from && h.t >= end - to);
+    const dt = span.length > 1 ? span.at(-1).t - span[0].t : 0;
+    return dt > 0 ? ((span.at(-1).travel - span[0].travel) / dt) * 1000 : 0;
+  }
+  const panVelocity = () => {
+    const inBounds = pan.axis === 'x' ? pan.rest + pan.travel >= pan.low && pan.rest + pan.travel <= pan.high : pan.travel >= pan.low && pan.travel <= pan.high;
+    return inBounds ? Math.max(-10000, Math.min(10000, speedOver(0, 50))) : 0;
+  };
+  // Where a release now would land: the column (x) or workspace step (y).
+  function landing(velocity) {
+    const shown = panShift();
+    const projected = pan.travel + velocity * PROJECTION;
+    if (pan.axis === 'y') {
+      const step = Math.max(-1, Math.min(1, Math.round(projected / H)));
+      const moved = Math.max(0, Math.min(spaces.length - 1, active + step)) - active;
+      return { moved, shown };
+    }
+    const current = pan.rest + shown;
+    const target = pan.rest + projected;
+    const forward = target >= current;
+    const ends = pan.rests.map(r => r.scroll).sort((a, b) => a - b);
+    const limit = forward ? ends.find(e => e > current + 1e-6) ?? ends.at(-1) : ends.findLast(e => e < current - 1e-6) ?? ends[0];
+    const stop = forward ? Math.min(target, limit) : Math.max(target, limit);
+    const distance = r => Math.abs(r.scroll - stop);
+    const nearest = Math.min(...pan.rests.map(distance));
+    const tied = pan.rests.filter(r => distance(r) - nearest < 1e-6);
+    const towards = Math.abs(stop - current) > 1e-6 ? forward : current >= pan.rest;
+    const chosen = tied.find(r => r.column === spaces[active].focus) ?? (towards ? tied.at(-1) : tied[0]);
+    return { chosen, shown };
+  }
+  function liftPan(stopped = false) {
+    clearTimeout(panTimer);
+    cancelAnimationFrame(panFrame);
+    panFrame = 0;
+    const velocity = stopped ? 0 : panVelocity();
+    const land = landing(velocity);
+    const space = spaces[active];
+    pan.lifted = true;
+    pan.tail = pan.history.slice(-3).map(e => e.raw);
+    if (pan.axis === 'x') {
+      const { chosen, shown } = land;
+      const current = pan.rest + shown;
+      commit(() => Object.assign(space, { layer: 'tiled', focus: chosen.column, scroll: chosen.scroll }), 'x', current - chosen.scroll);
+      startGlide('x', current - chosen.scroll, velocity);
+      onCommand('Swipe', `focus-column ${chosen.column + 1}`);
+    } else {
+      const { moved, shown } = land;
+      if (moved) commit(() => act(moved > 0 ? 'focus-workspace down' : 'focus-workspace up'), 'y', shown - moved * H);
+      startGlide('y', shown - moved * H, velocity);
+      onCommand('Swipe', moved ? `workspace ${active + 1}` : 'swipe');
+    }
+    panTimer = setTimeout(() => { pan = null; }, 150);
+  }
+  function beginPan(axis) {
+    pan.axis = axis;
+    if (axis === 'x') {
+      pan.rests = columnRests(spaces[active], pan.rest);
+      const ends = pan.rests.map(r => r.scroll);
+      [pan.low, pan.high] = [Math.min(...ends), Math.max(...ends)];
+    } else {
+      [pan.low, pan.high] = [Math.max(-H, -active * H), Math.min(H, (spaces.length - 1 - active) * H)];
+    }
+  }
+  root.addEventListener('wheel', event => {
+    const raw = Math.hypot(event.deltaX, event.deltaY) * (event.deltaMode ? 16 : 1);
+    if (pan?.lifted) {
+      // The swipe's momentum dies away unseen; it only ever slows. A step well above the last few, or
+      // steps that hold their pace, are the fingers moving on, and take the strip from where it is shown.
+      event.preventDefault();
+      clearTimeout(panTimer);
+      const speedingUp = raw > 3 && raw > Math.max(...pan.tail) * 1.5;
+      pan.tail = pan.tail.slice(-2).concat(raw);
+      const holding = raw > 2 && pan.tail.length === 3 && pan.tail.every((r, i) => !i || r >= pan.tail[i - 1] * 0.98);
+      if (!(speedingUp || holding) || !(event.ctrlKey && event.altKey)) return void (panTimer = setTimeout(() => { pan = null; }, 150));
+      pan = null;
+    }
+    if (!pan) {
+      if (!(event.ctrlKey && event.altKey) || overview || drag) return;
+      if (messy) launch({ quick: true });
+      hideSheet();
+      closeMenu();
+      pan = { rest: spaces[active].scroll, x: 0, y: 0, axis: null, travel: 0, history: [], lifted: false };
+      // Caught mid-landing, the swipe goes on from where the strip is shown.
+      if (glide) {
+        cancelAnimationFrame(glide.frame);
+        pan[glide.axis] = pan.travel = glide.value;
+        beginPan(glide.axis);
+        glide = null;
+      }
+      onCommand('Swipe', null);
+    }
+    event.preventDefault();
+    clearTimeout(panTimer);
+    const k = (H / root.getBoundingClientRect().height) * (event.deltaMode ? 16 : 1);
+    pan.x += event.deltaX * k;
+    pan.y += event.deltaY * k;
+    if (!pan.axis) {
+      if (Math.hypot(pan.x, pan.y) < 16) return void (panTimer = setTimeout(() => { pan = null; onCommand('Swipe', 'cancel'); }, 150));
+      beginPan(Math.abs(pan.x) >= Math.abs(pan.y) ? 'x' : 'y');
+    }
+    pan.travel = pan[pan.axis];
+    pan.history.push({ t: event.timeStamp, travel: pan.travel, raw });
+    panFrame ||= requestAnimationFrame(drawPan);
+    // Lands when the events stop, or once the motion has slowed to a crawl (momentum's long tail).
+    const recent = pan.history.filter(e => e.t > event.timeStamp - 80);
+    const crawling = event.timeStamp - pan.history[0].t > 200 && recent.reduce((sum, e) => sum + e.raw, 0) < 8;
+    // Momentum picks up at the lift speed and fades by steady steps, about a quarter every 40 ms;
+    // fingers that brake hard and drive on do not. From there Defi's spring takes over at that speed.
+    const v = [0, 40, 80, 120].map(from => Math.abs(speedOver(from, from + 40)));
+    const ratios = v.slice(0, 3).map((speed, i) => speed / v[i + 1]);
+    const slowing = event.timeStamp - pan.history[0].t > 160 && v[3] > 300 && ratios.every(r => r > 0.6 && r < 0.88)
+      && Math.max(...ratios) - Math.min(...ratios) < 0.12;
+    if (crawling || slowing) liftPan();
+    else panTimer = setTimeout(() => liftPan(true), 100); // fingers at rest: no speed to carry
+  }, { passive: false });
 
   const fit = (width, height) => {
     W = Math.max(MIN_W, (H * width) / height);

@@ -131,7 +131,7 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .win.is-focused{box-shadow:0 0 0 4px #fff}
 .win.is-focused .app{box-shadow:0 0 0 .5px #0006,0 36px 80px -8px #000d}
 .is-tidying .win{transition-duration:1s;transition-timing-function:cubic-bezier(.25,.9,.25,1)}
-.no-anim .track,.no-anim .ws,.no-anim .win,.no-anim .ov-backdrop{transition:none!important}
+.is-panning .track,.is-panning .ws,.is-panning .win,.no-anim .track,.no-anim .ws,.no-anim .win,.no-anim .ov-backdrop{transition:none!important}
 .ov-title{position:absolute;inset:0 0 auto;z-index:1;display:flex;align-items:flex-start;gap:17px;height:137px;padding:21px 21px 0;background:linear-gradient(#0000007a,#00000045 25%,#0000001f 50%,#00000008 75%,#0000);font:500 28px/51px -apple-system,BlinkMacSystemFont,sans-serif;color:#ffffffe6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity .2s;pointer-events:none;border-radius:inherit}
 .ov-title .app-icon{width:51px;height:51px;border-radius:12px;flex:none}
 .is-overview .ov-title{opacity:1;transition-delay:.1s}
@@ -204,7 +204,6 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .app-icon[data-app=notes]{background:#fffdf5}
 .app-icon[data-app=mail]{background:linear-gradient(#64b5ff,#1e6ff2)}
 .app-icon[data-app=music]{background:linear-gradient(#ff6a88,#f2264f)}
-.app-icon[data-app=figma]{background:#1e1e1e}
 
 /* App windows (macOS 27: tighter corners, deeper shadows, frostier glass) */
 .lights{display:flex;gap:9px;flex:none}
@@ -353,33 +352,17 @@ aside p.on{background:#ffffff1f}
 .player p{margin:0;display:grid;font-size:12px;color:#ffffff99}
 .player b{color:#fff;font-size:13px}
 .player span{margin-left:auto;letter-spacing:6px}
-.app-figma{background:#2c2c2c}
-.tb-figma{height:40px;background:#1e1e1e}
-.fig{display:flex;flex:1;min-height:0;color:#fff;font-size:12px}
-.fig aside{width:220px;flex:none;padding:10px;background:#1e1e1e}
-.fig aside p{margin:0;padding:5px 8px;border-radius:5px}
-.fig aside .i1{padding-left:24px}
-.fig aside .on{background:#0c8ce9}
-.fig .props{width:200px}
-.fig .props i{display:inline-block;width:12px;height:12px;margin-right:8px;border-radius:3px;background:#1b1b1d;box-shadow:0 0 0 1px #fff4;vertical-align:-1px}
-.fig .canvas{position:relative;flex:1;min-width:0;display:grid;place-items:center}
-.frame{position:relative;width:70%;aspect-ratio:16/10;background:#1b1b1d;box-shadow:0 0 0 1px #0c8ce9}
-.frame::before{content:'Hero';position:absolute;top:-18px;left:0;color:#0c8ce9}
-.f-h{position:absolute;top:12%;left:0;right:0;text-align:center;font:500 44px var(--display);color:#fff}
-.f-d{position:absolute;left:12%;right:12%;top:42%;bottom:6%;border-radius:8px;background:url('./public/media/horizon-artwork.webp') center/cover}
-.f-c{position:absolute;top:47%;left:15%;width:44%;bottom:12%;border-radius:4px;background:#fff;box-shadow:0 0 0 2px #fff}
-.f-c.two{left:61%;width:23%;box-shadow:none;background:#16171f}
 @keyframes blink{50%{opacity:0}}
 
 .keypad{display:flex;justify-content:center;flex-wrap:wrap;gap:6px;max-width:100%;margin:24px auto 0}
 @media (max-width:1479px){.desk-stage{--legend-reserve:190px}}
 @media (min-width:601px) and (max-width:700px){.desk-stage{--legend-reserve:230px}}
-.keypad button{display:inline-flex;align-items:center;gap:4px;height:34px;white-space:nowrap;padding:0 6px;background:none;font-size:13px;color:var(--muted);transition:transform .15s,color .15s}
-.keypad button span:not(.visually-hidden){margin-left:5px}
+.keypad button,.keypad-swipe{display:inline-flex;align-items:center;gap:4px;height:34px;white-space:nowrap;padding:0 6px;background:none;font-size:13px;color:var(--muted);transition:transform .15s,color .15s}
+.keypad button span:not(.visually-hidden),.keypad-swipe span:not(.visually-hidden){margin-left:5px}
 .keypad button:hover kbd{background:#3a3a40}
-.keypad button:hover,.keypad button.pressed{color:var(--ink)}
+.keypad button:hover,.keypad button.pressed,.keypad-swipe.pressed{color:var(--ink)}
 .keypad button.pressed{transform:translateY(1px)}
-.keypad button.pressed kbd{background:#fff;border-color:#fff;color:#111}
+.keypad button.pressed kbd,.keypad-swipe.pressed kbd{background:#fff;border-color:#fff;color:#111}
 
 /* Sections */
 section{scroll-margin-top:80px}
@@ -443,8 +426,6 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 .ill-hz>span{margin-top:.14em;font-size:.28em;letter-spacing:0;color:var(--muted)}
 .b-5 .card-art{min-height:260px;-webkit-mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);mask-composite:intersect}
 .ill-shot{position:absolute;top:28px;left:28px;max-width:none;width:max(112%,460px);height:auto}
-.ill-code{width:100%;margin:0;padding:16px 14px;border-radius:14px;background:#141416;box-shadow:0 0 0 1px #ffffff1f,0 24px 50px -24px #000;font:500 clamp(10px,5.4cqi,14px)/1.7 var(--mono);color:var(--muted);white-space:pre;overflow:hidden}
-.ill-code b{font-weight:inherit;color:#54afff}
 .ill-monitors{display:flex;align-items:flex-end;gap:12px;width:min(100%,420px)}
 .mon{flex:5;height:auto;aspect-ratio:16/10;gap:3px;padding:11px 4px 4px;border-radius:8px;overflow:visible;box-shadow:0 0 0 3px #0b0b0d,0 0 0 4px #ffffff24,0 24px 40px -18px #000}
 .mon::before{height:7px;border-radius:8px 8px 0 0}
@@ -454,6 +435,39 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 .mon .mw::before,.mon .mw:not(.on)::before{height:7px;border-radius:4px 4px 0 0;background:#ffffff14}
 .mon .mw.on{box-shadow:0 0 0 1.5px #fff}
 .mon .mw .app-icon{width:62%;max-width:30px}
+/* One 8 s timeline: fingers land, drag, lift; the strip follows, coasts past and settles on the next column, then back. */
+.ill-swipe{--swipe:8s;display:grid;justify-items:center;gap:18px;width:100%}
+.swipe-view{position:relative;width:min(100%,320px);height:84px;padding:16px 0 8px;border-radius:12px;overflow:hidden;background:var(--wallpaper);-webkit-mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent);mask-image:linear-gradient(90deg,transparent,#000 18%,#000 82%,transparent)}
+.swipe-view::before{content:'';position:absolute;inset:0 0 auto;height:10px;background:#0006}
+.swipe-track{display:flex;gap:6px;height:100%;margin-left:calc(50% - 214px);animation:swipe-track var(--swipe) infinite}
+.swipe-track .mw{flex:none;width:56px}
+.swipe-track .mw:nth-child(4){box-shadow:0 0 0 2px #fff,0 14px 28px -10px #000;animation:swipe-focus-a var(--swipe) infinite}
+.swipe-track .mw:nth-child(5){animation:swipe-focus-b var(--swipe) infinite}
+.trackpad{position:relative;width:180px;height:112px;border-radius:14px;background:linear-gradient(#2c2c32,#1e1e23);box-shadow:inset 0 1px #ffffff14,inset 0 0 0 1px #ffffff1a,0 18px 36px -18px #000}
+.trackpad i{position:absolute;top:34%;left:62%;width:18px;height:18px;border-radius:50%;background:#ffffff59;box-shadow:0 0 0 1px #ffffff40,0 0 18px 4px #ffffff1f;animation:swipe-finger var(--swipe) infinite}
+.trackpad i+i{top:44%;left:calc(62% + 26px);animation-delay:40ms}
+@keyframes swipe-track{
+  0%,11%{transform:translateX(0);animation-timing-function:cubic-bezier(.45,0,.75,.6)}
+  28%{transform:translateX(-44px);animation-timing-function:cubic-bezier(.15,.6,.3,1)}
+  38%{transform:translateX(-68px);animation-timing-function:cubic-bezier(.4,0,.2,1)}
+  45%,56%{transform:translateX(-62px);animation-timing-function:cubic-bezier(.45,0,.75,.6)}
+  73%{transform:translateX(-18px);animation-timing-function:cubic-bezier(.15,.6,.3,1)}
+  83%{transform:translateX(6px);animation-timing-function:cubic-bezier(.4,0,.2,1)}
+  90%,100%{transform:translateX(0)}
+}
+@keyframes swipe-finger{
+  0%,8%{opacity:0;translate:0;scale:1.35}
+  11%{opacity:1;translate:0;scale:1;animation-timing-function:cubic-bezier(.45,0,.75,.6)}
+  28%{opacity:1;translate:-70px;scale:1;animation-timing-function:ease-out}
+  33%{opacity:0;translate:-80px;scale:1.15}
+  53%{opacity:0;translate:-70px;scale:1.35}
+  56%{opacity:1;translate:-70px;scale:1;animation-timing-function:cubic-bezier(.45,0,.75,.6)}
+  73%{opacity:1;translate:0;scale:1;animation-timing-function:ease-out}
+  78%{opacity:0;translate:10px;scale:1.15}
+  100%{opacity:0;translate:0;scale:1.35}
+}
+@keyframes swipe-focus-a{0%,38%,87%,100%{box-shadow:0 0 0 2px #fff,0 14px 28px -10px #000}42%,83%{box-shadow:0 0 0 .5px #ffffff2e,0 12px 22px -12px #000b}}
+@keyframes swipe-focus-b{0%,38%,87%,100%{box-shadow:0 0 0 .5px #ffffff2e,0 12px 22px -12px #000b}42%,83%{box-shadow:0 0 0 2px #fff,0 14px 28px -10px #000}}
 .ill-native{display:grid;justify-items:center;gap:22px;width:100%}
 /* macOS Command-Tab: glass panel, a rounded highlight behind the chosen app, its name below */
 .cmdtab{display:flex;gap:4px;padding:10px 10px 28px;border-radius:22px;background:#2a2a30d9;backdrop-filter:blur(20px);box-shadow:inset 0 0 0 1px #ffffff1f,0 24px 50px -16px #000}
@@ -544,6 +558,6 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 @media (prefers-reduced-motion:reduce){
   .hero-bg i,.hword{animation:none}
   html{scroll-behavior:auto}
-  .term u,.foot-art *,.hz-light i{animation:none!important}
+  .term u,.foot-art *,.hz-light i,.swipe-track,.swipe-track .mw,.trackpad i{animation:none!important}
   .reveal{opacity:1;transform:none}
 }
