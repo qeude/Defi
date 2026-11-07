@@ -22,7 +22,7 @@ struct MenuBarTests {
     )
     let menu = NSHostingMenu(rootView: MenuBarContent(state: state, commandHandler: { commands.append($0) }))
     menu.update()
-    #expect(menu.items.map { $0.isSeparatorItem ? "-" : $0.title } == ["Workspaces", "Settings…", "-", "Quit Defi"])
+    #expect(menu.items.map { $0.isSeparatorItem ? "-" : $0.title } == ["Workspaces", "Settings…", "-", "Support Defi…", "-", "Quit Defi"])
     #expect(menu.items.allSatisfy { $0.image == nil })
     let settings = try #require(menu.items.first { $0.title == "Settings…" })
     #expect(settings.keyEquivalent == ",")
