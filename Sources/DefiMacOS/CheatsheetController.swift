@@ -238,6 +238,8 @@ func shortcutGroups(
       if chords.contains(base) { shifted[base] = binding }
     }
   }
+  // A chord with its own companion keeps its row instead of joining another.
+  shifted = shifted.filter { shifted[$0.value.chord($0.value.modifiers)] == nil }
   let paired = Set(shifted.values.map { $0.chord($0.modifiers) })
   // Alternative keys for the same commands, such as H beside ←, show once: arrows first,
   // Home, End and the page keys last.

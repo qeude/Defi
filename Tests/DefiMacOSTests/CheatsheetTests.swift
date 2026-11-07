@@ -93,6 +93,18 @@ struct CheatsheetHotKeyTests {
   }
 
   @Test
+  func `A chord with its own companion keeps its row`() {
+    let config = Config(keys: [
+      "ctrl-g": "focus-column left", "ctrl-cmd-g": "move-column left",
+      "ctrl-cmd-shift-g": "center-column",
+    ])
+    let rows = shortcutGroups(config: config).flatMap(\.rows)
+    #expect(rows.contains(ShortcutRow(modifiers: "⌃", key: "G", action: "Column left", shifted: nil)))
+    #expect(rows.contains(ShortcutRow(modifiers: "⌃⌘", key: "G", action: "Move column left",
+      shifted: ShiftedShortcut(modifiers: "⌃⇧⌘", action: "Center column"))))
+  }
+
+  @Test
   func `Help includes configured overrides and can abbreviate mod`() {
     let config = Config(
       mod: "alt+cmd+ctrl",
