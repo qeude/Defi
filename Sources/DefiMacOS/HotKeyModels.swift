@@ -81,6 +81,9 @@ func overviewKeyAction(
     // move whole columns once overview drops can carry a column.
     case .moveColumnToMonitor(let direction), .moveWindowToMonitor(let direction):
       return .moveToMonitor(direction)
+    // shortcut: the overview keeps the move inside the strip; crossing monitors there
+    // needs overview drops that carry a column.
+    case .moveColumnOrToMonitor(let direction): return .layout(.moveColumn(direction))
     default:
       if command.editsSelectedLayout { return .layout(command) }
     }
@@ -95,6 +98,7 @@ func overviewKeyAction(
   let navigatesOverview =
     modifierBits == 0
     || commandName == "focus-column"
+    || commandName == "focus-column-or-monitor"
     || commandName == "focus-window"
     || commandName == "focus-window-or-workspace"
   return switch keyCode {

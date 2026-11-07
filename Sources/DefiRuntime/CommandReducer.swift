@@ -62,8 +62,21 @@ public func reduce(
 public func resolvedCommand(
   _ command: Command,
   on monitorID: MonitorID?,
-  state: RuntimeState
+  state: RuntimeState,
+  monitorFrames: [MonitorID: Rect] = [:]
 ) -> Command {
+  switch command {
+  case .focusColumnOrMonitor(let direction):
+    return columnOrMonitorCommand(
+      inStrip: .focusColumn(direction), acrossMonitors: .focusMonitor(direction),
+      direction: direction, on: monitorID, state: state, monitorFrames: monitorFrames)
+  case .moveColumnOrToMonitor(let direction):
+    return columnOrMonitorCommand(
+      inStrip: .moveColumn(direction), acrossMonitors: .moveColumnToMonitor(direction),
+      direction: direction, on: monitorID, state: state, monitorFrames: monitorFrames)
+  default:
+    break
+  }
   guard case .focusWindowOrWorkspace(let direction) = command,
     let monitor = state.monitors.first(where: { $0.id == monitorID }) ?? state.monitors.first
   else { return command }
@@ -78,6 +91,29 @@ public func resolvedCommand(
     ? column.focusedWindow <= 0
     : column.focusedWindow >= column.windows.count - 1
   return atStackEnd && workspace.focusedLayer == .tiled ? crossesWorkspace : .focusWindow(direction)
+}
+
+/// Crosses to the neighbouring monitor on the desk only from the strip edge in
+/// `direction`, or from an empty workspace; otherwise stays the in-strip command.
+private func columnOrMonitorCommand(
+  inStrip: Command,
+  acrossMonitors: Command,
+  direction: Direction,
+  on monitorID: MonitorID?,
+  state: RuntimeState,
+  monitorFrames: [MonitorID: Rect]
+) -> Command {
+  guard
+    let monitor = state.monitors.first(where: { $0.id == monitorID }) ?? state.monitors.first,
+    spatialMonitor(from: monitor.id, toward: direction, frames: monitorFrames) != nil,
+    let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
+  else { return inStrip }
+  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return acrossMonitors }
+  let atStripEdge =
+    direction == .left
+    ? workspace.focusedColumn == 0
+    : workspace.focusedColumn == workspace.columns.count - 1
+  return atStripEdge && workspace.focusedLayer == .tiled ? acrossMonitors : inStrip
 }
 
 public func reduce(
@@ -95,7 +131,8 @@ public func reduce(
       state.monitors.firstIndex(where: { $0.id == requestedID })
     } ?? 0
   let layout = state.layout
-  let command = resolvedCommand(command, on: state.monitors[monitorIndex].id, state: state)
+  let command = resolvedCommand(
+    command, on: state.monitors[monitorIndex].id, state: state, monitorFrames: monitorFrames)
 
   if let selectedWindowID = state.selectedWindowID(on: state.monitors[monitorIndex].id),
     state.nativeFullscreenWindowIDs.contains(selectedWindowID),
@@ -376,7 +413,7 @@ public func reduce(
         throw ReducerError.unknownWindow(windowID)
       }
       focusWindow(windowID, state: &state)
-    case .focusMonitor, .focusWindowOrWorkspace:
+    case .focusMonitor, .focusWindowOrWorkspace, .focusColumnOrMonitor, .moveColumnOrToMonitor:
       break
     case .joinWindow(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
@@ -481,15 +518,15 @@ private func joinTargetsNativeFullscreenColumn(
 
 private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool {
   switch command {
-  case .moveColumn, .moveWindow, .moveColumnToMonitor, .moveWindowToMonitor,
+  case .moveColumn, .moveWindow, .moveColumnToMonitor, .moveColumnOrToMonitor, .moveWindowToMonitor,
     .moveWindowToWorkspace, .sendWindowToWorkspace, .cycleWidth,
     .moveColumnToWorkspace, .moveWindowToWorkspaceTarget,
     .reorderWorkspace, .moveWorkspaceToMonitor,
     .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn, .centerVisibleColumns,
     .toggleFloating, .joinWindow, .unjoinWindows:
     true
-  case .focusColumn, .focusFloating, .focusWindow, .focusWindowOrWorkspace, .focusWindowPrevious,
-    .focusWindowID, .switchWorkspace, .focusWorkspace, .focusMonitor,
+  case .focusColumn, .focusColumnOrMonitor, .focusFloating, .focusWindow, .focusWindowOrWorkspace,
+    .focusWindowPrevious, .focusWindowID, .switchWorkspace, .focusWorkspace, .focusMonitor,
     .activateFloating, .toggleOverview, .toggleCheatsheet, .openSettings, .runStartupCommands:
     false
   }

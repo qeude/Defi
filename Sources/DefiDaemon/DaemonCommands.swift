@@ -464,7 +464,8 @@ extension Daemon {
       } else {
         commandMonitorID = activeMonitorID ?? state.monitors.first?.id
       }
-      let command = resolvedCommand(parsedCommand, on: commandMonitorID, state: state)
+      let command = resolvedCommand(
+        parsedCommand, on: commandMonitorID, state: state, monitorFrames: routingMonitorFrames)
       if !floatingFramesRefreshed, platform.hasPendingMouseResizeGesture,
         commandActivatesWorkspace(command, state: state) || command.movesWindowBetweenWorkspaces
           || command.movesWindowsAcrossMonitors,

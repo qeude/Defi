@@ -26,6 +26,8 @@ public func parseCommand(_ input: String) throws -> Command {
   switch name {
   case "focus-column":
     return .focusColumn(try parseDirection(argument("direction")))
+  case "focus-column-or-monitor":
+    return .focusColumnOrMonitor(try parseHorizontalDirection(argument("direction")))
   case "focus-floating":
     return .focusFloating(try parseDirection(argument("direction")))
   case "move-column":
@@ -44,6 +46,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .moveColumnToMonitor(
       try parseSpatialDirection(argument("direction"))
     )
+  case "move-column-or-to-monitor":
+    return .moveColumnOrToMonitor(try parseHorizontalDirection(argument("direction")))
   case "move-window-to-monitor":
     return .moveWindowToMonitor(
       try parseSpatialDirection(argument("direction"))
@@ -193,6 +197,14 @@ private func parseWorkspacePosition(_ input: String) throws -> WorkspaceTarget {
 private func parseVerticalDirection(_ input: String) throws -> Direction {
   let direction = try parseDirection(input)
   guard [.up, .down].contains(direction) else {
+    throw CommandParseError.invalidDirection(input)
+  }
+  return direction
+}
+
+private func parseHorizontalDirection(_ input: String) throws -> Direction {
+  let direction = try parseDirection(input)
+  guard [.left, .right].contains(direction) else {
     throw CommandParseError.invalidDirection(input)
   }
   return direction

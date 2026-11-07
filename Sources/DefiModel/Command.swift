@@ -20,10 +20,12 @@ public enum WorkspaceTarget: Equatable, Codable, Sendable {
 
 public enum Command: Equatable, Codable, Sendable {
   case focusColumn(Direction)
+  case focusColumnOrMonitor(Direction)
   case focusFloating(Direction)
   case moveColumn(Direction)
   case moveWindow(Direction)
   case moveColumnToMonitor(Direction)
+  case moveColumnOrToMonitor(Direction)
   case moveWindowToMonitor(Direction)
   case focusWindow(Direction)
   case focusWindowOrWorkspace(Direction)
