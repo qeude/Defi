@@ -818,6 +818,7 @@ struct DaemonCommandPolicyTests {
     state.monitors[0].workspaces[1].columns = [Column(window: b, width: .fraction(0.5))]
     state.monitors[1].workspaces[0].columns = [Column(window: c, width: .fraction(0.5))]
     state.monitors[0].activeWorkspace = WorkspaceID(rawValue: "one")
+    state.maintainWorkspaceLifecycle()
     let command = Command.focusWindowPrevious
 
     #expect(!commandActivatesWorkspace(command, state: state))
