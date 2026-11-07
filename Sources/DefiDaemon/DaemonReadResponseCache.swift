@@ -13,6 +13,8 @@ final class DaemonReadResponseCache: @unchecked Sendable {
     "trace",
     "list-workspaces",
     "list-workspaces --json",
+    "list-windows",
+    "list-windows --json",
   ]
 
   private let lock = NSLock()

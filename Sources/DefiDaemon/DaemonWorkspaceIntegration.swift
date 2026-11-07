@@ -33,13 +33,30 @@ extension Daemon {
     )
   }
 
+  func currentWindowList() -> WindowListSnapshot {
+    makeWindowListSnapshot(
+      monitors: state.monitors,
+      windows: state.windows,
+      displayOrder: latestMonitors.map(\.id),
+      focusedMonitorID: activeMonitorID,
+      appName: { [self] window in
+        guard let processID = window.processID else { return nil }
+        if let name = applicationNames[processID] { return name }
+        let name = NSRunningApplication(processIdentifier: processID)?.localizedName
+        applicationNames[processID] = name
+        return name
+      }
+    )
+  }
+
   func workspaceStateJSON() throws -> String {
+    try sortedJSON(currentWorkspaceState())
+  }
+
+  func sortedJSON(_ value: some Encodable) throws -> String {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.sortedKeys]
-    return String(
-      decoding: try encoder.encode(currentWorkspaceState()),
-      as: UTF8.self
-    )
+    return String(decoding: try encoder.encode(value), as: UTF8.self)
   }
 
   func publishWorkspaceStateIfNeeded() {
@@ -55,6 +72,9 @@ extension Daemon {
     lastWorkspacePublishDisplayOrder = displayOrder
     lastWorkspacePublishFocusedMonitorID = activeMonitorID
     let snapshot = currentWorkspaceState()
+    eventStreamHub.publish(
+      EventStreamState(workspaces: snapshot, windows: currentWindowList().windows)
+    )
     guard snapshot != lastPublishedWorkspaceState else { return }
     do {
       let data = try JSONEncoder().encode(snapshot)

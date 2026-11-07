@@ -84,6 +84,12 @@ The versioned JSON contains:
 Distributed notifications contain the same JSON object in SketchyBar's `$INFO`
 variable. Defi emits only when this state changes.
 
+Both come from the daemon's one state publication: `defi subscribe --json`
+carries the same object in its `snapshot`, `workspaces-changed`, and
+`monitors-changed` events, along with focus and window events, for tools that
+keep a connection open instead. See
+[Event stream](../../CONFIGURATION.md#event-stream).
+
 ## Native Defi menu item
 
 Disable Defi's native status item when SketchyBar replaces it:

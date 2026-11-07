@@ -162,4 +162,26 @@ struct FocusWindowOrWorkspaceTests {
       #expect(resolvedCommand(command, on: monitorID, state: state) == command)
     }
   }
+
+  @Test
+  func `Focusing a window by ID activates its workspace and selects it`() throws {
+    var state = makeState()
+
+    try reduce(.focusWindowID(WindowID(rawValue: 31)), on: monitorID, state: &state)
+
+    #expect(active(state) == third)
+    #expect(focusedWindow(state, in: third) == 1)
+    #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 31))
+  }
+
+  @Test
+  func `Focusing an unknown window ID changes nothing`() {
+    var state = makeState()
+    let before = state
+
+    #expect(throws: ReducerError.unknownWindow(WindowID(rawValue: 99))) {
+      try reduce(.focusWindowID(WindowID(rawValue: 99)), on: monitorID, state: &state)
+    }
+    #expect(state == before)
+  }
 }

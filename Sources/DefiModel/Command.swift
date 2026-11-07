@@ -28,6 +28,7 @@ public enum Command: Equatable, Codable, Sendable {
   case focusWindow(Direction)
   case focusWindowOrWorkspace(Direction)
   case focusWindowPrevious
+  case focusWindowID(WindowID)
   case moveWindowToWorkspace(WorkspaceID)
   case sendWindowToWorkspace(WorkspaceID)
   case switchWorkspace(WorkspaceID)
@@ -77,7 +78,7 @@ public enum Command: Equatable, Codable, Sendable {
 
   public var activatesWorkspace: Bool {
     switch self {
-    case .switchWorkspace, .moveWindowToWorkspace, .focusWorkspace,
+    case .switchWorkspace, .moveWindowToWorkspace, .focusWorkspace, .focusWindowID,
       .moveColumnToWorkspace(_, follow: true),
       .moveWindowToWorkspaceTarget(_, follow: true), .moveWorkspaceToMonitor,
       .focusMonitor:

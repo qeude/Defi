@@ -99,6 +99,9 @@ final class Daemon {
   nonisolated let topologySessionID: String
   let diagnostics = DiagnosticRecorder()
   let readResponseCache = DaemonReadResponseCache()
+  let eventStreamHub = EventStreamHub()
+  /// shortcut: never pruned, so a reused process ID keeps a stale name until restart.
+  var applicationNames: [Int32: String] = [:]
   var focus = FocusState()
   var state: RuntimeState
   let overviewToggleState = OverviewToggleState()

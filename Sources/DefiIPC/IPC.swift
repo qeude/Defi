@@ -89,36 +89,19 @@ public func makeWorkspaceStateSnapshot(
   displayOrder: [MonitorID],
   focusedMonitorID: MonitorID?
 ) -> WorkspaceStateSnapshot {
-  let monitorByID = Dictionary(uniqueKeysWithValues: monitors.map { ($0.id, $0) })
-  let orderedIDs =
-    displayOrder.filter { monitorByID[$0] != nil }
-    + monitors.map(\.id).filter { displayOrder.contains($0) == false }
-  return WorkspaceStateSnapshot(
+  WorkspaceStateSnapshot(
     focusedMonitorID: focusedMonitorID?.rawValue,
-    monitors: orderedIDs.enumerated().compactMap { offset, monitorID in
-      guard let monitor = monitorByID[monitorID] else { return nil }
-      return MonitorWorkspaceSnapshot(
+    monitors: orderedMonitors(monitors, displayOrder: displayOrder).map { display, monitor in
+      MonitorWorkspaceSnapshot(
         id: monitor.id.rawValue,
-        display: offset + 1,
+        display: display,
         focused: monitor.id == focusedMonitorID,
         activeWorkspace: monitor.activeWorkspace.rawValue,
         workspaces: monitor.workspaces.enumerated().map { offset, workspace in
           let windowIDs = workspace.columns.flatMap(\.windows) + workspace.floatingWindows
           let workspaceWindows = windowIDs.compactMap { windows[$0] }
-          let focusedWindowID: WindowID? = {
-            guard workspace.id == monitor.activeWorkspace else { return nil }
-            if workspace.focusedLayer == .floating,
-              workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
-            {
-              return workspace.floatingWindows[workspace.focusedFloatingWindow]
-            }
-            guard workspace.columns.indices.contains(workspace.focusedColumn) else {
-              return nil
-            }
-            let column = workspace.columns[workspace.focusedColumn]
-            guard column.windows.indices.contains(column.focusedWindow) else { return nil }
-            return column.windows[column.focusedWindow]
-          }()
+          let focusedWindowID =
+            workspace.id == monitor.activeWorkspace ? selectedWindowID(in: workspace) : nil
           return WorkspaceSnapshot(
             id: workspace.id.rawValue,
             position: offset + 1,
@@ -133,6 +116,32 @@ public func makeWorkspaceStateSnapshot(
       )
     }
   )
+}
+
+/// Monitors in AppKit display order, each with its 1-based display index.
+func orderedMonitors(
+  _ monitors: [Monitor],
+  displayOrder: [MonitorID]
+) -> [(display: Int, monitor: Monitor)] {
+  let monitorByID = Dictionary(uniqueKeysWithValues: monitors.map { ($0.id, $0) })
+  let orderedIDs =
+    displayOrder.filter { monitorByID[$0] != nil }
+    + monitors.map(\.id).filter { displayOrder.contains($0) == false }
+  return orderedIDs.enumerated().compactMap { offset, monitorID in
+    monitorByID[monitorID].map { (offset + 1, $0) }
+  }
+}
+
+func selectedWindowID(in workspace: Workspace) -> WindowID? {
+  if workspace.focusedLayer == .floating,
+    workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
+  {
+    return workspace.floatingWindows[workspace.focusedFloatingWindow]
+  }
+  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
+  let column = workspace.columns[workspace.focusedColumn]
+  guard column.windows.indices.contains(column.focusedWindow) else { return nil }
+  return column.windows[column.focusedWindow]
 }
 
 public struct CommandResponse: Codable, Equatable, Sendable {
@@ -153,12 +162,17 @@ public struct CommandResponse: Codable, Equatable, Sendable {
   }
 }
 
-private let maximumIPCMessageBytes = 65_536
+private let maximumIPCRequestBytes = 65_536
+/// Large enough for `list-windows --json` with hundreds of long titles.
+private let maximumIPCResponseBytes = 4 << 20
+
+/// The request that turns a connection into an event stream.
+public let subscribeCommand = "subscribe"
 
 func encodedResponseForIPC(_ response: CommandResponse) throws -> Data {
   let encoder = JSONEncoder()
   let encoded = try encoder.encode(response)
-  guard encoded.count > maximumIPCMessageBytes else { return encoded }
+  guard encoded.count > maximumIPCResponseBytes else { return encoded }
   return try encoder.encode(CommandResponse.failure("IPC response too large"))
 }
 
@@ -168,6 +182,7 @@ public enum IPCError: Error, CustomStringConvertible, Sendable {
   case invalidResponse
   case requestTooLarge
   case readTimeout
+  case rejected(String)
 
   public var description: String {
     switch self {
@@ -181,6 +196,8 @@ public enum IPCError: Error, CustomStringConvertible, Sendable {
       "IPC request too large"
     case .readTimeout:
       "IPC request read timed out"
+    case .rejected(let message):
+      message
     }
   }
 }
@@ -246,7 +263,8 @@ public final class UnixSocketServer: @unchecked Sendable {
   public func poll(
     on clientQueue: DispatchQueue? = nil,
     handler: @escaping @Sendable (CommandRequest) -> CommandResponse,
-    completion: (@Sendable (CommandRequest) -> Void)? = nil
+    completion: (@Sendable (CommandRequest) -> Void)? = nil,
+    subscriber: (@Sendable (Int32) -> Void)? = nil
   ) throws -> Bool {
     let client = accept(descriptor, nil, nil)
     if client < 0 {
@@ -265,10 +283,10 @@ public final class UnixSocketServer: @unchecked Sendable {
     }
     if let clientQueue {
       clientQueue.async {
-        try? self.serve(client, handler: handler, completion: completion)
+        try? self.serve(client, handler: handler, completion: completion, subscriber: subscriber)
       }
     } else {
-      try serve(client, handler: handler, completion: completion)
+      try serve(client, handler: handler, completion: completion, subscriber: subscriber)
     }
     return true
   }
@@ -276,9 +294,11 @@ public final class UnixSocketServer: @unchecked Sendable {
   private func serve(
     _ client: Int32,
     handler: @Sendable (CommandRequest) -> CommandResponse,
-    completion: (@Sendable (CommandRequest) -> Void)?
+    completion: (@Sendable (CommandRequest) -> Void)?,
+    subscriber: (@Sendable (Int32) -> Void)?
   ) throws {
-    defer { Darwin.close(client) }
+    var handedOff = false
+    defer { if !handedOff { Darwin.close(client) } }
     var completedRequest: CommandRequest?
     defer {
       if let completedRequest {
@@ -286,8 +306,13 @@ public final class UnixSocketServer: @unchecked Sendable {
       }
     }
     do {
-      let requestData = try readLine(from: client)
+      let requestData = try readLine(from: client, limit: maximumIPCRequestBytes)
       let request = try JSONDecoder().decode(CommandRequest.self, from: requestData)
+      if request.command == subscribeCommand, let subscriber {
+        handedOff = true
+        subscriber(client)
+        return
+      }
       completedRequest = request
       var data = try encodedResponseForIPC(handler(request))
       data.append(0x0A)
@@ -313,23 +338,69 @@ public func sendCommand(
   }
   defer { Darwin.close(descriptor) }
 
+  try connectAndSend(
+    CommandRequest(command: command, monitorIndex: monitorIndex), on: descriptor, to: url
+  )
+  try configureReadTimeout(descriptor)
+  let responseData = try readLine(from: descriptor, limit: maximumIPCResponseBytes)
+  guard let response = try? JSONDecoder().decode(CommandResponse.self, from: responseData) else {
+    throw IPCError.invalidResponse
+  }
+  return response
+}
+
+/// Streams `defi subscribe` lines to `output` until the daemon closes the connection.
+public func subscribeToEvents(
+  to url: URL = SocketPath.defaultURL,
+  output: (Data) -> Void
+) throws {
+  let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+  guard descriptor >= 0 else {
+    throw IPCError.systemCall("socket", errno)
+  }
+  defer { Darwin.close(descriptor) }
+  try connectAndSend(CommandRequest(command: subscribeCommand), on: descriptor, to: url)
+  // A daemon without the stream answers with one failed command response.
+  var firstLine: Data? = Data()
+  var buffer = [UInt8](repeating: 0, count: 65_536)
+  while true {
+    let count = Darwin.read(descriptor, &buffer, buffer.count)
+    if count < 0, errno == EINTR { continue }
+    if count < 0 { throw IPCError.systemCall("read", errno) }
+    if count == 0 { return }
+    let chunk = Data(buffer[..<count])
+    guard var line = firstLine else {
+      output(chunk)
+      continue
+    }
+    line.append(chunk)
+    guard let newline = line.firstIndex(of: 0x0A) else {
+      guard line.count <= maximumIPCResponseBytes else { throw IPCError.invalidResponse }
+      firstLine = line
+      continue
+    }
+    if let response = try? JSONDecoder().decode(CommandResponse.self, from: line[..<newline]) {
+      throw IPCError.rejected(response.message)
+    }
+    firstLine = nil
+    output(line)
+  }
+}
+
+private func connectAndSend(
+  _ request: CommandRequest,
+  on descriptor: Int32,
+  to url: URL
+) throws {
   try configureNoSigPipe(descriptor)
   try withSocketAddress(path: url.path) { address, length in
     guard connect(descriptor, address, length) == 0 else {
       throw IPCError.systemCall("connect", errno)
     }
   }
-  try configureReadTimeout(descriptor)
-  var request = try JSONEncoder().encode(
-    CommandRequest(command: command, monitorIndex: monitorIndex)
-  )
-  request.append(0x0A)
-  try writeAll(request, to: descriptor)
-  let responseData = try readLine(from: descriptor)
-  guard let response = try? JSONDecoder().decode(CommandResponse.self, from: responseData) else {
-    throw IPCError.invalidResponse
-  }
-  return response
+  var data = try JSONEncoder().encode(request)
+  data.append(0x0A)
+  try writeAll(data, to: descriptor)
 }
 
 private func withSocketAddress<Result>(
@@ -354,10 +425,10 @@ private func withSocketAddress<Result>(
   }
 }
 
-private func readLine(from descriptor: Int32) throws -> Data {
+private func readLine(from descriptor: Int32, limit: Int) throws -> Data {
   var data = Data()
   var buffer = [UInt8](repeating: 0, count: 4_096)
-  while data.count <= 65_536 {
+  while data.count <= limit {
     let count = Darwin.read(descriptor, &buffer, buffer.count)
     if count < 0 {
       if errno == EINTR { continue }
@@ -373,7 +444,7 @@ private func readLine(from descriptor: Int32) throws -> Data {
     }
     data.append(contentsOf: buffer[..<count])
   }
-  guard data.count <= 65_536 else {
+  guard data.count <= limit else {
     throw IPCError.requestTooLarge
   }
   return data
