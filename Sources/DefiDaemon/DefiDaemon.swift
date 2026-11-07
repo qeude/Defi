@@ -175,6 +175,8 @@ final class Daemon {
   var mouseGestureChangedWindowFrame = false
   /// The drop the overlay is previewing during a drag; applied for real on release.
   var proxyPreviewTarget: MouseDropTarget?
+  /// Scrolls the strip under a dragged window held at a side edge, on the overlay only.
+  var dragEdgeScroll: DragEdgeScroll?
   var mouseGestureInitialFrame: Rect?
   var mouseGestureScrollAnchor: WorkspaceScrollAnchor?
   var mouseGestureDisplayedOriginFrames: [WindowID: Rect] = [:]
@@ -447,6 +449,7 @@ final class Daemon {
       } ?? true
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
+      advanceDragEdgeScroll()
     }
     if scrollAnimations.isEmpty && !liveBorderGesture {
       if frameNotificationsSuspended {

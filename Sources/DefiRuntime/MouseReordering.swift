@@ -706,20 +706,21 @@ public func mouseDropTarget(
   _ windowID: WindowID,
   pointer: (x: Double, y: Double),
   previous: MouseDropTarget? = nil,
+  allowsStacking: Bool = true,
   state: RuntimeState,
   viewports: [MonitorID: Rect],
   monitorFrames: [MonitorID: Rect] = [:]
 ) -> MouseDropTarget? {
-  let target = rawMouseDropTarget(
-    windowID, pointer: pointer, state: state, viewports: viewports, monitorFrames: monitorFrames)
+  let target = rawMouseDropTarget(windowID, pointer: pointer, allowsStacking: allowsStacking,
+    state: state, viewports: viewports, monitorFrames: monitorFrames)
   // No target (off every display) leaves the drop to the native path.
   guard let previous, let target, target != previous else { return target }
   // Both axes: displays can sit side by side or stacked.
   let offsets = [(-mouseDropHysteresis, 0.0), (mouseDropHysteresis, 0),
     (0, -mouseDropHysteresis), (0, mouseDropHysteresis)]
   let held = offsets.contains { dx, dy in
-    rawMouseDropTarget(windowID, pointer: (pointer.x + dx, pointer.y + dy), state: state,
-      viewports: viewports, monitorFrames: monitorFrames) == previous
+    rawMouseDropTarget(windowID, pointer: (pointer.x + dx, pointer.y + dy), allowsStacking: allowsStacking,
+      state: state, viewports: viewports, monitorFrames: monitorFrames) == previous
   }
   return held ? previous : target
 }
@@ -747,6 +748,7 @@ public func mouseDropSlotMoved(
 private func rawMouseDropTarget(
   _ windowID: WindowID,
   pointer: (x: Double, y: Double),
+  allowsStacking: Bool,
   state: RuntimeState,
   viewports: [MonitorID: Rect],
   monitorFrames: [MonitorID: Rect]
@@ -763,7 +765,7 @@ private func rawMouseDropTarget(
   }
   // Within its own stack, the pointer picks a row among the other windows.
   let sourceFrame = source.windows.compactMap { layout.frames[$0] }.first
-  if source.windows.count > 1, let sourceFrame, pointer.x >= sourceFrame.x, pointer.x <= sourceFrame.x + sourceFrame.width {
+  if allowsStacking, source.windows.count > 1, let sourceFrame, pointer.x >= sourceFrame.x, pointer.x <= sourceFrame.x + sourceFrame.width {
     let row = insertionIndex(coordinate: pointer.y, centers: source.windows.compactMap { id in
       id == windowID ? nil : layout.frames[id].map { $0.y + $0.height / 2 }
     })
@@ -771,7 +773,7 @@ private func rawMouseDropTarget(
       monitorID: layout.monitorID, workspaceID: layout.workspace.id,
       columnIndex: layout.sourceColumnIndex, row: row))
   }
-  if let hover = mouseStackHover(windowID, layout, pointer: pointer, state: state) {
+  if allowsStacking, let hover = mouseStackHover(windowID, layout, pointer: pointer, state: state) {
     return hover.fits ? .stack(hover.target) : .rejectedStack(hover.target)
   }
   let leavesColumn = source.windows.count == 1

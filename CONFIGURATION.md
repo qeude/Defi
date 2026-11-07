@@ -765,6 +765,19 @@ the same. Resizing a window changes its width, never the order. When you press
 on a neighboring column, the strip waits for the release before scrolling, so
 it stays still while Defi tells a click from a drag.
 
+Hold the dragged window within 48 points of the left or right edge of its display
+for a quarter second and the strip scrolls that way, faster the closer the pointer
+sits to the edge, until it reaches the strip's end or the pointer moves away.
+
+- The zone reaches the display's edge past a side Dock; moving onto a neighboring
+  display drops there instead.
+- While the pointer is in the zone, the drop only creates a new column, so columns
+  sliding under a still pointer never stack the window by accident.
+- The scroll is drawn on the overlay alone: without Screen Recording the strip
+  does not scroll.
+- Release commits the drop at the scrolled position, then the strip reveals the
+  dropped column from there.
+
 ## `[animation]`
 
 Defi animates windows on an overlay: column navigation, width and order

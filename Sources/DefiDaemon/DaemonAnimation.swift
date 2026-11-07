@@ -314,6 +314,7 @@ extension Daemon {
     activelyResizedWindowID = nil
     mouseGestureInitialFrame = nil
     proxyPreviewTarget = nil
+    dragEdgeScroll = nil
     mouseGestureChangedWindowFrame = false
     mouseGestureScrollAnchor = nil
     mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
@@ -332,6 +333,7 @@ extension Daemon {
     activelyResizedWindowID = nil
     mouseGestureInitialFrame = nil
     proxyPreviewTarget = nil
+    dragEdgeScroll = nil
     mouseGestureChangedWindowFrame = false
     if !preservingScrollAnchor {
       mouseGestureScrollAnchor = nil

@@ -729,9 +729,7 @@ extension Daemon {
     var animatesMouseDrop = false
     var releasedResizeFrame: Rect?
     if !displayGeometryChanged && mouseResizeGestureActive {
-      let physicalMonitorFrames = Dictionary(uniqueKeysWithValues: latestMonitors.map {
-        ($0.id, $0.physicalFrame)
-      })
+      let physicalMonitorFrames = self.physicalMonitorFrames
       // A Dock or menu bar press is no gesture of the focused window (issue #210).
       let gestureFocusedWindowID = snapshot.mousePressedOtherApplication ? nil : snapshot.focusedWindowID
       let mouseGestureCandidateWindowIDs = [
@@ -810,50 +808,35 @@ extension Daemon {
           let moved = actualFrame.flatMap { actual in
             mouseGestureInitialFrame.map { draggedByUser && mouseFrameWasTranslated(from: $0, to: actual) }
           } ?? false
-          let target = moved ? CGEvent(source: nil).flatMap { event in
-            mouseDropTarget(gestureWindowID,
-              pointer: (Double(event.location.x), Double(event.location.y)),
-              previous: proxyPreviewTarget, state: state, viewports: viewportsByMonitor,
-              monitorFrames: physicalMonitorFrames)
-          } : nil
-          if target != proxyPreviewTarget {
-            if mouseDropSlotMoved(gestureWindowID, from: proxyPreviewTarget, to: target, state: state,
+          // The overlay draws the strip scrolling at an edge; the held-button tick moves it.
+          if moved, platform.windowProxyCarrying, dragEdgeScroll?.windowID != gestureWindowID {
+            dragEdgeScroll = DragEdgeScroll(windowID: gestureWindowID, state: state,
               viewports: viewportsByMonitor, monitorFrames: physicalMonitorFrames)
-            {
-              platform.playDropSlotHaptic()
-            }
-            proxyPreviewTarget = target
-            var preview = state
-            if let target {
-              applyMouseDrop(gestureWindowID, target, state: &preview, viewports: viewportsByMonitor,
-                monitorFrames: physicalMonitorFrames)
-            }
-            platform.recordPerformanceTrace(
-              "mouse-drop-preview window=\(gestureWindowID.rawValue) target=\(target.map { "\($0)" } ?? "none")")
-            platform.presentWindowProxyPreview(
-              mouseDropPreviewFrames(in: preview, viewports: viewportsByMonitor),
-              heldWindowID: gestureWindowID,
-              rejectedFrame: mouseDropRejectedFrame(target, state: state, viewports: viewportsByMonitor))
           }
+          presentMouseDropPreview(gestureWindowID, pointer: moved ? mousePointer() : nil)
         }
       } else {
         let previewedTarget = proxyPreviewTarget
         proxyPreviewTarget = nil
         platform.endWindowProxyPreview()
+        let edgeScroll = dragEdgeScroll.flatMap { dragEdgeScrollIsCurrent($0) ? $0 : nil }
+        dragEdgeScroll = nil
+        // The drop lands on the strip as the edge scroll left it.
+        var dropState = edgeScroll?.applied(to: state) ?? state
         var droppedOnOverlay = false
         // The preview belongs to this gesture only if the window really moved: an edge
         // resize never drops.
         if previewedTarget != nil, let gestureWindowID,
           let actualFrame, let mouseGestureInitialFrame,
           draggedByUser && mouseFrameWasTranslated(from: mouseGestureInitialFrame, to: actualFrame),
-          let event = CGEvent(source: nil),
+          let pointer = mousePointer(),
           let target = mouseDropTarget(gestureWindowID,
-            pointer: (Double(event.location.x), Double(event.location.y)),
-            previous: previewedTarget, state: state, viewports: viewportsByMonitor,
-            monitorFrames: physicalMonitorFrames)
+            pointer: edgeScroll?.targetPointer(pointer) ?? pointer,
+            previous: previewedTarget, allowsStacking: edgeScroll?.isInEdgeZone != true,
+            state: dropState, viewports: viewportsByMonitor, monitorFrames: physicalMonitorFrames)
         {
-          mouseReordered = applyMouseDrop(gestureWindowID, target, state: &state, viewports: viewportsByMonitor,
-            monitorFrames: physicalMonitorFrames)
+          mouseReordered = applyMouseDrop(gestureWindowID, target, state: &dropState,
+            viewports: viewportsByMonitor, monitorFrames: physicalMonitorFrames)
           droppedOnOverlay = true
           platform.recordPerformanceTrace("mouse-drop window=\(gestureWindowID.rawValue) target=\(target)")
         } else if draggedByUser, let gestureWindowID,
@@ -863,7 +846,7 @@ extension Daemon {
             gestureWindowID,
             actualFrame: actualFrame,
             initialFrame: mouseGestureInitialFrame,
-            state: &state,
+            state: &dropState,
             viewports: viewportsByMonitor,
             monitorFrames: physicalMonitorFrames
           )
@@ -873,6 +856,7 @@ extension Daemon {
             "mouse-reorder window=\(gestureWindowID.rawValue)"
           )
         }
+        if mouseReordered || droppedOnOverlay { state = dropState }
         // A drop on another display makes it the active one.
         if mouseReordered, let gestureWindowID,
           let destination = state.monitorID(containing: gestureWindowID),
@@ -883,6 +867,8 @@ extension Daemon {
           nativelyFocusedMonitorID = destination
           if nativeFocusFrameMonitorID != nil { nativeFocusFrameMonitorID = destination }
         }
+        // The drop reveals its column from where the edge scroll left the strip.
+        if mouseReordered || droppedOnOverlay, edgeScroll?.scrolled == true { mouseGestureScrollAnchor = nil }
         if mouseGestureEnded,
           let gestureWindowID,
           let mouseGestureInitialFrame,
