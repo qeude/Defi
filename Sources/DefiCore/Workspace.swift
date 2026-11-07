@@ -283,6 +283,41 @@ public func cycleWidth(
   column.preMaximizedWidth = nil
 }
 
+/// Applies a `set-column-width` request within the usable strip and the windows'
+/// verified bounds, in strip widths. A percentage stays a fraction of the strip and a
+/// point width stays in points. Like a preset, it ends a maximized state.
+public func setWidth(
+  of column: inout Column,
+  _ change: ColumnWidthChange,
+  stripWidth: Double,
+  gaps: Double,
+  minimumFraction: Double? = nil,
+  maximumFraction: Double? = nil
+) {
+  guard stripWidth > 0 else { return }
+  let upper = min(maximumFraction ?? 1, 1)
+  // The narrowest width configuration accepts; a window's own minimum still wins, as in layout.
+  let lower = max(minimumFraction ?? 0, 0.05)
+  let stored: Double
+  switch column.width {
+  case .fraction(let fraction): stored = fraction
+  case .pixels(let width): stored = width / stripWidth
+  }
+  // Adjust from the width the layout draws, not a stored width the bounds override.
+  let current = max(min(stored, upper), lower)
+  let requested: Double
+  let inPoints: Bool
+  switch change {
+  case .set(.fraction(let fraction)): (requested, inPoints) = (fraction, false)
+  case .set(.pixels(let width)): (requested, inPoints) = ((width + gaps) / stripWidth, true)
+  case .adjust(.fraction(let delta)): (requested, inPoints) = (current + delta, false)
+  case .adjust(.pixels(let delta)): (requested, inPoints) = (current + delta / stripWidth, true)
+  }
+  let fraction = max(min(requested, upper), lower)
+  column.width = inPoints ? .pixels(fraction * stripWidth) : .fraction(fraction)
+  column.preMaximizedWidth = nil
+}
+
 public func maximizeColumn(_ column: inout Column, defaultWidth: Double) {
   if case .fraction(let value) = column.width, abs(value - 1) < .ulpOfOne {
     column.width = column.preMaximizedWidth ?? .fraction(defaultWidth)

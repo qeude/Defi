@@ -1,5 +1,6 @@
 import AppKit
 import DefiConfig
+import DefiModel
 import SwiftUI
 
 @MainActor
@@ -1559,7 +1560,7 @@ private struct SettingsShortcutEditor: View {
       return Int(argument).map { $0 > 0 } ?? false
     }
     if let options = SettingsShortcutActions.argumentOptions[action] { return options.contains(argument) }
-    return !argument.isEmpty
+    return (try? parseCommand("\(action) \(argument)")) != nil
   }
 
   init(model: DefiSettingsModel, row: SettingsShortcutRow?) {

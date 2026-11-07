@@ -125,6 +125,38 @@ public func focusedColumnScrollTarget(
   )
 }
 
+/// The width, in strip widths, that gives the selected column the space the other fully
+/// visible columns leave free, and the offset that keeps those columns in view: the first
+/// stays put and the ones after the selected column slide right by its growth.
+/// A verified `maximumWidth` caps it. Nil when the selected column is not fully in view
+/// or it would grow less than a point.
+public func focusedColumnAvailableWidth(
+  workspace: Workspace,
+  viewport: Rect,
+  windows: [Window] = [],
+  settings: LayoutSettings,
+  excludingWindowIDs: Set<WindowID> = [],
+  maximumWidth: Double? = nil
+) -> (width: Double, offset: Double)? {
+  let workspace = workspaceForLayout(workspace, excludingWindowIDs: excludingWindowIDs)
+  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
+  let widths = columnWidthsInViewports(
+    workspace.columns, viewport: viewport,
+    windowsByID: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) }), settings: settings)
+  let point = 1 / stripViewport(viewport, settings: settings).width
+  let lefts = widths.indices.map { widths.prefix($0).reduce(0, +) }
+  // Where the strip is heading, so a resize right after navigation sees the new view.
+  let start = workspace.targetScrollOffset
+  let visible = widths.indices.filter {
+    lefts[$0] >= start - point && lefts[$0] + widths[$0] <= start + 1 + point
+  }
+  guard visible.contains(workspace.focusedColumn), let first = visible.first else { return nil }
+  let current = widths[workspace.focusedColumn]
+  let width = min(current + 1 - visible.map { widths[$0] }.reduce(0, +), maximumWidth ?? 1)
+  guard width >= current + point else { return nil }
+  return (width, lefts[first])
+}
+
 private func columnWidthsInViewports(
   _ columns: [Column],
   viewport: Rect,

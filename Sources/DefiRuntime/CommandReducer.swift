@@ -165,27 +165,11 @@ public func reduce(
       if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex) {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         let column = state.monitors[monitorIndex].workspaces[index].columns[columnIndex]
-        for windowID in column.windows
-        where state.pendingNativeFullscreenWidthResetWindowIDs.remove(windowID) != nil {
-          state.windows[windowID]?.minimumTiledWidth = nil
-          state.windows[windowID]?.maximumTiledWidth = nil
-        }
         let stripWidth = viewports[state.monitors[monitorIndex].id].map {
           stripViewport($0, settings: state.layout).width
         }
-        let minimumFraction: Double? = stripWidth.flatMap { stripWidth in
-          let minimumWidth = column.windows.compactMap {
-            state.windows[$0]?.minimumTiledWidth
-          }.max()
-          return minimumWidth.map { ($0 + horizontalGaps(settings: state.layout)) / stripWidth }
-        }
-        let maximumFraction: Double? = stripWidth.flatMap { stripWidth in
-          let maximumWidths = column.windows.compactMap {
-            state.windows[$0]?.maximumTiledWidth
-          }
-          guard maximumWidths.count == column.windows.count else { return nil }
-          return maximumWidths.max().map { ($0 + horizontalGaps(settings: state.layout)) / stripWidth }
-        }
+        let (minimumFraction, maximumFraction) = columnWidthBounds(
+          column, stripWidth: stripWidth, state: &state)
         var presets = layout.presetColumnWidths
         if column.windows.indices.contains(column.focusedWindow),
           let window = state.windows[column.windows[column.focusedWindow]]
@@ -226,6 +210,59 @@ public func reduce(
           focusedColumnLeftScrollOffset(
             workspace: state.monitors[monitorIndex].workspaces[index]
           )
+      }
+    case .setColumnWidth(let change):
+      let index = try workspaceIndex(state.monitors[monitorIndex])
+      let columnIndex = state.monitors[monitorIndex].workspaces[index].focusedColumn
+      if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex),
+        let viewport = viewports[state.monitors[monitorIndex].id]
+      {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
+        let stripWidth = stripViewport(viewport, settings: layout).width
+        let (minimumFraction, maximumFraction) = columnWidthBounds(
+          state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
+          stripWidth: stripWidth, state: &state)
+        setWidth(
+          of: &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
+          change,
+          stripWidth: stripWidth,
+          gaps: horizontalGaps(settings: layout),
+          minimumFraction: minimumFraction,
+          maximumFraction: maximumFraction
+        )
+        state.monitors[monitorIndex].workspaces[index].targetScrollOffset =
+          focusedColumnLeftScrollOffset(
+            workspace: state.monitors[monitorIndex].workspaces[index]
+          )
+      }
+    case .expandColumnToAvailableWidth:
+      let index = try workspaceIndex(state.monitors[monitorIndex])
+      let columnIndex = state.monitors[monitorIndex].workspaces[index].focusedColumn
+      if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex),
+        let viewport = viewports[state.monitors[monitorIndex].id]
+      {
+        let column = state.monitors[monitorIndex].workspaces[index].columns[columnIndex]
+        let (_, maximumFraction) = columnWidthBounds(
+          column, stripWidth: stripViewport(viewport, settings: layout).width, state: &state)
+        let workspace = state.monitors[monitorIndex].workspaces[index]
+        if column.windows.indices.contains(column.focusedWindow),
+          let available = focusedColumnAvailableWidth(
+            workspace: workspace, viewport: viewport,
+            windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
+            settings: layout, excludingWindowIDs: state.nativeFullscreenWindowIDs,
+            maximumWidth: maximumFraction)
+        {
+          state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
+          state.monitors[monitorIndex].workspaces[index].columns[columnIndex].width =
+            .fraction(available.width)
+          state.monitors[monitorIndex].workspaces[index].columns[columnIndex].preMaximizedWidth = nil
+          // The visible columns stay in view: a free scroll focus keeps the strip there
+          // while the column remains in view, whatever the centring policy.
+          state.monitors[monitorIndex].workspaces[index].scrollOffset = available.offset
+          state.monitors[monitorIndex].workspaces[index].targetScrollOffset = available.offset
+          state.monitors[monitorIndex].workspaces[index].scrollFocus = ScrollFocus(
+            windowID: column.windows[column.focusedWindow], centered: false, free: true)
+        }
       }
     case .centerColumn:
       let index = try workspaceIndex(state.monitors[monitorIndex])
@@ -366,6 +403,27 @@ public func reduce(
   normalizeNativeFullscreenColumns(state: &state)
 }
 
+/// The column's verified width bounds in strip widths, gaps included. Bounds a native
+/// fullscreen exit left pending are dropped first, as the next explicit resize retries them.
+private func columnWidthBounds(
+  _ column: Column,
+  stripWidth: Double?,
+  state: inout RuntimeState
+) -> (minimum: Double?, maximum: Double?) {
+  for windowID in column.windows
+  where state.pendingNativeFullscreenWidthResetWindowIDs.remove(windowID) != nil {
+    state.windows[windowID]?.minimumTiledWidth = nil
+    state.windows[windowID]?.maximumTiledWidth = nil
+  }
+  guard let stripWidth else { return (nil, nil) }
+  let gaps = horizontalGaps(settings: state.layout)
+  let minimum = column.windows.compactMap { state.windows[$0]?.minimumTiledWidth }.max()
+  let maximumWidths = column.windows.compactMap { state.windows[$0]?.maximumTiledWidth }
+  // One unbounded window leaves the column unbounded.
+  let maximum = maximumWidths.count == column.windows.count ? maximumWidths.max() : nil
+  return (minimum.map { ($0 + gaps) / stripWidth }, maximum.map { ($0 + gaps) / stripWidth })
+}
+
 private func joinTargetsNativeFullscreenColumn(
   _ direction: Direction,
   workspace: Workspace,
@@ -395,7 +453,8 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .moveWindowToWorkspace, .sendWindowToWorkspace, .cycleWidth,
     .moveColumnToWorkspace, .moveWindowToWorkspaceTarget,
     .reorderWorkspace, .moveWorkspaceToMonitor,
-    .maximizeColumn, .centerColumn, .toggleFloating, .joinWindow, .unjoinWindows:
+    .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn,
+    .toggleFloating, .joinWindow, .unjoinWindows:
     true
   case .focusColumn, .focusFloating, .focusWindow, .focusWindowOrWorkspace, .focusWindowPrevious,
     .switchWorkspace, .focusWorkspace, .focusMonitor,

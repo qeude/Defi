@@ -12,12 +12,14 @@ enum SettingsShortcutActions {
     "focus-workspace-position", "focus-workspace-name", "focus-workspace-previous",
     "reorder-workspace",
     "move-workspace-to-monitor", "focus-monitor", "cycle-width", "maximize-column",
-    "center-column", "toggle-floating", "activate-floating", "join-window", "unjoin-windows",
+    "set-column-width", "expand-column-to-available-width", "center-column",
+    "toggle-floating", "activate-floating", "join-window", "unjoin-windows",
     "toggle-cheatsheet", "toggle-overview", "open-settings", "run-startup-commands",
   ]
   static let noArgumentActions: Set<String> = [
-    "maximize-column", "center-column", "focus-workspace-previous", "focus-window-previous",
-    "toggle-floating", "activate-floating", "unjoin-windows",
+    "maximize-column", "expand-column-to-available-width", "center-column",
+    "focus-workspace-previous", "focus-window-previous", "toggle-floating",
+    "activate-floating", "unjoin-windows",
     "toggle-cheatsheet", "toggle-overview", "open-settings", "run-startup-commands",
   ]
   static let relativeWorkspaceActions: Set<String> = [
@@ -45,7 +47,7 @@ enum SettingsShortcutActions {
       } else if positionActions.contains(action) {
         arguments = (1...9).map(String.init)
       } else {
-        arguments = argumentOptions[action] ?? []
+        arguments = argumentOptions[action] ?? argumentSuggestions[action] ?? []
       }
       return arguments.map { "\(action) \($0)" }
     }
@@ -54,6 +56,9 @@ enum SettingsShortcutActions {
   static func commands(workspaces: [String], rows: [SettingsShortcutRow]) -> [String] {
     Set(availableCommands(workspaces: workspaces) + rows.map(\.command)).sorted()
   }
+
+  /// Listed unbound rows for actions whose argument is free text.
+  static let argumentSuggestions: [String: [String]] = ["set-column-width": ["-10%", "+10%"]]
 
   static let argumentOptions: [String: [String]] = [
     "focus-column": ["left", "right", "first", "last"],

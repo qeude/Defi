@@ -6,6 +6,7 @@ public enum CommandParseError: Error, Equatable, Sendable {
   case missingArgument(String)
   case invalidDirection(String)
   case invalidPosition(String)
+  case invalidWidth(String)
 }
 
 public func parseCommand(_ input: String) throws -> Command {
@@ -119,6 +120,10 @@ public func parseCommand(_ input: String) throws -> Command {
     return .cycleWidth(try parseDirection(argument("direction")))
   case "maximize-column":
     return .maximizeColumn
+  case "set-column-width":
+    return .setColumnWidth(try parseColumnWidthChange(argument("width")))
+  case "expand-column-to-available-width":
+    return .expandColumnToAvailableWidth
   case "center-column":
     return .centerColumn
   case "toggle-floating":
@@ -140,6 +145,24 @@ public func parseCommand(_ input: String) throws -> Command {
   default:
     throw CommandParseError.unknownCommand(name)
   }
+}
+
+/// `+5%`, `-10%`, `60%` or `960`: a signed value adjusts, a `%` counts the usable width.
+private func parseColumnWidthChange(_ input: String) throws -> ColumnWidthChange {
+  let sign: Double?
+  switch input.first {
+  case "+": sign = 1
+  case "-": sign = -1
+  default: sign = nil
+  }
+  let percent = input.hasSuffix("%")
+  let digits = input.dropFirst(sign == nil ? 0 : 1).dropLast(percent ? 1 : 0)
+  guard digits.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ".") }),
+    let magnitude = Double(digits), magnitude.isFinite, sign != nil || magnitude > 0
+  else { throw CommandParseError.invalidWidth(input) }
+  let value = (sign ?? 1) * magnitude
+  let width: ColumnWidth = percent ? .fraction(value / 100) : .pixels(value)
+  return sign == nil ? .set(width) : .adjust(width)
 }
 
 private func parseWorkspaceTarget(_ input: String) throws -> WorkspaceTarget {
