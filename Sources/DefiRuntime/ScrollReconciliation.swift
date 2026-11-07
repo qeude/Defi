@@ -135,7 +135,8 @@ public func learnTiledWindowWidth(
 
 /// Turns a native vertical resize of a stacked window into the stack's proportions.
 /// The neighbour across the dragged edge absorbs the difference; a window moved as a
-/// whole, a single window, or one on an inactive workspace carries no height.
+/// whole, an outer edge of the stack, a single window, or one on an inactive workspace
+/// carries no height.
 @discardableResult
 public func learnStackedWindowHeight(
   _ windowID: WindowID,
@@ -166,16 +167,17 @@ public func learnStackedWindowHeight(
   let delta = actualFrame.height - target.height
   let topMoved = abs(actualFrame.y - target.y) >= 1
   let bottomMoved = abs(actualFrame.y + actualFrame.height - target.y - target.height) >= 1
-  guard abs(delta) >= 1, topMoved != bottomMoved else { return false }
-  let below = index + 1 < windowIDs.count ? index + 1 : index - 1
-  let above = index > 0 ? index - 1 : index + 1
+  // The stack's own top and bottom edges stay at the column edges.
+  let absorber = bottomMoved ? index + 1 : index - 1
+  guard abs(delta) >= 1, topMoved != bottomMoved, windowIDs.indices.contains(absorber)
+  else { return false }
   let current = stackWindowShares(
     windowIDs, proportions: column.windowHeights,
     windowsByID: state.windows, viewport: viewport, settings: state.layout
   )
   let shares = stackShares(
     current, setting: index, to: current[index] + delta / viewport.height,
-    absorber: bottomMoved ? below : above
+    absorber: absorber
   )
   state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].windowHeights =
     Dictionary(uniqueKeysWithValues: zip(windowIDs, shares))

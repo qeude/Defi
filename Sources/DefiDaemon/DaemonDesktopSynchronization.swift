@@ -906,12 +906,17 @@ extension Daemon {
           state: &state,
           viewports: viewportsByMonitor
         )
-        learnStackedWindowHeight(
-          gestureWindowID,
-          actualFrame: widthLearningFrame,
-          state: &state,
-          viewports: viewportsByMonitor
-        )
+        // Only a gesture that changed the height carries one: a width drag of an app that
+        // snaps its height to rows would otherwise read the snap as a dragged edge.
+        let gestureStartFrame = mouseGestureInitialFrame ?? mouseGestureSettlement?.initialFrame
+        if gestureStartFrame.map({ abs($0.height - widthLearningFrame.height) >= 1 }) ?? false {
+          learnStackedWindowHeight(
+            gestureWindowID,
+            actualFrame: widthLearningFrame,
+            state: &state,
+            viewports: viewportsByMonitor
+          )
+        }
         // The learned scroll keeps a released left edge in place; the anchor would undo it.
         if learned, !snapshot.leftMouseButtonDown { mouseGestureScrollAnchor = nil }
       }

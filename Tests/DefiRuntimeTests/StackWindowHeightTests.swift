@@ -84,7 +84,11 @@ struct StackWindowHeightTests {
     )
     #expect(learned)
     #expect(heights(state) == [433, 233, 333])
-    // A window moved as a whole carries no height.
+    // The stack's outer bottom edge and a window moved as a whole carry no height.
+    #expect(!learnStackedWindowHeight(
+      ids[2], actualFrame: Rect(x: 0, y: 666.67, width: 500, height: 300),
+      state: &state, viewports: [monitorID: viewport]
+    ))
     #expect(!learnStackedWindowHeight(
       ids[2], actualFrame: Rect(x: 0, y: 700, width: 500, height: 333.33),
       state: &state, viewports: [monitorID: viewport]
