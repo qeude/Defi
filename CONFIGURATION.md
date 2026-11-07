@@ -239,11 +239,15 @@ click-to-focus scrolling, and vertical workspace switches.
 ```toml
 [animation]
 enabled = true
+stiffness = 800
+damping_ratio = 0.9
 ```
 
 | Setting | Default | Values/type | Description |
 | --- | --- | --- | --- |
-| `enabled` | `true` | boolean | Draws each motion on an overlay from captured window pictures. Each native window moves once to its target underneath, so motion never waits on slow applications. Proxies follow a critically damped spring and keep their velocity when a new command retargets them. Each display has its own overlay, and a command moves only the displays it changes. Pictures of visible windows refresh after each landing, never at rest, and fill resized proxies without stretching. The app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. The overlay needs Screen Recording, which Defi requests once Accessibility is granted. Without the permission, with the macOS Reduce Motion preference, or when the overlay cannot draw a motion yet (for example before the wallpaper is captured), windows move at once. `false` moves windows at once and takes no pictures. |
+| `enabled` | `true` | boolean | Draws each motion on an overlay from captured window pictures. Each native window moves once to its target underneath, so motion never waits on slow applications. Proxies follow the spring below and keep their position and velocity when a new command retargets them. Each display has its own overlay, and a command moves only the displays it changes. Pictures of visible windows refresh after each landing, never at rest, and fill resized proxies without stretching. The app icon is laid over a missing picture, or over an old one arriving from another workspace, and the overlay fades into the real windows. The overlay needs Screen Recording, which Defi requests once Accessibility is granted. Without the permission, with the macOS Reduce Motion preference, or when the overlay cannot draw a motion yet (for example before the wallpaper is captured), windows move at once. `false` moves windows at once and takes no pictures. |
+| `stiffness` | `800` | number from `100` to `2000` | Spring stiffness of every overlay motion: strip scrolls, column moves and resizes, and workspace switches. Higher values move faster. The spring changes only how the overlay draws the motion; each window still moves once. |
+| `damping_ratio` | `0.9` | number from `0.5` to `1` | `1` is critically damped and never overshoots. Lower values arrive sooner and overshoot slightly before settling. The default reaches 90% of the travel about 12% sooner than `1` and lands a column step visibly about 0.1 s earlier, overshooting by under 0.2% of the travel (about 2 points on a full-display move). |
 
 Screen recordings, screenshots, and screen sharing include the overlay, so they
 show the motion you see.
@@ -844,6 +848,8 @@ enabled = true
 
 [animation]
 enabled = true
+stiffness = 800
+damping_ratio = 0.9
 
 [overview]
 zoom = 0.5

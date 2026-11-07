@@ -165,6 +165,12 @@ public struct Config: Equatable, Sendable {
     guard layout.reservedBottom.isFinite, (0...512).contains(layout.reservedBottom) else {
       throw ConfigError.invalidValue("layout.reserved_bottom")
     }
+    guard animation.stiffness.isFinite, (100...2_000).contains(animation.stiffness) else {
+      throw ConfigError.invalidValue("animation.stiffness")
+    }
+    guard animation.dampingRatio.isFinite, (0.5...1).contains(animation.dampingRatio) else {
+      throw ConfigError.invalidValue("animation.damping_ratio")
+    }
     guard overview.zoom.isFinite, (0...0.75).contains(overview.zoom) else {
       throw ConfigError.invalidValue("overview.zoom")
     }

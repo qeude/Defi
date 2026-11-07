@@ -176,14 +176,30 @@ public func parseBorderColor(_ value: String) -> UInt32? {
 
 public struct AnimationConfig: Codable, Equatable, Sendable {
   public var enabled: Bool
+  /// Spring stiffness for a unit mass: higher moves faster.
+  public var stiffness: Double
+  /// 1 is critically damped; below 1 the motion arrives sooner and overshoots slightly.
+  public var dampingRatio: Double
 
-  public init(enabled: Bool = true) {
+  public init(enabled: Bool = true, stiffness: Double = 800, dampingRatio: Double = 0.9) {
     self.enabled = enabled
+    self.stiffness = stiffness
+    self.dampingRatio = dampingRatio
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case enabled
+    case stiffness
+    case dampingRatio = "damping_ratio"
   }
 
   public init(from decoder: Decoder) throws {
     let values = try decoder.container(keyedBy: CodingKeys.self)
-    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? AnimationConfig().enabled
+    let defaults = AnimationConfig()
+    enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
+    stiffness = try values.decodeIfPresent(Double.self, forKey: .stiffness) ?? defaults.stiffness
+    dampingRatio =
+      try values.decodeIfPresent(Double.self, forKey: .dampingRatio) ?? defaults.dampingRatio
   }
 }
 

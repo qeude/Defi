@@ -114,6 +114,9 @@ struct ConfigTests {
   static let rule = "[[rules]]\napp_id = \"device\"\ninitial_column_width"
   @Test(arguments: [
     ("[overview]\nzoom = 0.76", ConfigError.invalidValue("overview.zoom")),
+    ("[animation]\nstiffness = 99", .invalidValue("animation.stiffness")),
+    ("[animation]\ndamping_ratio = 1.1", .invalidValue("animation.damping_ratio")),
+    ("[animation]\ndamping_ratio = 0.4", .invalidValue("animation.damping_ratio")),
     ("[overview]\nwindow_corner_radius = -1", .invalidValue("overview.window_corner_radius")),
     ("[overview]\nwindow_corner_radius = 65", .invalidValue("overview.window_corner_radius")),
     ("[decorations.borders]\nwidth = 65", .invalidValue("decorations.borders.width")),
@@ -259,6 +262,7 @@ struct ConfigTests {
 
       [animation]
       enabled = false
+      stiffness = 1000
 
       [workspaces]
       names = ["dev", "web"]
@@ -274,6 +278,7 @@ struct ConfigTests {
 
     #expect(config.layout.gaps == 4)
     #expect(!config.animation.enabled)
+    #expect(config.animation.stiffness == 1000 && config.animation.dampingRatio == 0.9)
     #expect(config.workspaces.defaultName == "dev")
     #expect(config.keys["mod-1"] == "workspace dev")
     #expect(config.keys["mod-shift-1"] == "move-column-to-workspace-name dev")

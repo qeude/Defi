@@ -33,6 +33,10 @@ public final class MacOSPlatform {
   public var windowProxiesEnabled = false {
     didSet { RibbonProxyPresenter.enabled = windowProxiesEnabled }
   }
+  /// The overlay spring from `[animation]`.
+  public var windowProxySpring = AnimationConfig() {
+    didSet { if oldValue != windowProxySpring { RibbonProxyStore.shared.spring = windowProxySpring } }
+  }
   /// Each display moves on its own overlay.
   public var windowProxyMonitors: [WindowProxyMonitor] = []
   /// The overlay is drawing a motion; desktop reads wait for its landing.
