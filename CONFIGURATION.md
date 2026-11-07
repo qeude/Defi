@@ -637,6 +637,8 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `cycle-width previous` | Select previous width preset, wrapping. | `<mod>-minus` |
 | `cycle-width next` | Select next width preset, wrapping. | `<mod>-equal` |
 | `maximize-column` | Toggle focused column between full width and previous width. | `<mod>-f` |
+| `set-column-width <width>` | Set the focused column's width: `60%` of the usable width, `960` points of window width, or adjust it with a sign, such as `+5%`, `-10%` or `-40`. | unset |
+| `expand-column-to-available-width` | Grow the focused column into the space the other fully visible columns leave free on its monitor. | unset |
 | `center-column` | Center the focused column on screen until selection leaves it. | `<mod>-c` |
 | `toggle-floating` | Toggle focused window between tiled and floating layers. | `<mod>-backslash` |
 | `activate-floating` | Select floating layer and foreground its selected window. | `<mod>-shift-backslash` |
@@ -665,6 +667,18 @@ order, into new adjacent columns of the same width on its right. Columns are nev
 merged back automatically. A single window whose minimum height exceeds the
 usable viewport, which excludes the Dock and reserved areas, is placed at its minimum, top-aligned, without further resize attempts,
 and is listed in `oversized-stack-windows` of `defi status`.
+
+Width commands keep the usable width and each window's verified minimum and
+maximum width. `set-column-width` clamps to the whole usable width, at least 5%
+of it, and those bounds; a percentage stays a share of the usable width when
+the monitor changes, and a point width follows the monitor like a width set by a
+native resize. It ends a maximized state, so
+`maximize-column` then maximizes again. `expand-column-to-available-width`
+resizes no other column and keeps the fully visible columns in place; partly
+visible columns move out of view. It does nothing when the focused column is not
+fully visible or no space is free. After either command, `cycle-width` steps to
+the nearest preset in its direction, as it does after a native resize: from
+`60%`, `next` selects `0.66` and `previous` selects `0.50`.
 
 `previous` may be written as `prev`. `focus-column` also accepts
 `previous`/`next`; `focus-window` accepts `previous`/`next`; `focus-floating`
