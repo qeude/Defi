@@ -83,11 +83,9 @@ let deskVisible = false;
 let deskOnScreen = false;
 let deskHovered = false;
 const onCommand = (code, command) => {
-  // A swipe lights its legend while the fingers move, then lets go like a key.
-  if (code === 'Swipe') {
-    swipeLegend?.classList.toggle('pressed', command === null);
-    if (!command || command === 'cancel') return;
-  }
+  // A swipe lights its legend while the fingers move, then lets go like a key; any other command ends it.
+  swipeLegend?.classList.toggle('pressed', code === 'Swipe' && command === null);
+  if (code === 'Swipe' && (!command || command === 'cancel')) return;
   const button = keypadButtons.get(code);
   if (button) {
     button.classList.add('pressed');
