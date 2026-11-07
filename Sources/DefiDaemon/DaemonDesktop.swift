@@ -204,6 +204,7 @@ extension Daemon {
     platform.stageWindowBorderSelection(selectedWindowID)
     // Without animations (or with Reduce Motion), the overlay and its pictures are not needed.
     platform.windowProxiesEnabled = animationsEnabled
+    platform.windowProxySpring = config.animation
     platform.windowProxyDroppedWindowID =
       source == "mouse-drop-animation" ? proxyDroppedWindowID : nil
     proxyDroppedWindowID = nil

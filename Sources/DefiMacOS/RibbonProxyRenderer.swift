@@ -1,6 +1,7 @@
 import AppKit
 import CoreMedia
 import CoreVideo
+import DefiConfig
 import DefiCore
 import DefiModel
 import DefiRuntime
@@ -145,6 +146,12 @@ final class RibbonProxyStore: @unchecked Sendable {
   var reduceMotion: Bool {
     get { locked { reducesMotion } }
     set { locked { reducesMotion = newValue } }
+  }
+  private var springConfig = AnimationConfig()
+  /// The configured overlay spring, read by every proxy motion.
+  var spring: AnimationConfig {
+    get { locked { springConfig } }
+    set { locked { springConfig = newValue } }
   }
   private var movingDisplays: Set<CGDirectDisplayID> = []
   private var zoomingOverviews: Set<MonitorID> = []
@@ -602,8 +609,8 @@ final class RibbonProxyPresenter {
         from = to
       }
       let now = CACurrentMediaTime()
-      // Rapid commands retarget mid-flight: carry the current velocity, as Niri does,
-      // instead of restarting the spring from rest.
+      // Rapid commands retarget mid-flight: carry the current velocity instead of
+      // restarting the spring from rest.
       let velocity = current == nil ? .zero : releasedPan ?? slides[window.id].map {
         ribbonProxySpringVelocity(from: $0.from, to: $0.to, elapsed: now - $0.start)
       } ?? .zero
@@ -612,7 +619,7 @@ final class RibbonProxyPresenter {
         rigid = CGPoint(x: to.midX - from.midX, y: to.midY - from.midY)
       }
       travel = max(travel, hypot(to.midX - from.midX, to.midY - from.midY)
-        + hypot(velocity.x, velocity.y) / 800.0.squareRoot()
+        + hypot(velocity.x, velocity.y) / RibbonProxyStore.shared.spring.omega
         + abs(to.width - from.width) + abs(to.height - from.height))
       layer.removeAllAnimations()
       layer.isHidden = false
@@ -1722,24 +1729,45 @@ func ribbonProxyOnScreenWindows() -> [RibbonProxyOnScreenWindow] {
   }
 }
 
-// Niri's default view-movement spring: critically damped, stiffness 800. It starts
-// gently and settles without a long ease-out crawl, whatever the configured duration.
+extension AnimationConfig {
+  var omega: Double { stiffness.squareRoot() }
+
+  /// Fraction of the travel still ahead `t` seconds after leaving rest; negative past the target.
+  func remaining(after t: Double) -> Double {
+    let decay = exp(-dampingRatio * omega * t)
+    guard dampingRatio < 1 else { return (1 + omega * t) * decay }
+    let damped = omega * (1 - dampingRatio * dampingRatio).squareRoot()
+    return decay * (cos(damped * t) + dampingRatio * omega / damped * sin(damped * t))
+  }
+
+  /// Rate of progress (travel per second, as a fraction) `t` seconds after leaving rest.
+  func rate(after t: Double) -> Double {
+    let decay = exp(-dampingRatio * omega * t)
+    guard dampingRatio < 1 else { return omega * omega * t * decay }
+    let damped = omega * (1 - dampingRatio * dampingRatio).squareRoot()
+    return omega * omega / damped * decay * sin(damped * t)
+  }
+}
+
+// A spring starts gently and settles without a long ease-out crawl, whatever the travel.
 private func ribbonProxySpringAnimation(_ key: String) -> CASpringAnimation {
+  let config = RibbonProxyStore.shared.spring
   let spring = CASpringAnimation(keyPath: key)
-  spring.mass = 1; spring.stiffness = 800; spring.damping = 2 * 800.0.squareRoot()
+  spring.mass = 1; spring.stiffness = config.stiffness
+  spring.damping = 2 * config.dampingRatio * config.omega
   spring.duration = spring.settlingDuration
   return spring
 }
 
-let ribbonProxySpringDuration = ribbonProxySpringAnimation("position").settlingDuration
+var ribbonProxySpringDuration: TimeInterval { ribbonProxySpringAnimation("position").settlingDuration }
 
-/// When a critically damped motion of `travel` points has less than two points left:
-/// the ribbon visibly stops there, and the landing fade glides over the remainder.
+/// When a motion of `travel` points last has two points or more left (an overshoot
+/// counts): the ribbon visibly stops there, and the landing fade glides over the rest.
 func ribbonProxyVisualStop(travel: Double) -> TimeInterval {
-  let omega = 800.0.squareRoot()
-  var t = 0.0
-  while t < ribbonProxySpringDuration, (1 + omega * t) * exp(-omega * t) * travel >= 2 { t += 1.0 / 240 }
-  return min(max(t, 0.12), ribbonProxySpringDuration)
+  let config = RibbonProxyStore.shared.spring, duration = ribbonProxySpringDuration
+  let steps = Int(duration * 240)
+  let last = (0..<steps).last { abs(config.remaining(after: Double($0) / 240)) * travel >= 2 }
+  return min(max(Double((last ?? -1) + 1) / 240, 0.12), duration)
 }
 
 private func ribbonProxySpring(_ layer: CALayer, _ key: String, _ from: Any, _ to: Any) {
@@ -1759,10 +1787,9 @@ func ribbonProxyStartNow(_ animation: CAAnimation, on layer: CALayer) {
   layer.add(animation, forKey: (animation as? CAPropertyAnimation)?.keyPath)
 }
 
-/// Velocity of the critically damped spring `from` → `to` after `elapsed` seconds.
+/// Velocity of the overlay spring `from` → `to` after `elapsed` seconds.
 func ribbonProxySpringVelocity(from: CGPoint, to: CGPoint, elapsed: TimeInterval) -> CGPoint {
-  let omega = 800.0.squareRoot(), t = max(elapsed, 0)
-  let factor = omega * omega * t * exp(-omega * t)
+  let factor = RibbonProxyStore.shared.spring.rate(after: max(elapsed, 0))
   return CGPoint(x: (to.x - from.x) * factor, y: (to.y - from.y) * factor)
 }
 
@@ -1781,10 +1808,10 @@ func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoi
   let squared = distance.x * distance.x + distance.y * distance.y
   // CASpringAnimation takes velocity as a fraction of the travel per second.
   if squared > 1 {
-    // Beyond the spring's own rate a critically damped motion overshoots and springs back:
+    // Beyond the spring's own rate the motion overshoots further and springs back:
     // a short landing would bounce.
     position.initialVelocity = min((velocity.x * distance.x + velocity.y * distance.y) / squared,
-      800.0.squareRoot())
+      RibbonProxyStore.shared.spring.omega)
     position.duration = position.settlingDuration
   }
   ribbonProxyStartNow(position, on: layer)

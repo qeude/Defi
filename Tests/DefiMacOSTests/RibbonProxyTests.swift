@@ -71,8 +71,10 @@ struct RibbonProxyTests {
   }
 
   @Test func landingStartsWhenTheRibbonVisiblyStops() {
-    // A column step stops visibly about 0.31 s in, a tiny nudge sooner, never past settling.
-    #expect(abs(ribbonProxyVisualStop(travel: 1_300) - 0.31) < 0.02)
+    // A column step stops visibly about 0.21 s in, a tiny nudge sooner, never past settling;
+    // a longer travel waits for its overshoot of two points or more to come back.
+    #expect(abs(ribbonProxyVisualStop(travel: 1_300) - 0.21) < 0.02)
+    #expect(abs(ribbonProxyVisualStop(travel: 1_440) - 0.275) < 0.02)
     #expect(ribbonProxyVisualStop(travel: 2) == 0.12)
     #expect(ribbonProxyVisualStop(travel: 1_000_000) == ribbonProxySpringDuration)
   }
@@ -253,6 +255,20 @@ struct RibbonProxyTests {
     #expect(byID[leaving]?.to.y == -1400)
     #expect(byID[arriving]?.from.y == 1480)
     #expect(byID[arriving]?.to.y == 40)
+  }
+
+  @Test func springRateIsTheSlopeOfTheRemainingTravel() {
+    for ratio in [0.5, 0.9, 1] {
+      let spring = AnimationConfig(stiffness: 800, dampingRatio: ratio)
+      #expect(spring.remaining(after: 0) == 1)
+      for t in stride(from: 0.01, to: 0.5, by: 0.03) {
+        let slope = (spring.remaining(after: t - 1e-6) - spring.remaining(after: t + 1e-6)) / 2e-6
+        #expect(abs(slope - spring.rate(after: t)) < 1e-3)
+      }
+    }
+    // The default barely overshoots: under two points on a 1,300-point column step.
+    let overshoot = stride(from: 0, to: 0.6, by: 0.001).map { -AnimationConfig().remaining(after: $0) }.max()!
+    #expect(overshoot > 0 && overshoot * 1_300 < 2)
   }
 
   @Test func retargetKeepsTheSpringVelocity() {
