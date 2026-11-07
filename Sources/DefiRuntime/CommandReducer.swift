@@ -256,7 +256,7 @@ public func reduce(
           state.monitors[monitorIndex].workspaces[index].columns[columnIndex].width =
             .fraction(available.width)
           state.monitors[monitorIndex].workspaces[index].columns[columnIndex].preMaximizedWidth = nil
-          // The visible columns stay in place: a free scroll focus keeps the strip there
+          // The visible columns stay in view: a free scroll focus keeps the strip there
           // while the column remains in view, whatever the centring policy.
           state.monitors[monitorIndex].workspaces[index].scrollOffset = available.offset
           state.monitors[monitorIndex].workspaces[index].targetScrollOffset = available.offset

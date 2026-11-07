@@ -674,7 +674,8 @@ of it, and those bounds; a percentage stays a share of the usable width when
 the monitor changes, and a point width follows the monitor like a width set by a
 native resize. It ends a maximized state, so
 `maximize-column` then maximizes again. `expand-column-to-available-width`
-resizes no other column and keeps the fully visible columns in place; partly
+resizes no other column and keeps the fully visible columns in view, the ones
+after it sliding over by its growth; partly
 visible columns move out of view. It does nothing when the focused column is not
 fully visible or no space is free. After either command, `cycle-width` steps to
 the nearest preset in its direction, as it does after a native resize: from

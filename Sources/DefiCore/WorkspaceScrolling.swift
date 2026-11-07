@@ -126,7 +126,8 @@ public func focusedColumnScrollTarget(
 }
 
 /// The width, in strip widths, that gives the selected column the space the other fully
-/// visible columns leave free, and the offset that keeps those columns where they are.
+/// visible columns leave free, and the offset that keeps those columns in view: the first
+/// stays put and the ones after the selected column slide right by its growth.
 /// A verified `maximumWidth` caps it. Nil when the selected column is not fully in view
 /// or it would grow less than a point.
 public func focusedColumnAvailableWidth(
