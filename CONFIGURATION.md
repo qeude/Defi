@@ -113,7 +113,8 @@ Controls Defi's native macOS status item.
 enabled = true
 ```
 
-Set `enabled = false` when SketchyBar owns workspace presentation.
+Set `enabled = false` when SketchyBar owns workspace presentation. Settings stay
+reachable with `defi open-settings`.
 
 ## Multiple displays
 
@@ -643,6 +644,7 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `unjoin-windows` | Split focused window from stack into new column. | `<mod>-r` |
 | `toggle-cheatsheet` | Open or close keyboard shortcut help. | Unbound |
 | `toggle-overview` | Open or close the interactive workspace Overview. | `<mod>-o` |
+| `open-settings` | Open the Settings window, also when the menu bar item is hidden. | unset |
 | `diagnostic-mark` | Record current status and recent trace without changing managed windows. | unset |
 
 A stack divides its column's height evenly, after gaps, except where a window's

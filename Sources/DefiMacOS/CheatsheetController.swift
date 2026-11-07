@@ -152,7 +152,7 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("maximize-column", "Maximize column"),
   ("toggle-floating", "Float or tile window"),
   ("focus-floating previous", "Previous floating"), ("focus-floating next", "Next floating"),
-  ("toggle-cheatsheet", "Shortcuts"),
+  ("toggle-cheatsheet", "Shortcuts"), ("open-settings", "Settings"),
   ("move-column left", "Move column left"), ("move-column right", "Move column right"),
   ("move-column first", "Move column to first"), ("move-column last", "Move column to last"),
   ("move-window up", "Move window up"), ("move-window down", "Move window down"),
