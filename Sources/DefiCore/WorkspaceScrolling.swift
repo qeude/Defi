@@ -101,8 +101,17 @@ public func focusedColumnScrollTarget(
   let free =
     recordedFocus.map { $0.free == true && selectedColumn?.windows.contains($0.windowID) == true }
     ?? false
-  let held = recordedFocus.flatMap {
-    selectedColumn?.windows.contains($0.windowID) == true ? $0.heldOffset : nil
+  let held = recordedFocus.flatMap { recorded in
+    recorded.heldOffset.flatMap { held in
+      if selectedColumn?.windows.contains(recorded.windowID) == true {
+        // Width changes may move the strip only as far as keeps the column in view.
+        return min(max(held, focusedRight - 1), focusedLeft)
+      }
+      // Another selected column keeps the strip while it is fully in view.
+      let inView = selectedColumn != nil
+        && focusedLeft >= held - 1e-9 && focusedRight <= held + 1 + 1e-9
+      return inView ? held : nil
+    }
   }
   // Exact centering may leave edge space; an oversized column stays left-aligned.
   let exactCenter =
@@ -110,8 +119,7 @@ public func focusedColumnScrollTarget(
     ? focusedLeft + focusedWidth / 2 - 0.5 : focusedLeft
   let offset: Double
   if let held {
-    // Width changes may move the strip only as far as keeps the column in view.
-    offset = min(max(held, focusedRight - 1), focusedLeft)
+    offset = held
   } else if free {
     offset = revealed
   } else if pinned || settings.centerFocusedColumn == .always
@@ -166,8 +174,9 @@ public func focusedColumnAvailableWidth(
 }
 
 /// Where `center-visible-columns` scrolls: the columns fully in view at the target
-/// offset, centered together as one group. Nil when the focused column is not fully in
-/// view, when the group fills the screen, or when it is already centered.
+/// offset, centered together as one group. Nil when the mode already centers the focused
+/// column, when the focused column is not fully in view, when the group fills the screen,
+/// or when it is already centered.
 public func visibleColumnsCenteredOffset(
   workspace: Workspace,
   viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
@@ -177,6 +186,9 @@ public func visibleColumnsCenteredOffset(
 ) -> Double? {
   let offset = workspace.targetScrollOffset
   let workspace = workspaceForLayout(workspace, excludingWindowIDs: excludingWindowIDs)
+  guard settings.centerFocusedColumn != .always,
+    !(settings.alwaysCenterSingleColumn && workspace.columns.count <= 1)
+  else { return nil }
   let widths = columnWidthsInViewports(
     workspace.columns, viewport: viewport,
     windowsByID: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) }), settings: settings

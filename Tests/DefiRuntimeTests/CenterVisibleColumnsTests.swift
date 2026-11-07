@@ -77,14 +77,16 @@ struct CenterVisibleColumnsTests {
   }
 
   @Test
-  func `Selecting another column drops the hold`() throws {
-    var state = makeState(widths: [0.36, 0.36])
+  func `The strip stays while the selected column is fully in view`() throws {
+    var state = makeState(widths: [0.36, 0.36, 0.5])
     try run(.centerVisibleColumns, in: &state)
 
     try run(.focusColumn(.right), in: &state)
+    #expect(abs(offset(state) + 0.14) < 1e-9)
 
+    try run(.focusColumn(.right), in: &state)
     #expect(state.monitors[0].workspaces[0].scrollFocus?.heldOffset == nil)
-    #expect(offset(state) == 0)
+    #expect(abs(offset(state) - 0.22) < 1e-9)
   }
 
   @Test
@@ -99,19 +101,7 @@ struct CenterVisibleColumnsTests {
   }
 
   @Test
-  func `The group is centered under the always mode until selection leaves the column`() throws {
-    var state = makeState(widths: [0.2, 0.3, 0.4], focusedColumn: 1, centerFocusedColumn: .always)
-    #expect(abs(offset(state) + 0.15) < 1e-9)
-
-    try run(.centerVisibleColumns, in: &state)
-    #expect(abs(offset(state) + 0.25) < 1e-9)
-
-    try run(.focusColumn(.left), in: &state)
-    #expect(abs(offset(state) + 0.4) < 1e-9)
-  }
-
-  @Test
-  func `A symmetric group under the always mode is already centered`() throws {
-    #expect(try unchanged(makeState(widths: [0.2, 0.3, 0.2], focusedColumn: 1, centerFocusedColumn: .always)))
+  func `The always mode already centers, so the command changes nothing`() throws {
+    #expect(try unchanged(makeState(widths: [0.2, 0.3, 0.4], focusedColumn: 1, centerFocusedColumn: .always)))
   }
 }
