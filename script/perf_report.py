@@ -75,7 +75,8 @@ def compare(base, candidate):
 def report(meta, builds, base, candidate):
     b_rounds, c_rounds = builds[base]['rounds'], builds[candidate]['rounds']
     regressions = compare(b_rounds, c_rounds)
-    improvements = compare(c_rounds, b_rounds)
+    # compare() returns (key, percentile, worse, better) here, so swap back to base → candidate.
+    improvements = [(k, p, b, c) for k, p, c, b in compare(c_rounds, b_rounds)]
     lines = [f'# Release performance: {candidate} vs {base}', '',
              f'Measured {meta["measured_at"]} in the `{meta["vm"]}` VM ({meta["guest"]}, host {meta["host"]}), '
              f'{meta["rounds"]} alternating rounds per build of {meta["navigations"]} `focus-column` '

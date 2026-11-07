@@ -40,6 +40,13 @@ class CompareTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             perf.summary(rounds[2:], 'converged', 'p95')
 
+    def test_improvements_read_base_to_candidate(self):
+        builds = {'a': {'rounds': self.rounds(20, 21, 22)}, 'b': {'rounds': self.rounds(10, 11, 9)}}
+        meta = {k: '' for k in ('measured_at', 'vm', 'guest', 'host', 'rounds', 'navigations', 'windows')}
+        text, regressions = perf.report(meta, builds, 'a', 'b')
+        self.assertEqual(regressions, [])
+        self.assertIn('input to converged frame P95: 21.00 → 10.00 ms', text)
+
     def test_rounds_of_one_label_exclude_a_longer_label(self):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)
