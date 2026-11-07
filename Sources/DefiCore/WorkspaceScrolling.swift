@@ -134,8 +134,10 @@ public func focusedColumnAvailableWidth(
   viewport: Rect,
   windows: [Window] = [],
   settings: LayoutSettings,
+  excludingWindowIDs: Set<WindowID> = [],
   maximumWidth: Double? = nil
 ) -> (width: Double, offset: Double)? {
+  let workspace = workspaceForLayout(workspace, excludingWindowIDs: excludingWindowIDs)
   guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
   let widths = columnWidthsInViewports(
     workspace.columns, viewport: viewport,

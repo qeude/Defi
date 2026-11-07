@@ -295,11 +295,16 @@ public func setWidth(
   maximumFraction: Double? = nil
 ) {
   guard stripWidth > 0 else { return }
-  let current: Double
+  let upper = min(maximumFraction ?? 1, 1)
+  // The narrowest width configuration accepts; a window's own minimum still wins, as in layout.
+  let lower = max(minimumFraction ?? 0, 0.05)
+  let stored: Double
   switch column.width {
-  case .fraction(let fraction): current = fraction
-  case .pixels(let width): current = width / stripWidth
+  case .fraction(let fraction): stored = fraction
+  case .pixels(let width): stored = width / stripWidth
   }
+  // Adjust from the width the layout draws, not a stored width the bounds override.
+  let current = max(min(stored, upper), lower)
   let requested: Double
   let inPoints: Bool
   switch change {
@@ -308,9 +313,6 @@ public func setWidth(
   case .adjust(.fraction(let delta)): (requested, inPoints) = (current + delta, false)
   case .adjust(.pixels(let delta)): (requested, inPoints) = (current + delta / stripWidth, true)
   }
-  let upper = min(maximumFraction ?? 1, 1)
-  // The narrowest width configuration accepts; a window's own minimum still wins, as in layout.
-  let lower = max(minimumFraction ?? 0, 0.05)
   let fraction = max(min(requested, upper), lower)
   column.width = inPoints ? .pixels(fraction * stripWidth) : .fraction(fraction)
   column.preMaximizedWidth = nil

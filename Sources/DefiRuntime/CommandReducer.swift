@@ -249,7 +249,8 @@ public func reduce(
           let available = focusedColumnAvailableWidth(
             workspace: workspace, viewport: viewport,
             windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
-            settings: layout, maximumWidth: maximumFraction)
+            settings: layout, excludingWindowIDs: state.nativeFullscreenWindowIDs,
+            maximumWidth: maximumFraction)
         {
           state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
           state.monitors[monitorIndex].workspaces[index].columns[columnIndex].width =

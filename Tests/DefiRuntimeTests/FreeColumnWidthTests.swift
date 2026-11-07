@@ -62,6 +62,12 @@ struct FreeColumnWidthTests {
     try reduce(.maximizeColumn, on: monitorID, state: &state)
     #expect(try width(.set(.fraction(0.6)), from: &state) == .fraction(0.6))
     #expect(state.monitors[0].workspaces[0].columns[0].preMaximizedWidth == nil)
+
+    // A maximized column drawn at its verified maximum shrinks from that width.
+    state.windows[WindowID(rawValue: 1)]?.minimumTiledWidth = nil
+    state.windows[WindowID(rawValue: 1)]?.maximumTiledWidth = 600 - gaps
+    try reduce(.maximizeColumn, on: monitorID, state: &state)
+    #expect(points(try width(.adjust(.pixels(-40)), from: &state)).map { abs($0 - 560) < 1e-6 } == true)
   }
 
   @Test
@@ -105,6 +111,17 @@ struct FreeColumnWidthTests {
     #expect(workspace.columns[0].width == .fraction(0.5))
     #expect(workspace.columns[2].width == .fraction(0.5))
     #expect(abs(workspace.targetScrollOffset - 0.5) < 1e-9)
+  }
+
+  @Test
+  func expandIgnoresANativeFullscreenColumn() throws {
+    var state = state(widths: [0.5, 0.5], focused: 0)
+    state.nativeFullscreenWindowIDs = [WindowID(rawValue: 2)]
+    try reduce(.expandColumnToAvailableWidth, on: monitorID, state: &state, viewports: [monitorID: viewport])
+    guard case .fraction(let width) = state.monitors[0].workspaces[0].columns[0].width else {
+      Issue.record("expected a fraction"); return
+    }
+    #expect(abs(width - 1) < 1e-9)
   }
 
   @Test
