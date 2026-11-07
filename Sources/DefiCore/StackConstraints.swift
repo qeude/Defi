@@ -166,16 +166,22 @@ public func stackShares(
     shares[absorber] = pair - shares[index]
     return shares
   }
-  let target = min(
-    max(share, minimumStackWindowShare),
-    1 - minimumStackWindowShare * Double(shares.count - 1)
-  )
-  let others = 1 - shares[index]
+  let target = clampedStackWindowShare(share, count: shares.count)
+  // Each other window keeps the minimum; the rest follows what it had above it.
+  let spare = 1 - target - minimumStackWindowShare * Double(shares.count - 1)
+  let excess = shares.indices.map { $0 == index ? 0 : max(shares[$0] - minimumStackWindowShare, 0) }
+  let totalExcess = excess.reduce(0, +)
   return shares.indices.map { position in
     if position == index { return target }
-    guard others > 0 else { return (1 - target) / Double(shares.count - 1) }
-    return shares[position] * (1 - target) / others
+    guard totalExcess > 0 else { return (1 - target) / Double(shares.count - 1) }
+    return minimumStackWindowShare + spare * excess[position] / totalExcess
   }
+}
+
+/// The share a window of a `count`-window stack can take while every other window
+/// keeps `minimumStackWindowShare`.
+public func clampedStackWindowShare(_ share: Double, count: Int) -> Double {
+  min(max(share, minimumStackWindowShare), 1 - minimumStackWindowShare * Double(count - 1))
 }
 
 /// Height a non-intrinsic window occupies in its slot: capped at its verified

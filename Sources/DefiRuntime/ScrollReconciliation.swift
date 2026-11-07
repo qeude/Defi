@@ -175,10 +175,12 @@ public func learnStackedWindowHeight(
     windowIDs, proportions: column.windowHeights,
     windowsByID: state.windows, viewport: viewport, settings: state.layout
   )
-  let shares = stackShares(
-    current, setting: index, to: current[index] + delta / viewport.height,
-    absorber: absorber
+  // The slot that holds the observed frame, also when a maximum height capped the frame.
+  let share = stackWindowShare(
+    height: actualFrame.height, index: index, count: windowIDs.count,
+    viewportHeight: viewport.height, settings: state.layout
   )
+  let shares = stackShares(current, setting: index, to: share, absorber: absorber)
   state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].windowHeights =
     Dictionary(uniqueKeysWithValues: zip(windowIDs, shares))
   // The user chose this height: a settled snap is stale.

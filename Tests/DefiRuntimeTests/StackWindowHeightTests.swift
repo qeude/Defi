@@ -7,7 +7,7 @@ import Testing
 struct StackWindowHeightTests {
   private let monitorID = MonitorID(rawValue: 1)
   private let viewport = Rect(x: 0, y: 0, width: 1_000, height: 1_000)
-  private let ids = [1, 2, 3].map { WindowID(rawValue: $0) }
+  private let ids = (1...8).map { WindowID(rawValue: $0) }
 
   private func stackState(focusedWindow: Int = 0, count: Int = 3) -> RuntimeState {
     var state = RuntimeState(config: Config())
@@ -64,6 +64,18 @@ struct StackWindowHeightTests {
     #expect(heights(state) == [670, 330])
     try apply("switch-preset-window-height", &state)
     #expect(heights(state) == [500, 500])
+  }
+
+  @Test
+  func `A preset the stack cannot hold still wraps`() throws {
+    // Eight windows leave the focused one at most 65%, below the 0.66 preset.
+    var state = stackState(count: 8)
+    var focused: [Double] = []
+    for _ in 0..<4 {
+      try apply("switch-preset-window-height", &state)
+      focused.append(heights(state)[0])
+    }
+    #expect(focused == [330, 500, 650, 330])
   }
 
   @Test

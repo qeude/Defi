@@ -65,11 +65,14 @@ struct StackConstraintsTests {
   func `Setting a share scales the others, a dragged edge moves only its neighbour`() {
     let even = [0.25, 0.25, 0.5]
     func permille(_ shares: [Double]) -> [Double] { shares.map { ($0 * 1_000).rounded() } }
-    #expect(permille(stackShares(even, setting: 0, to: 0.5)) == [500, 167, 333])
+    #expect(permille(stackShares(even, setting: 0, to: 0.5)) == [500, 173, 327])
     #expect(permille(stackShares(even, setting: 0, to: 0.4, absorber: 1)) == [400, 100, 500])
     // Every window keeps at least the minimum share.
     #expect(permille(stackShares(even, setting: 0, to: 1, absorber: 1)) == [450, 50, 500])
     #expect(stackShares(even, setting: 2, to: 1)[2] == 1 - 2 * minimumStackWindowShare)
+    // Scaling never pushes another window below the minimum.
+    let squeezed = stackShares(stackShares([1, 1, 1], setting: 1, to: 0.05), setting: 0, to: 0.9)
+    #expect(permille(squeezed) == [900, 50, 50])
   }
 
   @Test

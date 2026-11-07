@@ -567,16 +567,18 @@ private func setFocusedWindowHeight(
   case .switchPresetWindowHeight:
     let presets = state.layout.presetWindowHeights
     guard !presets.isEmpty else { return }
-    // Match what was asked for, not what constraints allowed, so cycling never sticks.
+    // Match what was asked for, not what constraints allowed, and each preset as the
+    // stack can hold it, so cycling never sticks.
     let requested = stackWindowShares(
       windowIDs, proportions: column.windowHeights,
       windowsByID: state.windows, viewport: nil, settings: state.layout
     )[index]
+    let reachable = presets.map { clampedStackWindowShare($0, count: windowIDs.count) }
     let tolerance = 0.005
-    if let match = presets.firstIndex(where: { abs($0 - requested) < tolerance }) {
-      share = presets[(match + 1) % presets.count]
+    if let match = reachable.firstIndex(where: { abs($0 - requested) < tolerance }) {
+      share = reachable[(match + 1) % reachable.count]
     } else {
-      share = presets.filter { $0 > requested + tolerance }.min() ?? presets[0]
+      share = reachable.filter { $0 > requested + tolerance }.min() ?? reachable[0]
     }
   default:
     return
