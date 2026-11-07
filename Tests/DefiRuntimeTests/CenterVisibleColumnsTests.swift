@@ -48,7 +48,6 @@ struct CenterVisibleColumnsTests {
     #expect(offset(state) == 0)
 
     try run(.centerVisibleColumns, in: &state)
-    synchronizeScrollOffsets(state: &state, viewports: [monitorID: viewport])
 
     #expect(abs(offset(state) + 0.14) < 1e-9)
     #expect(try unchanged(state))
