@@ -8,6 +8,7 @@ public enum CommandParseError: Error, Equatable, Sendable {
   case invalidPosition(String)
   case invalidWidth(String)
   case invalidWindowID(String)
+  case invalidHeight(String)
 }
 
 public func parseCommand(_ input: String) throws -> Command {
@@ -133,6 +134,12 @@ public func parseCommand(_ input: String) throws -> Command {
     return .setColumnWidth(try parseColumnWidthChange(argument("width")))
   case "expand-column-to-available-width":
     return .expandColumnToAvailableWidth
+  case "set-window-height":
+    return .setWindowHeight(try parseWindowHeight(argument("height")))
+  case "reset-window-height":
+    return .resetWindowHeight
+  case "switch-preset-window-height":
+    return .switchPresetWindowHeight
   case "center-column":
     return .centerColumn
   case "center-visible-columns":
@@ -178,6 +185,23 @@ private func parseColumnWidthChange(_ input: String) throws -> ColumnWidthChange
   let value = (sign ?? 1) * magnitude
   let width: ColumnWidth = percent ? .fraction(value / 100) : .pixels(value)
   return sign == nil ? .set(width) : .adjust(width)
+}
+
+/// `N%` sets a share of the column, `+N%`/`-N%` changes it, and a bare number is points.
+private func parseWindowHeight(_ input: String) throws -> WindowHeightChange {
+  let sign = input.first.flatMap { "+-".contains($0) ? $0 : nil }
+  let body = sign == nil ? input[...] : input.dropFirst()
+  let percent = body.hasSuffix("%")
+  guard let value = Double(percent ? body.dropLast() : body), value.isFinite, value >= 0,
+    body.first?.isNumber == true
+  else { throw CommandParseError.invalidHeight(input) }
+  switch (sign, percent) {
+  case ("+", true): return .adjust(value / 100)
+  case ("-", true): return .adjust(-value / 100)
+  case (nil, true) where value > 0 && value <= 100: return .share(value / 100)
+  case (nil, false) where value > 0: return .points(value)
+  default: throw CommandParseError.invalidHeight(input)
+  }
 }
 
 private func parseWorkspaceTarget(_ input: String) throws -> WorkspaceTarget {

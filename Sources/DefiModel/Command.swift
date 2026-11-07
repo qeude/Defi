@@ -18,6 +18,16 @@ public enum WorkspaceTarget: Equatable, Codable, Sendable {
   case lastActive
 }
 
+/// The argument of `set-window-height`.
+public enum WindowHeightChange: Equatable, Codable, Sendable {
+  /// Share of the column height, from `N%`.
+  case share(Double)
+  /// Change of the share, from `+N%` or `-N%`.
+  case adjust(Double)
+  /// Window height in points.
+  case points(Double)
+}
+
 public enum Command: Equatable, Codable, Sendable {
   case focusColumn(Direction)
   case focusColumnOrMonitor(Direction)
@@ -44,6 +54,9 @@ public enum Command: Equatable, Codable, Sendable {
   case maximizeColumn
   case setColumnWidth(ColumnWidthChange)
   case expandColumnToAvailableWidth
+  case setWindowHeight(WindowHeightChange)
+  case resetWindowHeight
+  case switchPresetWindowHeight
   case centerColumn
   case centerVisibleColumns
   case toggleFloating
@@ -61,7 +74,8 @@ public enum Command: Equatable, Codable, Sendable {
     switch self {
     case .cycleWidth, .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth,
       .moveColumn, .moveWindow, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
-      .toggleFloating:
+      .toggleFloating,
+      .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
       true
     default:
       false
@@ -76,7 +90,8 @@ public enum Command: Equatable, Codable, Sendable {
     switch self {
     case .cycleWidth, .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth,
       .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
-      .moveColumnToMonitor, .moveWindowToMonitor, .moveWorkspaceToMonitor:
+      .moveColumnToMonitor, .moveWindowToMonitor, .moveWorkspaceToMonitor,
+      .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
       true
     default:
       false

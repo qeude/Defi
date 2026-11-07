@@ -238,6 +238,7 @@ public struct OverviewConfig: Codable, Equatable, Sendable {
 public struct LayoutConfig: Codable, Equatable, Sendable {
   public var defaultColumnWidth: Double
   public var presetColumnWidths: [Double]
+  public var presetWindowHeights: [Double]
   public var centerFocusedColumn: CenterFocusedColumnConfig
   public var alwaysCenterSingleColumn: Bool
   public var gaps: Double
@@ -251,6 +252,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
   public init(
     defaultColumnWidth: Double = 0.80,
     presetColumnWidths: [Double] = [0.33, 0.50, 0.66, 0.80],
+    presetWindowHeights: [Double] = [0.33, 0.50, 0.66],
     centerFocusedColumn: CenterFocusedColumnConfig = .never,
     alwaysCenterSingleColumn: Bool = false,
     gaps: Double = 8,
@@ -263,6 +265,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
   ) {
     self.defaultColumnWidth = defaultColumnWidth
     self.presetColumnWidths = presetColumnWidths
+    self.presetWindowHeights = presetWindowHeights
     self.centerFocusedColumn = centerFocusedColumn
     self.alwaysCenterSingleColumn = alwaysCenterSingleColumn
     self.gaps = gaps
@@ -277,6 +280,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
   enum CodingKeys: String, CodingKey {
     case defaultColumnWidth = "default_column_width"
     case presetColumnWidths = "preset_column_widths"
+    case presetWindowHeights = "preset_window_heights"
     case centerFocusedColumn = "center_focused_column"
     case alwaysCenterSingleColumn = "always_center_single_column"
     case gaps
@@ -296,6 +300,9 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     presetColumnWidths =
       try values.decodeIfPresent([Double].self, forKey: .presetColumnWidths)
       ?? defaults.presetColumnWidths
+    presetWindowHeights =
+      try values.decodeIfPresent([Double].self, forKey: .presetWindowHeights)
+      ?? defaults.presetWindowHeights
     centerFocusedColumn =
       try values.decodeIfPresent(
         CenterFocusedColumnConfig.self,

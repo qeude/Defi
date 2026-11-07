@@ -906,6 +906,12 @@ extension Daemon {
           state: &state,
           viewports: viewportsByMonitor
         )
+        learnStackedWindowHeight(
+          gestureWindowID,
+          actualFrame: widthLearningFrame,
+          state: &state,
+          viewports: viewportsByMonitor
+        )
         // The learned scroll keeps a released left edge in place; the anchor would undo it.
         if learned, !snapshot.leftMouseButtonDown { mouseGestureScrollAnchor = nil }
       }

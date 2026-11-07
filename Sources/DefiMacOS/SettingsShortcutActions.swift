@@ -13,7 +13,9 @@ enum SettingsShortcutActions {
     "focus-workspace-position", "focus-workspace-name", "focus-workspace-previous",
     "reorder-workspace",
     "move-workspace-to-monitor", "focus-monitor", "cycle-width", "maximize-column",
-    "set-column-width", "expand-column-to-available-width", "center-column", "center-visible-columns",
+    "set-column-width", "expand-column-to-available-width",
+    "set-window-height", "switch-preset-window-height", "reset-window-height",
+    "center-column", "center-visible-columns",
     "toggle-floating", "activate-floating", "join-window", "unjoin-windows",
     "consume-or-expel-window", "swap-window",
     "toggle-cheatsheet", "toggle-overview", "open-settings", "run-startup-commands",
@@ -21,6 +23,7 @@ enum SettingsShortcutActions {
   static let noArgumentActions: Set<String> = [
     "maximize-column", "expand-column-to-available-width", "center-column", "center-visible-columns",
     "focus-workspace-previous", "focus-window-previous", "toggle-floating",
+    "switch-preset-window-height", "reset-window-height",
     "activate-floating", "unjoin-windows",
     "toggle-cheatsheet", "toggle-overview", "open-settings", "run-startup-commands",
   ]
@@ -78,6 +81,7 @@ enum SettingsShortcutActions {
     "move-workspace-to-monitor": ["left", "right", "up", "down"],
     "focus-monitor": ["left", "right", "up", "down"],
     "cycle-width": ["previous", "next"],
+    "set-window-height": ["-10%", "+10%"],
     "join-window": ["left", "right"],
     "consume-or-expel-window": ["left", "right"],
     "swap-window": ["left", "right"],

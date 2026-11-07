@@ -65,12 +65,14 @@ shortcut is inactive, and Settings says why.
 
 ## `[layout]`
 
-Column sizes, width cycling, where the focused column sits, and gaps.
+Column sizes, width cycling, stacked window heights, where the focused column
+sits, and gaps.
 
 ```toml
 [layout]
 default_column_width = 0.80
 preset_column_widths = [0.33, 0.50, 0.66, 0.80]
+preset_window_heights = [0.33, 0.50, 0.66]
 center_focused_column = "never"
 always_center_single_column = false
 gaps = 8
@@ -86,6 +88,7 @@ reserved_bottom = 0
 | --- | --- | --- | --- |
 | `default_column_width` | `0.80` | `0.05` to `1.0` | Width of each new column, as a fraction of the monitor. |
 | `preset_column_widths` | `[0.33, 0.50, 0.66, 0.80]` | non-empty list, `0.05` to `1.0` | Widths that `cycle-width` steps through, wrapping at both ends. |
+| `preset_window_heights` | `[0.33, 0.50, 0.66]` | non-empty list, `0.05` to `0.95` | Shares of the column height that `switch-preset-window-height` steps through for a stacked window, wrapping after the last. |
 | `center_focused_column` | `"never"` | `"never"`, `"always"`, `"on-overflow"` | Where the focused column lands. See [Focused column centering](#focused-column-centering). |
 | `always_center_single_column` | `false` | boolean | Centers a workspace's only column, in every mode. |
 | `gaps` | `8` | `0` to `256` | Space between windows and around the monitor edges, in points. An outside border counts as part of its window. |
@@ -550,6 +553,9 @@ When a workspace is named `up` or `down`, use `move-column-to-workspace-name
 | `maximize-column` | Toggle the focused column between full width and its previous width. | `mod-f` |
 | `set-column-width <width>` | Set the width: `60%` of the usable width, `960` points, or relative, such as `+5%`, `-10%`, or `-40`. | unset |
 | `expand-column-to-available-width` | Grow the focused column into the free space beside the other fully visible columns. | unset |
+| `set-window-height <N%\|+N%\|-N%\|points>` | Set the focused stacked window to `N%` of the column height, change its share by `N` percentage points, or make it `points` tall. The rest of the stack absorbs the difference and keeps its relative heights. | unset |
+| `switch-preset-window-height` | Give the focused stacked window the next height in `preset_window_heights`, wrapping. | unset |
+| `reset-window-height` | Split the focused stack evenly again. | unset |
 | `center-column` | Center the focused column until you select another one. | `mod-c` |
 | `center-visible-columns` | Center the columns fully in view as one group, while the selected column stays in view. | unset |
 | `join-window left\|right` | Add the focused window to the stack on the left or right. | `mod-semicolon` / `mod-quote` |
@@ -617,11 +623,20 @@ After either command, `cycle-width` steps to the nearest preset in its
 direction, as after a native resize: from `60%`, `next` selects `0.66` and
 `previous` selects `0.50`.
 
-**Stacks.** A stack splits its column's height evenly, after gaps, unless a
-window's verified minimum height forces a taller slot or its maximum caps it;
-the others share the rest. When every window is capped, the spare height is
-spread evenly and each window is centered in its slot. No height proportions
-are stored.
+**Stacks.** A stack splits its column's height evenly, after gaps, until a
+height command or a native resize gives its windows their own proportions.
+Dragging a stacked window's top or bottom edge moves only the neighbour across
+that edge; the stack's outer edges stay at the column edges. A height command
+scales all the other windows of the stack. Every window keeps at least 5% of the
+column, a window joining a resized stack gets the average share, and the
+proportions follow the windows when they are reordered or one closes. They are
+kept with the session state across daemon restarts. A single tiled window always
+fills the column, so height commands change nothing there.
+
+A window's verified minimum height still forces a taller slot and its maximum
+still caps it; the others share the rest by their proportions. When every window
+is capped, the spare height is spread evenly and each window is centered in its
+slot.
 
 `join-window` is refused, with the required and available height in the error,
 when the stack would need more than the usable height. `consume-or-expel-window`
@@ -1059,6 +1074,7 @@ show_cheatsheet_on_modifier_hold = true
 [layout]
 default_column_width = 0.80
 preset_column_widths = [0.33, 0.50, 0.66, 0.80]
+preset_window_heights = [0.33, 0.50, 0.66]
 center_focused_column = "never"
 always_center_single_column = false
 gaps = 8

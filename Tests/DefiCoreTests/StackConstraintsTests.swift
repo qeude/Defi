@@ -44,6 +44,35 @@ struct StackConstraintsTests {
   }
 
   @Test
+  func `Stored proportions weight the slots and missing windows take the mean`() {
+    func layout(_ proportions: [WindowID: Double], windows: [Window] = []) -> [Double] {
+      var column = stack([1, 2, 3])
+      column.windowHeights = proportions
+      return computeLayout(
+        workspace: Workspace(id: WorkspaceID(rawValue: "1"), columns: [column]),
+        viewport: viewport, windows: windows, settings: noGaps
+      ).map(\.frame.height)
+    }
+    #expect(layout([id(1): 0.5, id(2): 0.25, id(3): 0.25]) == [500, 250, 250])
+    // Window 3 has no proportion and takes the mean, 1.5.
+    #expect(layout([id(1): 2, id(2): 1]).map { $0.rounded() } == [444, 222, 333])
+    // A verified minimum still wins over a proportion.
+    #expect(layout([id(1): 0.6, id(2): 0.2, id(3): 0.2], windows: [window(2, minimumHeight: 400)])
+      == [450, 400, 150])
+  }
+
+  @Test
+  func `Setting a share scales the others, a dragged edge moves only its neighbour`() {
+    let even = [0.25, 0.25, 0.5]
+    func permille(_ shares: [Double]) -> [Double] { shares.map { ($0 * 1_000).rounded() } }
+    #expect(permille(stackShares(even, setting: 0, to: 0.5)) == [500, 167, 333])
+    #expect(permille(stackShares(even, setting: 0, to: 0.4, absorber: 1)) == [400, 100, 500])
+    // Every window keeps at least the minimum share.
+    #expect(permille(stackShares(even, setting: 0, to: 1, absorber: 1)) == [450, 50, 500])
+    #expect(stackShares(even, setting: 2, to: 1)[2] == 1 - 2 * minimumStackWindowShare)
+  }
+
+  @Test
   func `A minimum height window gets its minimum and the rest share evenly`() {
     #expect(heights([1, 2, 3], windows: [window(2, minimumHeight: 500)]) == [250, 500, 250])
   }
