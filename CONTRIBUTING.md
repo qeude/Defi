@@ -212,6 +212,7 @@ that every third-party or default AppKit window reorders while inactive.
 | `verify.sh` | Local preparation or exclusive desktop verification with recorded results. |
 | `desktop_lock.sh` | Reserve the desktop across concurrent and nested commands. |
 | `desktop_session.sh` | Checkpoint and restore existing session stores under the desktop reservation. |
+| `perf_release.sh` | Release performance check: previous release vs candidate in the VM (needs Tart, jq, Python 3). |
 | `fluidity_probe.py` | Optional: dropped frames per user action, measured with Instruments (needs Python 3). |
 | `check_signing.sh` | Compare certificates and designated requirements without mutation. |
 | `build_and_run.sh` | Build, sign, install, and launch Defi; `--install-staged` reuses a prepared bundle. |
@@ -281,8 +282,10 @@ may be stored only as a protected GitHub Actions secret for automated signing.
 
 ### Automated releases
 
-After merging the version and build-number changes in `Support/Defi-Info.plist`,
-push a matching tag from `main`, for example `v0.2.2`. The Release workflow checks
+On the branch that bumps the version and build number in `Support/Defi-Info.plist`,
+run `make perf-release` and commit the `perf/releases/v<version>.json` and `.md`
+it writes (see [Release performance check](PERFORMANCE.md#release-performance-check)).
+The Release workflow refuses a tag without them. After merging, push a matching tag from `main`, for example `v0.2.2`. The Release workflow checks
 the version and ancestry, runs the build and tests, then waits for approval of
 the `release` environment. Inspect the tagged commit before approving it.
 

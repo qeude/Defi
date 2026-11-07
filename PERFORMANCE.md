@@ -126,6 +126,63 @@ report regressions, but variable Accessibility timings do not create a flaky
 automatic CI failure. An unexplained installed-build regression blocks manual
 promotion.
 
+## Release performance check
+
+Before tagging, `make perf-release` (`script/perf_release.sh [BASE [CANDIDATE]]`)
+measures the candidate against the previous release tag and writes
+`dist/perf/<run>/report.md` and `results.json`. A candidate whose version
+differs from the base also writes `perf/releases/v<version>.json` and `.md`.
+Commit them on the version-bump branch. The Release workflow refuses a tag
+without them. It never fails on the numbers: an unexplained regression blocks
+promotion by a maintainer, as above.
+
+It runs in the `defi-e2e` Tart VM. The other places were rejected:
+
+- GitHub-hosted macOS runners grant no Accessibility to a signed daemon and
+  run on varying hardware, so results from two releases are not comparable.
+- The user's Mac needs the desktop reservation, interrupts the user, and
+  measures whatever else is open.
+- The VM can run the real daemon: SIP is off, its TCC rows grant
+  `~/Applications/Defi.app`, and nothing on the host desktop moves.
+
+The VM has no overlay drawing (`overviewPermission=disabled`), one 60 Hz
+display, and 4 slow virtual CPUs. Its absolute numbers exceed the budgets and
+describe the Accessibility path, not hardware results; the report shows the
+budgets for reference. Its value is the comparison. Both builds are built from
+clean worktrees and measured in one VM session, so host, guest, and macOS
+changes between releases cancel out. Stored results of older releases are a
+history, not a baseline.
+
+Each round installs one build, starts its daemon with a fixed config, opens six
+fixture windows, sends 120 `focus-column` commands at a 250 ms pace sweeping
+across the strip, and records `defi status` and idle CPU over 10 s. Five rounds
+per build alternate which build goes first. Input time is IPC receipt, not a
+hardware event; that is a consistent offset for both builds. A fresh frame
+observation needs a later Accessibility snapshot, and most commands are
+superseded before one arrives, so observed and converged metrics have only
+about 10 to 15 samples per round; their P95 is close to the round's worst
+sample.
+
+### Noise threshold
+
+A candidate P50 or P95 is a regression only when all three hold:
+
+1. its median over rounds is more than 25 % above the base median,
+2. by more than 1 ms, and
+3. every candidate round is worse than every base round.
+
+Rule 3 is a rank test. With five rounds each and no real change, all five
+candidate rounds land above all five base rounds with probability 1/252
+(0.4 %), so ten gated percentiles raise a false alarm in about 4 % of runs.
+Single rounds vary too much to judge alone. In the first run (v0.8.0 against
+main, 2026-11-07), each build's planning P95 ranged over about 1.2–3.0 ms
+across rounds and convergence P95 over 280–878 ms. Main's median planning P95
+was 96 % and 1.25 ms above v0.8.0's, which passes rules 1 and 2, yet its rounds
+overlapped v0.8.0's: rule 3 correctly treats it as noise. Rules 1 and 2 drop
+real but negligible shifts, such as a few tenths of a millisecond of planning.
+P99 of about
+120 samples is near the worst sample and is reported, never flagged.
+
 ## Delivery order
 
 Implementation status: complete for the public Accessibility backend. Command

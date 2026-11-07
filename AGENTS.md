@@ -194,7 +194,8 @@ Choose verification by the changed behavior:
   desktop later, run `script/verify.sh local --stage`, then
   `script/verify.sh desktop <run-directory> --filter …`. Before tagging a
   release, run `make verify-desktop` unfiltered on the release commit; it
-  certifies the batch of changes the scoped runs let through. Inspect progress
+  certifies the batch of changes the scoped runs let through. Also run
+  `make perf-release` on the version bump and commit `perf/releases/v<version>.*`. Inspect progress
   with `make verify-status` or `script/verify.sh status [run-directory]`.
   Desktop tests use Defi-owned fixture windows only. A run with one display
   reports the two-display lane under `desktop.not_run`; that lane is not

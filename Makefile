@@ -1,4 +1,4 @@
-.PHONY: build test run install verify verify-desktop verify-status package-release
+.PHONY: build test run install verify verify-desktop verify-status perf-release package-release
 
 # Desktop tests to run, as a swift test filter: make verify-desktop FILTER='DesktopE2ETests/(testA|testB)$'
 FILTER ?= DesktopE2ETests
@@ -27,6 +27,10 @@ verify-desktop:
 
 verify-status:
 	./script/verify.sh status
+
+# Release performance check in the defi-e2e VM: make perf-release [BASE=v0.8.0] [CANDIDATE=HEAD]
+perf-release:
+	./script/perf_release.sh "$(BASE)" "$(CANDIDATE)"
 
 package-release:
 	./script/package_release.sh
