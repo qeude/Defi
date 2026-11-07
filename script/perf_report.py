@@ -53,7 +53,10 @@ def load_rounds(out, label):
 
 
 def summary(rounds, key, percentile):
-    values = [r[key][percentile] for r in rounds]
+    # The daemon prints 0.00 for a metric without samples; that round says nothing about it.
+    values = [r[key][percentile] for r in rounds if r[key]['n']]
+    if not values:
+        raise ValueError(f'no {key} samples in any round')
     return {'median': statistics.median(values), 'min': min(values), 'max': max(values)}
 
 

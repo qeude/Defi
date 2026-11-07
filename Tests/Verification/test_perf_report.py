@@ -33,6 +33,13 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(perf.compare(self.rounds(2.0, 2.0), self.rounds(2.6, 2.6)), [])
         self.assertEqual(perf.compare(self.rounds(20, 20), self.rounds(24, 24)), [])
 
+    def test_rounds_without_samples_are_ignored(self):
+        rounds = self.rounds(20, 21)
+        rounds.append(perf.parse_status(status(converged=0).replace('inputConvergedN/P50/P95/P99=120', 'inputConvergedN/P50/P95/P99=0')))
+        self.assertEqual(perf.summary(rounds, 'converged', 'p95'), {'median': 20.5, 'min': 20, 'max': 21})
+        with self.assertRaises(ValueError):
+            perf.summary(rounds[2:], 'converged', 'p95')
+
     def test_rounds_of_one_label_exclude_a_longer_label(self):
         with tempfile.TemporaryDirectory() as directory:
             out = Path(directory)
