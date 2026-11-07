@@ -339,9 +339,9 @@ public func sendCommand(
   defer { Darwin.close(descriptor) }
 
   try connectAndSend(
-    CommandRequest(command: command, monitorIndex: monitorIndex), on: descriptor, to: url
+    CommandRequest(command: command, monitorIndex: monitorIndex),
+    on: descriptor, to: url, readTimeout: true
   )
-  try configureReadTimeout(descriptor)
   let responseData = try readLine(from: descriptor, limit: maximumIPCResponseBytes)
   guard let response = try? JSONDecoder().decode(CommandResponse.self, from: responseData) else {
     throw IPCError.invalidResponse
@@ -359,7 +359,9 @@ public func subscribeToEvents(
     throw IPCError.systemCall("socket", errno)
   }
   defer { Darwin.close(descriptor) }
-  try connectAndSend(CommandRequest(command: subscribeCommand), on: descriptor, to: url)
+  try connectAndSend(
+    CommandRequest(command: subscribeCommand), on: descriptor, to: url, readTimeout: false
+  )
   // A daemon without the stream answers with one failed command response.
   var firstLine: Data? = Data()
   var buffer = [UInt8](repeating: 0, count: 65_536)
@@ -390,7 +392,8 @@ public func subscribeToEvents(
 private func connectAndSend(
   _ request: CommandRequest,
   on descriptor: Int32,
-  to url: URL
+  to url: URL,
+  readTimeout: Bool
 ) throws {
   try configureNoSigPipe(descriptor)
   try withSocketAddress(path: url.path) { address, length in
@@ -398,6 +401,8 @@ private func connectAndSend(
       throw IPCError.systemCall("connect", errno)
     }
   }
+  // Before the write: once the daemon has replied and closed, setsockopt fails.
+  if readTimeout { try configureReadTimeout(descriptor) }
   var data = try JSONEncoder().encode(request)
   data.append(0x0A)
   try writeAll(data, to: descriptor)
