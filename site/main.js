@@ -34,7 +34,7 @@ const faq = [
   ['Does it control macOS Spaces?', 'No. Defi manages its own virtual workspaces and leaves native Spaces alone. Clicks, the Dock and Command-Tab still work.'],
   ['Which permissions does it need, and why?', `<span class="perm"><b>Accessibility</b> (required). It is the public macOS interface for reading, moving, resizing and focusing other apps' windows. Defi uses it to place every window in its column, focus the one you choose and park other workspaces off screen. Defi asks on first launch and starts as soon as you allow it in System Settings › Privacy & Security.</span><span class="perm"><b>Screen Recording</b> (optional). Many apps apply a move late, so moving real windows frame by frame stutters. Defi animates pictures of your windows instead and moves each real window once underneath; Overview shows the same pictures. Without it, windows move at once and Overview shows cards without pictures.</span><span class="perm"><b>Your data.</b> The pictures stay in memory on your Mac, never on disk. Defi has no network code, no analytics and no account. <code>defi uninstall --purge</code> removes the app, its data and its permissions.</span>`],
   ['Does it support several monitors?', 'Yes. Each monitor keeps its own workspaces, active workspace and layout. Switching on one leaves the others as they are.'],
-  ['Can I change the shortcuts?', `Yes. Defi's Settings window changes shortcuts, gaps, column widths and app rules. The same options live in a TOML file; see the <a href="${repo}/blob/main/CONFIGURATION.md">configuration reference</a>.`],
+  ['Can I change the shortcuts?', `Yes. Defi's Settings window changes shortcuts, gaps, column widths and app rules. The same options live in a TOML file; see the <a href="${repo}/blob/main/CONFIGURATION.md">configuration reference</a>. The <code>defi</code> command runs the same actions from scripts, and SketchyBar can show your workspaces.`],
   ['Is it ready for everyday use?', `Defi is an experimental alpha, self-signed and not notarized. Behavior and configuration may change before the first stable release. Read the <a href="${repo}#alpha-limitations">alpha limitations</a>.`],
 ];
 
@@ -47,7 +47,7 @@ const miniWin = (app, cls = '') => `<span class="mw ${cls}">${appIcon(app)}</spa
 const card = (cls, illustration, title, text) => `<article class="card ${cls}"><div class="card-art">${illustration}</div><div class="card-copy"><h3>${title}</h3><p>${text}</p></div></article>`;
 
 app.querySelector('.hero').insertAdjacentHTML('beforeend', `
-    <div class="keypad" role="group" aria-label="Try Defi shortcuts">${keypad.map(([code, glyph, label]) => `<button type="button" data-code="${code}"><span class="visually-hidden">Control-Option </span>${['⌃', '⌥', glyph].map(key => `<kbd aria-hidden="true">${key}</kbd>`).join('')}<span>${label}</span></button>`).join('')}<button type="button" class="keypad-hold"><span class="visually-hidden">Control-Option </span>${['⌃', '⌥'].map(key => `<kbd aria-hidden="true">${key}</kbd>`).join('')}<span>${matchMedia('(hover:none)').matches ? 'All shortcuts' : 'Hold for all shortcuts'}</span></button></div>
+    <div class="keypad" role="group" aria-label="Try Defi shortcuts">${keypad.map(([code, glyph, label]) => `<button type="button" data-code="${code}"><span class="visually-hidden">Control-Option </span>${['⌃', '⌥', glyph].map(key => `<kbd aria-hidden="true">${key}</kbd>`).join('')}<span>${label}</span></button>`).join('')}${matchMedia('(hover:none)').matches ? '' : `<span class="keypad-swipe"><span class="visually-hidden">Control-Option and a two-finger trackpad swipe sideways: scroll the strip</span>${['⌃', '⌥'].map(key => `<kbd aria-hidden="true">${key}</kbd>`).join('')}<span aria-hidden="true">+</span><kbd aria-hidden="true">trackpad ← →</kbd><span aria-hidden="true">Scroll</span></span>`}<button type="button" class="keypad-hold"><span class="visually-hidden">Control-Option </span>${['⌃', '⌥'].map(key => `<kbd aria-hidden="true">${key}</kbd>`).join('')}<span>${matchMedia('(hover:none)').matches ? 'All shortcuts' : 'Hold for all shortcuts'}</span></button></div>
     <p class="desk-caption visually-hidden" aria-live="polite"></p>`);
 
 // Copy buttons
@@ -75,6 +75,7 @@ document.addEventListener('keydown', event => { if (event.key === 'Escape') clos
 const desk = app.querySelector('.desk');
 const caption = app.querySelector('.desk-caption');
 const keypadButtons = new Map([...app.querySelectorAll('.keypad button[data-code]')].map(button => [button.dataset.code, button]));
+const swipeLegend = app.querySelector('.keypad-swipe');
 let demoTimer;
 let demoStep = 0;
 let userDriven = false;
@@ -82,6 +83,9 @@ let deskVisible = false;
 let deskOnScreen = false;
 let deskHovered = false;
 const onCommand = (code, command) => {
+  // A swipe lights its legend while the fingers move, then lets go like a key; any other command ends it.
+  swipeLegend?.classList.toggle('pressed', code === 'Swipe' && command === null);
+  if (code === 'Swipe' && (!command || command === 'cancel')) return;
   const button = keypadButtons.get(code);
   if (button) {
     button.classList.add('pressed');
@@ -186,6 +190,7 @@ reducedMotion.addEventListener('change', syncDemo);
 desk.addEventListener('pointerenter', () => { deskHovered = true; });
 desk.addEventListener('pointerleave', () => { deskHovered = false; });
 desk.addEventListener('pointerdown', stopDemo);
+desk.addEventListener('wheel', event => { if (event.ctrlKey && event.altKey) stopDemo(); }, { passive: true });
 // Capture: Dock and menu handlers stop propagation, and keyboard activation sends no pointerdown.
 desk.addEventListener('click', () => {
   stopDemo();
@@ -260,8 +265,7 @@ for (const section of [
       ${card('b-split', `<div class="hz-light" aria-hidden="true">${[0.33, 0.5, 0.8, 0.5, 0.33].map((w, i) => `<i class="${i === 2 ? 'on' : ''}" style="flex:${w}"></i>`).join('')}</div><p class="ill-hz" aria-label="120 Hz"><b aria-hidden="true">120</b><span>Hz</span></p>`, 'Fast as your keys', 'Animations at up to 120 Hz. Commands never wait for a slow app.')}
       ${card('b-5', `<img class="ill-shot" src="${media('feature-app-rules.webp')}" alt="Defi's Settings listing application rules, such as Xcode on the dev workspace" width="1000" height="690" loading="lazy">`, 'Every app in its place', 'Rules send an app to its named workspace, keep it floating or set its width when its window opens.')}
       ${card('b-4', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll, with an empty workspace always ready.')}
-      ${card('b-3', `<pre class="ill-code"><b>$</b> defi status
-<b>$</b> defi workspace dev</pre>`, 'Ready to script', 'The defi command runs the same actions as the keys, and SketchyBar can show your workspaces.')}
+      ${card('b-3', `<div class="ill-swipe" aria-hidden="true"><div class="swipe-view"><div class="swipe-track">${['finder', 'notes', 'safari', 'ghostty', 'xcode', 'music', 'mail', 'messages', 'safari'].map(a => miniWin(a)).join('')}</div></div><div class="trackpad"><i></i><i></i></div></div>`, 'Swipe the strip', 'Turn on trackpad swipes and slide along your columns with your fingers.')}
     </div>
   </section>`,
   `<section class="shortcuts" id="shortcuts" aria-labelledby="shortcuts-title">
@@ -326,7 +330,7 @@ const settlePull = time => {
   settleFrame = stretch ? requestAnimationFrame(settlePull) : 0;
 };
 addEventListener('wheel', event => {
-  if (reducedMotion.matches || event.ctrlKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+  if (reducedMotion.matches || event.ctrlKey || event.defaultPrevented || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
   const delta = event.deltaY * (event.deltaMode ? 16 : 1);
   const atTop = scrollY <= 0;
   const atBottom = scrollY >= document.documentElement.scrollHeight - innerHeight - 1;
