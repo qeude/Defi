@@ -375,6 +375,12 @@ private func applyWindowIDReplacements(
             .columns[columnIndex].windows.map {
               $0 == previousID ? replacementID : $0
             }
+          if let height = state.monitors[monitorIndex].workspaces[workspaceIndex]
+            .columns[columnIndex].windowHeights?.removeValue(forKey: previousID)
+          {
+            state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex]
+              .windowHeights?[replacementID] = height
+          }
         }
         state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows =
           state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.map {

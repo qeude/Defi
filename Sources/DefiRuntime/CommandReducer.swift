@@ -303,6 +303,14 @@ public func reduce(
             windowID: column.windows[column.focusedWindow], centered: false, free: true)
         }
       }
+    case .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
+      let index = try workspaceIndex(state.monitors[monitorIndex])
+      setFocusedWindowHeight(
+        command,
+        workspace: &state.monitors[monitorIndex].workspaces[index],
+        viewport: viewports[state.monitors[monitorIndex].id],
+        state: state
+      )
     case .centerColumn:
       let index = try workspaceIndex(state.monitors[monitorIndex])
       let workspace = state.monitors[monitorIndex].workspaces[index]
@@ -519,6 +527,67 @@ private func columnWidthBounds(
   return (minimum.map { ($0 + gaps) / stripWidth }, maximum.map { ($0 + gaps) / stripWidth })
 }
 
+/// Height commands act on the focused tiled window of a stack; a single window keeps
+/// filling the column, so they change nothing there.
+private func setFocusedWindowHeight(
+  _ command: Command,
+  workspace: inout Workspace,
+  viewport: Rect?,
+  state: RuntimeState
+) {
+  guard workspace.focusedLayer == .tiled,
+    workspace.columns.indices.contains(workspace.focusedColumn)
+  else { return }
+  var column = workspace.columns[workspace.focusedColumn]
+  guard column.windows.indices.contains(column.focusedWindow) else { return }
+  let focusedID = column.windows[column.focusedWindow]
+  // Native fullscreen windows leave the stack while fullscreen.
+  let windowIDs = column.windows.filter { !state.nativeFullscreenWindowIDs.contains($0) }
+  guard windowIDs.count > 1, let index = windowIDs.firstIndex(of: focusedID) else { return }
+  let current = stackWindowShares(
+    windowIDs, proportions: column.windowHeights,
+    windowsByID: state.windows, viewport: viewport, settings: state.layout
+  )
+  let share: Double
+  switch command {
+  case .resetWindowHeight:
+    column.windowHeights = nil
+    workspace.columns[workspace.focusedColumn] = column
+    return
+  case .setWindowHeight(.share(let value)):
+    share = value
+  case .setWindowHeight(.adjust(let delta)):
+    share = current[index] + delta
+  case .setWindowHeight(.points(let points)):
+    guard let viewport, viewport.height > 0 else { return }
+    share = stackWindowShare(
+      height: points, index: index, count: windowIDs.count,
+      viewportHeight: viewport.height, settings: state.layout
+    )
+  case .switchPresetWindowHeight:
+    let presets = state.layout.presetWindowHeights
+    guard !presets.isEmpty else { return }
+    // Match what was asked for, not what constraints allowed, and each preset as the
+    // stack can hold it, so cycling never sticks.
+    let requested = stackWindowShares(
+      windowIDs, proportions: column.windowHeights,
+      windowsByID: state.windows, viewport: nil, settings: state.layout
+    )[index]
+    let reachable = presets.map { clampedStackWindowShare($0, count: windowIDs.count) }
+    let tolerance = 0.005
+    if let match = reachable.firstIndex(where: { abs($0 - requested) < tolerance }) {
+      share = reachable[(match + 1) % reachable.count]
+    } else {
+      share = reachable.filter { $0 > requested + tolerance }.min() ?? reachable[0]
+    }
+  default:
+    return
+  }
+  let shares = stackShares(current, setting: index, to: share)
+  column.windowHeights = Dictionary(uniqueKeysWithValues: zip(windowIDs, shares))
+  workspace.columns[workspace.focusedColumn] = column
+}
+
 private func joinTargetsNativeFullscreenColumn(
   _ direction: Direction,
   workspace: Workspace,
@@ -549,7 +618,8 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .moveColumnToWorkspace, .moveWindowToWorkspaceTarget,
     .reorderWorkspace, .moveWorkspaceToMonitor,
     .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn, .centerVisibleColumns,
-    .toggleFloating, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow:
+    .toggleFloating, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
+    .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
     true
   case .focusColumn, .focusColumnOrMonitor, .focusFloating, .focusWindow, .focusWindowOrWorkspace,
     .focusWindowPrevious, .focusWindowID, .switchWorkspace, .focusWorkspace, .focusMonitor,

@@ -11,6 +11,7 @@ public enum CenterFocusedColumn: Equatable, Sendable {
 public struct LayoutSettings: Equatable, Sendable {
   public var defaultColumnWidth: Double
   public var presetColumnWidths: [Double]
+  public var presetWindowHeights: [Double]
   public var centerFocusedColumn: CenterFocusedColumn
   public var alwaysCenterSingleColumn: Bool
   public var innerHorizontalGap: Double
@@ -23,6 +24,7 @@ public struct LayoutSettings: Equatable, Sendable {
   public init(
     defaultColumnWidth: Double = 0.80,
     presetColumnWidths: [Double] = [0.33, 0.50, 0.66, 0.80],
+    presetWindowHeights: [Double] = [0.33, 0.50, 0.66],
     centerFocusedColumn: CenterFocusedColumn = .never,
     alwaysCenterSingleColumn: Bool = false,
     innerHorizontalGap: Double = 4,
@@ -34,6 +36,7 @@ public struct LayoutSettings: Equatable, Sendable {
   ) {
     self.defaultColumnWidth = defaultColumnWidth
     self.presetColumnWidths = presetColumnWidths
+    self.presetWindowHeights = presetWindowHeights
     self.centerFocusedColumn = centerFocusedColumn
     self.alwaysCenterSingleColumn = alwaysCenterSingleColumn
     self.innerHorizontalGap = innerHorizontalGap

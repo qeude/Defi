@@ -146,6 +146,11 @@ public struct Config: Equatable, Sendable {
     else {
       throw ConfigError.invalidValue("layout.preset_column_widths")
     }
+    guard !layout.presetWindowHeights.isEmpty,
+      layout.presetWindowHeights.allSatisfy({ (0.05...0.95).contains($0) })
+    else {
+      throw ConfigError.invalidValue("layout.preset_window_heights")
+    }
     guard (0...256).contains(layout.gaps) else {
       throw ConfigError.invalidValue("layout.gaps")
     }

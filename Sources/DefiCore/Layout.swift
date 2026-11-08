@@ -34,7 +34,8 @@ public func computeLayout(
     )
     let width = widths[columnIndex]
     let heights = stackSlotHeights(
-      column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings
+      column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings,
+      proportions: column.windowHeights
     )
     var slotY = viewport.y
 
@@ -245,7 +246,8 @@ private func acceptedTiledSizes(
   settings: LayoutSettings
 ) -> [WindowID: TiledSizeAcceptance] {
   let heights = stackSlotHeights(
-    column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings
+    column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings,
+    proportions: column.windowHeights
   )
   let offsets = heights.reduce(into: [0.0]) { $0.append($0.last! + $1) }
   let gaps = horizontalGaps(settings: settings)

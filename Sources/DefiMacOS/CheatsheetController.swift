@@ -159,6 +159,8 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("cycle-width previous", "Narrower"), ("cycle-width next", "Wider"),
   ("maximize-column", "Maximize column"), ("set-column-width", "Set width"),
   ("expand-column-to-available-width", "Fill free width"),
+  ("set-window-height", "Window height"), ("switch-preset-window-height", "Next window height"),
+  ("reset-window-height", "Even window heights"),
   ("toggle-floating", "Float or tile window"),
   ("focus-floating previous", "Previous floating"), ("focus-floating next", "Next floating"),
   ("toggle-cheatsheet", "Shortcuts"), ("open-settings", "Settings"),
@@ -191,7 +193,9 @@ private struct ShortcutBinding {
     if verb.contains("workspace") || ["toggle-overview", "focus-window-previous"].contains(verb) {
       return "Workspaces"
     }
-    if verb.contains("width") || verb == "maximize-column" { return "Size" }
+    if verb.contains("width") || verb.contains("height") || verb == "maximize-column" {
+      return "Size"
+    }
     if verb.contains("floating") { return "Floating" }
     if verb.contains("window") { return "Windows in a column" }
     if verb.contains("column") { return "Columns" }

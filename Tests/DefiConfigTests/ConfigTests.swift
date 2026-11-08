@@ -153,6 +153,8 @@ struct ConfigTests {
     ("[layout]\nouter_right_gap = 257", .invalidValue("layout.outer_right_gap")),
     ("[layout]\nouter_bottom_gap = 257", .invalidValue("layout.outer_bottom_gap")),
     ("[layout]\nouter_left_gap = 257", .invalidValue("layout.outer_left_gap")),
+    ("[layout]\npreset_window_heights = []", .invalidValue("layout.preset_window_heights")),
+    ("[layout]\npreset_window_heights = [1.0]", .invalidValue("layout.preset_window_heights")),
     ("[layout]\nreserved_top = -1", .invalidValue("layout.reserved_top")),
     ("[layout]\nreserved_top = 513", .invalidValue("layout.reserved_top")),
     ("\(rule) = 0", .invalidValue("rules.initial_column_width")),

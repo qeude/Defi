@@ -58,9 +58,10 @@ public func oversizedStackWindowIDs(
 
 /// Slot heights, top to bottom, that sum to `viewport.height`.
 ///
-/// Water-filling: every slot gets the same level, clamped into its window's
-/// `[minimum + gaps, maximum + gaps]`; the clamped slots hand their surplus or
-/// shortfall to the rest. Without constraints this is exactly `height / count`.
+/// Water-filling: every slot gets the same level times its weight from
+/// `proportions`, clamped into its window's `[minimum + gaps, maximum + gaps]`; the
+/// clamped slots hand their surplus or shortfall to the rest. Without constraints or
+/// proportions this is exactly `height / count`.
 /// When every slot is capped, the surplus is spread evenly (the window is
 /// centred in its slot). An infeasible stack falls back to slots proportional
 /// to the required heights.
@@ -68,11 +69,13 @@ public func stackSlotHeights(
   _ windowIDs: [WindowID],
   windowsByID: [WindowID: Window],
   viewport: Rect,
-  settings: LayoutSettings
+  settings: LayoutSettings,
+  proportions: [WindowID: Double]? = nil
 ) -> [Double] {
   let count = windowIDs.count
   guard count > 1 else { return [viewport.height] }
   let bounds = stackBounds(windowIDs, windowsByID: windowsByID, settings: settings)
+  let weights = stackWeights(windowIDs, proportions: proportions)
   let totalLower = bounds.reduce(0) { $0 + $1.lower }
   if totalLower > viewport.height {
     let weights = bounds.map { max($0.lower, 1) }
@@ -85,15 +88,15 @@ public func stackSlotHeights(
   while true {
     let free = heights.indices.filter { heights[$0] == nil }
     guard !free.isEmpty else { break }
-    let level = remaining / Double(free.count)
-    let tooSmall = free.filter { bounds[$0].lower > level }
-    let tooLarge = free.filter { bounds[$0].upper < level }
+    let level = remaining / free.reduce(0) { $0 + weights[$1] }
+    let tooSmall = free.filter { bounds[$0].lower > level * weights[$0] }
+    let tooLarge = free.filter { bounds[$0].upper < level * weights[$0] }
     if tooSmall.isEmpty, tooLarge.isEmpty {
-      free.forEach { heights[$0] = level }
+      free.forEach { heights[$0] = level * weights[$0] }
       break
     }
-    let shortfall = tooSmall.reduce(0) { $0 + bounds[$1].lower - level }
-    let excess = tooLarge.reduce(0) { $0 + level - bounds[$1].upper }
+    let shortfall = tooSmall.reduce(0) { $0 + bounds[$1].lower - level * weights[$1] }
+    let excess = tooLarge.reduce(0) { $0 + level * weights[$1] - bounds[$1].upper }
     for index in shortfall > excess ? tooSmall : tooLarge {
       heights[index] = shortfall > excess ? bounds[index].lower : bounds[index].upper
       remaining -= heights[index] ?? 0
@@ -102,6 +105,83 @@ public func stackSlotHeights(
   let slots = heights.map { $0 ?? 0 }
   let surplus = (viewport.height - slots.reduce(0, +)) / Double(count)
   return surplus > 0.001 ? slots.map { $0 + surplus } : slots
+}
+
+/// Smallest share of its column a height command or a native resize leaves a stacked window.
+public let minimumStackWindowShare = 0.05
+
+/// Positive weights, top to bottom; a window without a valid proportion takes the
+/// mean of the others, so a window joining a resized stack gets an average slot.
+func stackWeights(_ windowIDs: [WindowID], proportions: [WindowID: Double]?) -> [Double] {
+  let known = windowIDs.map { proportions?[$0].flatMap { $0 > 0 && $0.isFinite ? $0 : nil } }
+  let values = known.compactMap { $0 }
+  let mean = values.isEmpty ? 1 : values.reduce(0, +) / Double(values.count)
+  return known.map { $0 ?? mean }
+}
+
+/// Shares of the column height, top to bottom, that the stack currently shows. Without
+/// a viewport, the stored proportions alone.
+public func stackWindowShares(
+  _ windowIDs: [WindowID],
+  proportions: [WindowID: Double]?,
+  windowsByID: [WindowID: Window],
+  viewport: Rect?,
+  settings: LayoutSettings
+) -> [Double] {
+  guard let viewport, viewport.height > 0 else {
+    let weights = stackWeights(windowIDs, proportions: proportions)
+    let total = weights.reduce(0, +)
+    return weights.map { $0 / total }
+  }
+  return stackSlotHeights(
+    windowIDs, windowsByID: windowsByID, viewport: viewport, settings: settings,
+    proportions: proportions
+  ).map { $0 / viewport.height }
+}
+
+/// Share of `viewportHeight` whose slot holds a window `height` points tall at `index`.
+public func stackWindowShare(
+  height: Double, index: Int, count: Int, viewportHeight: Double, settings: LayoutSettings
+) -> Double {
+  (height + stackVerticalGaps(windowIndex: index, windowCount: count, settings: settings))
+    / viewportHeight
+}
+
+/// Shares after giving the window at `index` `share` of the column, at least
+/// `minimumStackWindowShare` for every window. With `absorber` (a dragged edge) only
+/// that neighbour gives or takes the difference; otherwise the others keep their
+/// relative heights.
+public func stackShares(
+  _ current: [Double], setting index: Int, to share: Double, absorber: Int? = nil
+) -> [Double] {
+  let total = current.reduce(0, +)
+  guard current.count > 1, current.indices.contains(index), total > 0, share.isFinite else {
+    return current
+  }
+  var shares = current.map { $0 / total }
+  if let absorber, absorber != index, shares.indices.contains(absorber) {
+    let pair = shares[index] + shares[absorber]
+    guard pair >= 2 * minimumStackWindowShare else { return shares }
+    shares[index] = min(max(share, minimumStackWindowShare), pair - minimumStackWindowShare)
+    shares[absorber] = pair - shares[index]
+    return shares
+  }
+  let target = clampedStackWindowShare(share, count: shares.count)
+  // Each other window keeps the minimum; the rest follows what it had above it.
+  let spare = 1 - target - minimumStackWindowShare * Double(shares.count - 1)
+  let excess = shares.indices.map { $0 == index ? 0 : max(shares[$0] - minimumStackWindowShare, 0) }
+  let totalExcess = excess.reduce(0, +)
+  return shares.indices.map { position in
+    if position == index { return target }
+    guard totalExcess > 0 else { return (1 - target) / Double(shares.count - 1) }
+    return minimumStackWindowShare + spare * excess[position] / totalExcess
+  }
+}
+
+/// The share a window of a `count`-window stack can take while every other window
+/// keeps `minimumStackWindowShare`.
+public func clampedStackWindowShare(_ share: Double, count: Int) -> Double {
+  min(max(share, minimumStackWindowShare), 1 - minimumStackWindowShare * Double(count - 1))
 }
 
 /// Height a non-intrinsic window occupies in its slot: capped at its verified

@@ -56,6 +56,12 @@ struct ModelTests {
     ("toggle-cheatsheet", Command.toggleCheatsheet),
     ("open-settings", Command.openSettings),
     ("focus-window-id 42", Command.focusWindowID(WindowID(rawValue: 42))),
+    ("set-window-height 40%", Command.setWindowHeight(.share(0.4))),
+    ("set-window-height +10%", Command.setWindowHeight(.adjust(0.1))),
+    ("set-window-height -5%", Command.setWindowHeight(.adjust(-0.05))),
+    ("set-window-height 420", Command.setWindowHeight(.points(420))),
+    ("reset-window-height", Command.resetWindowHeight),
+    ("switch-preset-window-height", Command.switchPresetWindowHeight),
   ])
   func `Parses shared commands`(
     testCase: (input: String, expected: Command)
@@ -81,6 +87,12 @@ struct ModelTests {
     ("set-column-width 1e3", .invalidWidth("1e3")),
     ("set-column-width inf", .invalidWidth("inf")),
     ("focus-window-id safari", .invalidWindowID("safari")),
+    ("set-window-height", .missingArgument("height")),
+    ("set-window-height 0%", .invalidHeight("0%")),
+    ("set-window-height 150%", .invalidHeight("150%")),
+    ("set-window-height -300", .invalidHeight("-300")),
+    ("set-window-height +-5%", .invalidHeight("+-5%")),
+    ("set-window-height tall", .invalidHeight("tall")),
   ])
   func `Rejects invalid directions and obsolete commands`(input: String, error: CommandParseError) {
     #expect(throws: error) { try parseCommand(input) }
@@ -130,6 +142,8 @@ struct ModelTests {
     (Command.maximizeColumn, true),
     (Command.setColumnWidth(.set(.fraction(0.5))), true),
     (Command.expandColumnToAvailableWidth, true),
+    (Command.setWindowHeight(.adjust(0.1)), true),
+    (Command.resetWindowHeight, true),
     (Command.centerColumn, false),
     (Command.centerVisibleColumns, false),
     (Command.focusWindowOrWorkspace(.down), false),

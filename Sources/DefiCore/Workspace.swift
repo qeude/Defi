@@ -159,6 +159,7 @@ public func removeWindow(
   }
 
   workspace.columns[columnIndex].windows.remove(at: windowIndex)
+  workspace.columns[columnIndex].windowHeights?[windowID] = nil
   if workspace.columns[columnIndex].windows.isEmpty {
     workspace.columns.remove(at: columnIndex)
     workspace.focusedColumn =
@@ -365,6 +366,7 @@ public func joinFocusedWindow(
     throw rejection
   }
   let windowID = workspace.columns[sourceColumnIndex].windows.remove(at: sourceWindowIndex)
+  workspace.columns[sourceColumnIndex].windowHeights?[windowID] = nil
 
   if workspace.columns[sourceColumnIndex].windows.isEmpty {
     workspace.columns.remove(at: sourceColumnIndex)
@@ -414,6 +416,7 @@ public func unjoinFocusedWindow(
     throw LayoutError.emptyWorkspace
   }
   let windowID = workspace.columns[columnIndex].windows.remove(at: windowIndex)
+  workspace.columns[columnIndex].windowHeights?[windowID] = nil
   workspace.columns[columnIndex].focusedWindow = min(
     workspace.columns[columnIndex].focusedWindow,
     workspace.columns[columnIndex].windows.count - 1
@@ -482,6 +485,15 @@ public func swapFocusedWindow(
   // Reject before mutating, as join-window does, when either new stack would not fit.
   for windows in [sourceWindows, targetWindows] {
     if case .rejected(let rejection) = stackFit(windows) { throw rejection }
+  }
+  // Each window takes over the other's height share, as each column keeps its width.
+  let (outgoing, incoming) = (targetWindows[targetRow], sourceWindows[sourceRow])
+  for (index, old, new) in [
+    (sourceColumnIndex, outgoing, incoming), (targetColumnIndex, incoming, outgoing),
+  ] {
+    if let share = workspace.columns[index].windowHeights?.removeValue(forKey: old) {
+      workspace.columns[index].windowHeights?[new] = share
+    }
   }
   workspace.columns[sourceColumnIndex].windows = sourceWindows
   workspace.columns[targetColumnIndex].windows = targetWindows

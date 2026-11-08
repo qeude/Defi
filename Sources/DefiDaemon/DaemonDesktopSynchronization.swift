@@ -724,6 +724,8 @@ extension Daemon {
         previousObservedFrames: previousMouseGestureWindowFrames,
         actualFrame: actualFrame
       )
+      // Read before a release clears the gesture tracking below.
+      let gestureStartFrame = mouseGestureInitialFrame ?? mouseGestureSettlement?.initialFrame
       // Only the pointer drags a window, and only away from its ribbon place: a window
       // Defi moves into that place (a click that reveals it) is no drag, even while the
       // pointer drifts during the press.
@@ -906,6 +908,16 @@ extension Daemon {
           state: &state,
           viewports: viewportsByMonitor
         )
+        // Only a gesture that changed the height carries one: a width drag of an app that
+        // snaps its height to rows would otherwise read the snap as a dragged edge.
+        if gestureStartFrame.map({ abs($0.height - widthLearningFrame.height) >= 1 }) ?? false {
+          learnStackedWindowHeight(
+            gestureWindowID,
+            actualFrame: widthLearningFrame,
+            state: &state,
+            viewports: viewportsByMonitor
+          )
+        }
         // The learned scroll keeps a released left edge in place; the anchor would undo it.
         if learned, !snapshot.leftMouseButtonDown { mouseGestureScrollAnchor = nil }
       }

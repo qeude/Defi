@@ -938,6 +938,7 @@ extension LayoutSettings {
     self.init(
       defaultColumnWidth: config.layout.defaultColumnWidth,
       presetColumnWidths: config.layout.presetColumnWidths,
+      presetWindowHeights: config.layout.presetWindowHeights,
       centerFocusedColumn: CenterFocusedColumn(config.layout.centerFocusedColumn),
       alwaysCenterSingleColumn: config.layout.alwaysCenterSingleColumn,
       innerHorizontalGap: gaps / 2 + border,

@@ -5,6 +5,9 @@ public struct Column: Equatable, Codable, Sendable {
   public var focusedWindow: Int
   public var width: ColumnWidth
   public var preMaximizedWidth: ColumnWidth?
+  /// Relative height of each stacked window, from a height command or a native resize.
+  /// `nil` splits the column evenly; a window missing here takes the mean of the others.
+  public var windowHeights: [WindowID: Double]?
 
   public init(
     window: WindowID,

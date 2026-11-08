@@ -133,6 +133,61 @@ public func learnTiledWindowWidth(
   return true
 }
 
+/// Turns a native vertical resize of a stacked window into the stack's proportions.
+/// The neighbour across the dragged edge absorbs the difference; a window moved as a
+/// whole, an outer edge of the stack, a single window, or one on an inactive workspace
+/// carries no height.
+@discardableResult
+public func learnStackedWindowHeight(
+  _ windowID: WindowID,
+  actualFrame: Rect,
+  state: inout RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> Bool {
+  guard state.windows[windowID]?.intrinsicSize != true,
+    let location = state.location(containing: windowID),
+    let (monitorIndex, workspaceIndex) = state.workspaceLocation(for: location.workspaceID),
+    state.monitors[monitorIndex].activeWorkspace == location.workspaceID,
+    let viewport = viewports[location.monitorID], viewport.height > 0
+  else { return false }
+  let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+  guard let columnIndex = workspace.columns.firstIndex(where: { $0.windows.contains(windowID) })
+  else { return false }
+  let column = workspace.columns[columnIndex]
+  let windowIDs = column.windows.filter { !state.nativeFullscreenWindowIDs.contains($0) }
+  guard windowIDs.count > 1, let index = windowIDs.firstIndex(of: windowID),
+    let target = computeLayout(
+      workspace: workspace,
+      viewport: viewport,
+      windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
+      settings: state.layout,
+      excludingWindowIDs: state.nativeFullscreenWindowIDs
+    ).first(where: { $0.windowID == windowID })?.frame
+  else { return false }
+  let delta = actualFrame.height - target.height
+  let topMoved = abs(actualFrame.y - target.y) >= 1
+  let bottomMoved = abs(actualFrame.y + actualFrame.height - target.y - target.height) >= 1
+  // The stack's own top and bottom edges stay at the column edges.
+  let absorber = bottomMoved ? index + 1 : index - 1
+  guard abs(delta) >= 1, topMoved != bottomMoved, windowIDs.indices.contains(absorber)
+  else { return false }
+  let current = stackWindowShares(
+    windowIDs, proportions: column.windowHeights,
+    windowsByID: state.windows, viewport: viewport, settings: state.layout
+  )
+  // The slot that holds the observed frame, also when a maximum height capped the frame.
+  let share = stackWindowShare(
+    height: actualFrame.height, index: index, count: windowIDs.count,
+    viewportHeight: viewport.height, settings: state.layout
+  )
+  let shares = stackShares(current, setting: index, to: share, absorber: absorber)
+  state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].windowHeights =
+    Dictionary(uniqueKeysWithValues: zip(windowIDs, shares))
+  // The user chose this height: a settled snap is stale.
+  state.windows[windowID]?.tiledSizeAcceptance = nil
+  return true
+}
+
 @discardableResult
 public func learnTiledWindowWidthConstraint(
   _ windowID: WindowID,
