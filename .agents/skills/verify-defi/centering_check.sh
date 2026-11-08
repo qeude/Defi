@@ -6,7 +6,7 @@
 # focused window landed. The temporary config pins new columns to 0.5 (an exact fit)
 # and presets to [0.5, 0.66], so one cycle-width step gives the 0.66 overflow phase.
 # Restores the config, closes the documents and returns to the initial workspace.
-# DRIVE=hotkeys sends the configured <mod>-leftbracket / <mod>-right / <mod>-c key events
+# DRIVE=hotkeys sends the configured <mod>-home / <mod>-right / <mod>-c key events
 # through System Events instead of CLI commands, and checks the daemon captured them.
 # Usage: [DRIVE=hotkeys] centering_check.sh [evidence-dir]   (run under `script/desktop_lock.sh --wait`)
 set -u
@@ -148,7 +148,7 @@ modifiers="$(awk '
   }' "$config")" || { echo "cannot resolve mod"; exit 1; }
 step() {
   if [ "${DRIVE:-cli}" = hotkeys ]; then
-    local code; [ "$1" = first ] && code=33 || code=124
+    local code; [ "$1" = first ] && code=115 || code=124
     osascript -e "tell application \"System Events\" to key code $code using {$modifiers}"
   else
     defi focus-column "$1" > /dev/null

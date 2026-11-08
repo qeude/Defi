@@ -404,6 +404,29 @@ struct NativeFullscreenRuntimeTests {
     #expect(state == beforeJoin)
   }
 
+  @Test
+  func `Consume and swap leave a fullscreen neighbor alone while expel proceeds`() throws {
+    var state = try makeState(windowCount: 4)
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: [WindowID(rawValue: 2)],
+      state: &state
+    )
+    // The fullscreen column sits at the end of the strip, right of window 4.
+    #expect(columnWindowIDs(in: state) == [[1], [3], [4], [2]])
+    _ = focusWindow(WindowID(rawValue: 4), state: &state)
+    let before = state
+
+    try reduce(.consumeOrExpelWindow(.right), on: monitorID, state: &state)
+    try reduce(.swapWindow(.right), on: monitorID, state: &state)
+    #expect(state == before)
+
+    try reduce(.joinWindow(.left), on: monitorID, state: &state)
+    try reduce(.consumeOrExpelWindow(.right), on: monitorID, state: &state)
+    #expect(columnWindowIDs(in: state) == [[1], [3], [4], [2]])
+  }
+
   @Test(arguments: [1, 2, 3, 4], [[], [1], [3], [1, 3], [1, 2, 3, 4]])
   func `Closure uses logical column order with multiple fullscreen windows`(
     closed: Int, nextFullscreen: [Int]

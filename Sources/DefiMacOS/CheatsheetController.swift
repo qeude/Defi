@@ -140,8 +140,11 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("center-column", "Center column"),
   ("center-visible-columns", "Center visible columns"),
   ("focus-window up", "Window up"), ("focus-window down", "Window down"),
-  ("join-window left", "Join left column"), ("join-window right", "Join right column"),
+  ("consume-or-expel-window left", "Join or leave stack left"),
+  ("consume-or-expel-window right", "Join or leave stack right"),
   ("unjoin-windows", "Unjoin"),
+  ("join-window left", "Join left column"), ("join-window right", "Join right column"),
+  ("swap-window left", "Swap window left"), ("swap-window right", "Swap window right"),
   ("focus-workspace up", "Workspace up"), ("focus-workspace down", "Workspace down"),
   ("focus-window-or-workspace up", "Window or workspace up"),
   ("focus-window-or-workspace down", "Window or workspace down"),
@@ -151,6 +154,7 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("focus-workspace-position", "Workspace"), ("toggle-overview", "Overview"),
   ("focus-column-or-monitor left", "Column or monitor left"),
   ("focus-column-or-monitor right", "Column or monitor right"),
+  ("reorder-workspace up", "Reorder workspace up"), ("reorder-workspace down", "Reorder workspace down"),
   ("focus-monitor", "Focus monitor"), ("move-workspace-to-monitor", "Move workspace to monitor"),
   ("cycle-width previous", "Narrower"), ("cycle-width next", "Wider"),
   ("maximize-column", "Maximize column"), ("set-column-width", "Set width"),
@@ -224,16 +228,34 @@ func shortcutGroups(
           command: binding.command)
       }
   }
-  // A Shift chord joins the row of the same chord without Shift in the same section.
+  // A chord with Shift or Command added joins the row of the same chord without it in the
+  // same section; Command, the move layer, wins when both exist.
   let chords = Set(bindings.map { $0.chord($0.modifiers) })
   var shifted: [String: ShortcutBinding] = [:]
-  for binding in bindings where binding.modifiers.contains("shift") {
-    let base = binding.chord(binding.modifiers.subtracting(["shift"]))
-    if chords.contains(base) { shifted[base] = binding }
+  for added in ["shift", "cmd"] {
+    for binding in bindings where binding.modifiers.contains(added) {
+      let base = binding.chord(binding.modifiers.subtracting([added]))
+      if chords.contains(base) { shifted[base] = binding }
+    }
   }
+  // A chord with its own companion keeps its row instead of joining another.
+  shifted = shifted.filter { shifted[$0.value.chord($0.value.modifiers)] == nil }
   let paired = Set(shifted.values.map { $0.chord($0.modifiers) })
+  // Alternative keys for the same commands, such as H beside ←, show once: arrows first,
+  // Home, End and the page keys last.
+  func preference(_ binding: ShortcutBinding) -> (Int, String) {
+    let rank = ["left", "right", "up", "down"].contains(binding.key) ? 0
+      : ["home", "end", "pageup", "pagedown"].contains(binding.key) ? 2 : 1
+    return (rank, binding.key)
+  }
+  var shown = Set<String>()
   let entries = bindings.filter { !paired.contains($0.chord($0.modifiers)) }
+    .sorted { preference($0) < preference($1) }
     .map { (binding: $0, shifted: shifted[$0.chord($0.modifiers)]) }
+    .filter {
+      shown.insert("\($0.binding.modifiers.sorted())|\($0.binding.command)|\($0.shifted?.command ?? "")")
+        .inserted
+    }
 
   let groups = shortcutSections.compactMap { title -> ShortcutGroup? in
     let section = entries.filter { $0.binding.section == title }
@@ -333,6 +355,7 @@ private func modifierLabel(_ modifiers: Set<String>, displayMod: Bool, aliases: 
 private func keySymbol(_ key: String) -> String {
   let symbols = ["cmd": "⌘", "alt": "⌥", "ctrl": "⌃", "shift": "⇧",
     "left": "←", "right": "→", "up": "↑", "down": "↓",
+    "home": "↖", "end": "↘", "pageup": "⇞", "pagedown": "⇟",
     "leftbracket": "[", "rightbracket": "]", "backslash": "\\", "slash": "/",
     "semicolon": ";", "quote": "'", "minus": "−", "equal": "=",
     "comma": ",", "period": "."]

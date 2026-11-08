@@ -109,7 +109,7 @@ Test Suite 'DefiCoreTests' started
 <g>~</g> <p>❯</p> <u> </u>`}</pre>`,
   xcode: () => `<div class="tb tb-xcode">${lights}<span class="run">▶</span><span class="scheme">Defi › My Mac</span><span class="status">Build Succeeded | Today at 9:41</span></div><div class="xc"><aside><p>▾ Defi</p><p class="i1">▾ Sources</p><p class="i2">▾ DefiCore</p><p class="i3">Animation.swift</p><p class="i3">ContinuousStrip.swift</p><p class="i3">Layout.swift</p><p class="i3">Overview.swift</p><p class="i3">Parking.swift</p><p class="i3 on">WorkspaceScrolling.swift</p><p class="i2">▸ DefiMacOS</p><p class="i2">▸ DefiRuntime</p><p class="i1">▸ Tests</p></aside><div class="code"><p class="crumb">DefiCore › WorkspaceScrolling.swift › focusedColumnLeftScrollOffset</p>${swift.map((line, i) => `<p><span class="no">${i + 3}</span>${line}</p>`).join('')}</div></div>`,
   messages: () => `<div class="msg"><aside>${lights}<p class="search">Search</p>${[['Hermance', 'Ship it.', true], ['Doudi', 'You still owe me a croissant 🥐'], ['Tom', 'Tests pass on both monitors'], ['Design', 'New hero is live'], ['Mom', 'Call me tonight?']].map(([who, what, on]) => `<div class="conv${on ? ' on' : ''}"><i>${who[0]}</i><p><b>${who}</b>${what}</p></div>`).join('')}</aside><div class="thread"><p class="to">To: <b>Hermance</b></p><p class="in">Is the review ready?</p><p class="out">Pushed. Control-Option → takes you to the terminal.</p><p class="in">Tests pass on both monitors 🎉</p><p class="out">Ship it.</p><p class="compose">iMessage</p></div></div>`,
-  notes: () => `<div class="notes"><aside>${lights}<p class="h">iCloud</p><p class="on">Launch list</p><p>Shortcuts to learn</p><p>Ideas</p></aside><article><p class="date">27 October 2026 at 9:41</p><h4>Launch list</h4><p>☑ Record the new hero</p><p>☑ Columns, not tiles</p><p>☐ Try two monitors</p><p>☐ Name the dev workspace</p><p>☐ Send Doudi the link (promised)</p><h5>Shortcuts</h5><p>⌃⌥ ← → move between columns</p><p>⌃⌥ ↑ ↓ switch workspace</p><p>⌃⌥ O Overview</p><p>⌃⌥ − = column width</p></article></div>`,
+  notes: () => `<div class="notes"><aside>${lights}<p class="h">iCloud</p><p class="on">Launch list</p><p>Shortcuts to learn</p><p>Ideas</p></aside><article><p class="date">27 October 2026 at 9:41</p><h4>Launch list</h4><p>☑ Record the new hero</p><p>☑ Columns, not tiles</p><p>☐ Try two monitors</p><p>☐ Name the dev workspace</p><p>☐ Send Doudi the link (promised)</p><h5>Shortcuts</h5><p>⌃⌥ ← → move between columns</p><p>⌃⌥ U I switch workspace</p><p>⌃⌥ O Overview</p><p>⌃⌥ − = column width</p></article></div>`,
   mail: () => `<div class="mail"><aside>${lights}<p class="h">Favorites</p><p class="on">Inbox <span>3</span></p><p>Sent</p><p>Drafts</p><p>Archive</p></aside><div class="list">${[['GitHub', '[qeude/Defi] New release', 'Defi tidies your desktop into scrolling columns…', true], ['Homebrew', 'qeude/tap updated', 'A new defi cask is available'], ['Hermance', 'Landing page', 'The interactive hero is great, can we…'], ['Apple Developer', 'macOS 26.1 is available', 'Download the release notes…']].map(([from, subject, preview, on]) => `<div class="row${on ? ' on' : ''}"><b>${from}</b><p>${subject}</p><em>${preview}</em></div>`).join('')}</div><article><h4>[qeude/Defi] New release</h4><p class="from">GitHub · 9:12</p><p>Defi tidies your desktop into scrolling columns. Workspace switches now slide on the overlay, and your layout survives a restart.</p></article></div>`,
   music: () => `<div class="music"><aside>${lights}<p class="h">Apple Music</p><p>Home</p><p>Radio</p><p class="h">Library</p><p class="on">Albums</p><p>Songs</p></aside><div class="albums">${['#fa2d55,#ffb86b', '#7a5cff,#2b6df2', '#0acf83,#1abcfe', '#ffcf7a,#ff7262', '#c099ff,#5b3cc4', '#1b1b1d,#5a5d6a'].map((c, i) => `<figure><i style="background:linear-gradient(135deg,${c})"></i><figcaption>${['Night Drive', 'Columns', 'Horizon', 'Late Light', 'Without the Edges', 'Doudi’s Mix'][i]}</figcaption></figure>`).join('')}</div><div class="player"><i></i><p><b>Night Drive</b>Defi Ensemble</p><span>⏮ ⏸ ⏭</span></div></div>`,
 };
@@ -126,33 +126,38 @@ const initialSpaces = () => [
   workspace([col('music', 'Music', 0.66, [24, 40, 520, 400, 0])]),
 ];
 
+// Defi's built-in layers: Control-Option focuses, adding Command moves.
 const KEYS = {
-  ArrowLeft: 'focus-column left', ArrowRight: 'focus-column right', ArrowUp: 'focus-workspace up', ArrowDown: 'focus-workspace down',
-  BracketLeft: 'focus-column first', BracketRight: 'focus-column last', KeyO: 'toggle-overview',
-  Minus: 'cycle-width previous', Equal: 'cycle-width next', KeyF: 'maximize-column',
-  KeyK: 'focus-window up', KeyJ: 'focus-window down', Semicolon: 'join-window left', Quote: 'join-window right', KeyR: 'unjoin-windows',
-  Backslash: 'toggle-floating', Comma: 'focus-floating previous', Period: 'focus-floating next',
+  ArrowLeft: 'focus-column left', ArrowRight: 'focus-column right', ArrowUp: 'focus-window up', ArrowDown: 'focus-window down',
+  KeyH: 'focus-column left', KeyL: 'focus-column right', KeyK: 'focus-window up', KeyJ: 'focus-window down',
+  Home: 'focus-column first', End: 'focus-column last', KeyO: 'toggle-overview',
+  KeyU: 'focus-workspace down', KeyI: 'focus-workspace up', PageDown: 'focus-workspace down', PageUp: 'focus-workspace up',
+  Minus: 'cycle-width previous', Equal: 'cycle-width next', KeyR: 'cycle-width next', KeyF: 'maximize-column',
+  Semicolon: 'join-window left', Quote: 'join-window right', Period: 'unjoin-windows', KeyV: 'toggle-floating',
 };
-const SHIFT_KEYS = {
-  ArrowLeft: 'move-column left', ArrowRight: 'move-column right', ArrowUp: 'move-column-to-workspace up', ArrowDown: 'move-column-to-workspace down',
-  BracketLeft: 'move-column first', BracketRight: 'move-column last',
-  KeyK: 'move-window up', KeyJ: 'move-window down', Backslash: 'activate-floating',
+const COMMAND_KEYS = {
+  ArrowLeft: 'move-column left', ArrowRight: 'move-column right', ArrowUp: 'move-window up', ArrowDown: 'move-window down',
+  KeyH: 'move-column left', KeyL: 'move-column right', KeyK: 'move-window up', KeyJ: 'move-window down',
+  Home: 'move-column first', End: 'move-column last',
+  KeyU: 'move-column-to-workspace down', KeyI: 'move-column-to-workspace up', PageDown: 'move-column-to-workspace down', PageUp: 'move-column-to-workspace up',
 };
+const SHIFT_KEYS = { KeyV: 'activate-floating', Comma: 'focus-floating previous', Period: 'focus-floating next' };
 // The stack steps (join, move along it, unjoin, then narrow back to 0.33) leave the first workspace as it was.
-export const DEMO = ['ArrowRight', 'Semicolon', 'KeyK', 'KeyJ', 'KeyR', 'Minus', 'Minus', 'Minus', 'ArrowRight', 'Equal', 'ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowRight', 'KeyO', 'ArrowDown', 'KeyO', 'ArrowUp', 'ArrowUp', 'BracketLeft'];
+export const DEMO = ['ArrowRight', 'Semicolon', 'KeyK', 'KeyJ', 'Period', 'Minus', 'Minus', 'Minus', 'ArrowRight', 'Equal', 'ArrowLeft', 'KeyU', 'ArrowRight', 'ArrowRight', 'KeyO', 'KeyU', 'KeyO', 'KeyI', 'KeyI', 'Home'];
 
 // Defi's cheatsheet for the built-in keys, as CheatsheetView lays it out: two balanced
-// columns of sections; each row is a chord, its action, then the Shift chord and its action.
+// columns of sections; each row is a chord, its action, then its companion chord and action.
 const cheatsheet = [
   [
-    ['Columns', [['⌃⌥', '←', 'Column left', '⌃⌥⇧', 'Move column left'], ['⌃⌥', '→', 'Column right', '⌃⌥⇧', 'Move column right'], ['⌃⌥', '[', 'First column', '⌃⌥⇧', 'Move column to first'], ['⌃⌥', ']', 'Last column', '⌃⌥⇧', 'Move column to last']]],
-    ['Windows in a column', [['⌃⌥', 'K', 'Window up', '⌃⌥⇧', 'Move window up'], ['⌃⌥', 'J', 'Window down', '⌃⌥⇧', 'Move window down'], ['⌃⌥', ';', 'Join left column'], ['⌃⌥', "'", 'Join right column'], ['⌃⌥', 'R', 'Unjoin']]],
-    ['Workspaces', [['⌃⌥', '↑', 'Workspace up', '⌃⌥⇧', 'Move column to workspace up'], ['⌃⌥', '↓', 'Workspace down', '⌃⌥⇧', 'Move column to workspace down'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⇧', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview']]],
+    ['Columns', [['⌃⌥', '←', 'Column left', '⌃⌥⌘', 'Move column left'], ['⌃⌥', '→', 'Column right', '⌃⌥⌘', 'Move column right'], ['⌃⌥', '↖', 'First column', '⌃⌥⌘', 'Move column to first'], ['⌃⌥', '↘', 'Last column', '⌃⌥⌘', 'Move column to last'], ['⌃⌥', 'C', 'Center column']]],
+    ['Windows in a column', [['⌃⌥', '↑', 'Window up', '⌃⌥⌘', 'Move window up'], ['⌃⌥', '↓', 'Window down', '⌃⌥⌘', 'Move window down'], ['⌃⌥', '[', 'Join or leave stack left'], ['⌃⌥', ']', 'Join or leave stack right'], ['⌃⌥', '.', 'Unjoin'], ['⌃⌥', ';', 'Join left column'], ['⌃⌥', "'", 'Join right column']]],
   ],
   [
-    ['Monitors', [['⌃⌘', '←↑↓→', 'Focus monitor', '⌃⇧⌘', 'Move column to monitor'], ['⌃⌥⌘', '←↑↓→', 'Move workspace to monitor']]],
-    ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column'], ['⌃⌥', 'C', 'Center column']]],
-    ['Floating', [['⌃⌥', '\\', 'Float or tile window', '⌃⌥⇧', 'Show floating layer'], ['⌃⌥', ',', 'Previous floating'], ['⌃⌥', '.', 'Next floating']]],
+    ['Workspaces', [['⌃⌥', 'I', 'Workspace up', '⌃⌥⌘', 'Move column to workspace up'], ['⌃⌥', 'U', 'Workspace down', '⌃⌥⌘', 'Move column to workspace down'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⌘', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview'], ['⌃⌥⇧', 'I', 'Reorder workspace up'], ['⌃⌥⇧', 'U', 'Reorder workspace down']]],
+    ['Monitors', [['⌃⌥⇧', '←↑↓→', 'Focus monitor', '⌃⌥⇧⌘', 'Move column to monitor']]],
+    ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column']]],
+    ['Floating', [['⌃⌥', 'V', 'Float or tile window', '⌃⌥⇧', 'Show floating layer'], ['⌃⌥⇧', ',', 'Previous floating'], ['⌃⌥⇧', '.', 'Next floating']]],
+    ['Other', [['⌃⌥⇧', '/', 'Shortcuts']]],
   ],
 ];
 const chord = (mods, key) => `<span class="chord"><kbd>${mods}</kbd><kbd>${key}</kbd></span>`;
@@ -502,16 +507,16 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     render();
   }
 
-  function press(code, shift = false) {
+  function press(code, shift = false, command = false) {
     if (drag) return false; // a card in hand keeps the layout still until it drops
     const digit = code.match(/^Digit([1-9])$/);
-    const command = digit ? `${shift ? 'move-column-to-workspace' : 'focus-workspace'}-position ${digit[1]}` : (shift ? SHIFT_KEYS : KEYS)[code];
-    if (!command) return false;
+    const action = digit ? `${command ? 'move-column-to-workspace' : 'focus-workspace'}-position ${digit[1]}` : (shift ? SHIFT_KEYS : command ? COMMAND_KEYS : KEYS)[code];
+    if (!action || (digit && shift)) return false;
     hideSheet();
     closeMenu();
     if (messy) launch({ quick: true });
-    act(command);
-    onCommand(code, command);
+    act(action);
+    onCommand(code, action);
     return true;
   }
 

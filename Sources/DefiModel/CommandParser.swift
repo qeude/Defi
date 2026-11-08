@@ -145,6 +145,10 @@ public func parseCommand(_ input: String) throws -> Command {
     return .joinWindow(try parseDirection(argument("direction")))
   case "unjoin-windows":
     return .unjoinWindows
+  case "consume-or-expel-window":
+    return .consumeOrExpelWindow(try parseHorizontalDirection(argument("direction")))
+  case "swap-window":
+    return .swapWindow(try parseHorizontalDirection(argument("direction")))
   case "toggle-cheatsheet":
     return .toggleCheatsheet
   case "toggle-overview":

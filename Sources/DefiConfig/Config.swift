@@ -330,68 +330,76 @@ public struct Config: Equatable, Sendable {
     workspaceNames: [String],
     aliases: [String: String]
   ) -> [String: String] {
-    var result = [
-      "\(modifier)-left": "focus-column left",
-      "\(modifier)-right": "focus-column right",
-      "\(modifier)-j": "focus-window down",
-      "\(modifier)-k": "focus-window up",
-      "\(modifier)-up": "focus-workspace up",
-      "\(modifier)-down": "focus-workspace down",
-      "\(modifier)-leftbracket": "focus-column first",
-      "\(modifier)-rightbracket": "focus-column last",
-      "\(modifier)-shift-left": "move-column left",
-      "\(modifier)-shift-right": "move-column right",
-      "\(modifier)-shift-j": "move-window down",
-      "\(modifier)-shift-k": "move-window up",
-      "\(modifier)-shift-up": "move-column-to-workspace up",
-      "\(modifier)-shift-down": "move-column-to-workspace down",
-      "\(modifier)-shift-leftbracket": "move-column first",
-      "\(modifier)-shift-rightbracket": "move-column last",
+    // `mod` focuses, `mod-cmd` moves, and `mod-shift` reaches other monitors.
+    var result: [String: String] = [
+      "\(modifier)-home": "focus-column first",
+      "\(modifier)-end": "focus-column last",
+      "\(modifier)-cmd-home": "move-column first",
+      "\(modifier)-cmd-end": "move-column last",
+      "\(modifier)-u": "focus-workspace down",
+      "\(modifier)-i": "focus-workspace up",
+      "\(modifier)-pagedown": "focus-workspace down",
+      "\(modifier)-pageup": "focus-workspace up",
+      "\(modifier)-cmd-u": "move-column-to-workspace down",
+      "\(modifier)-cmd-i": "move-column-to-workspace up",
+      "\(modifier)-cmd-pagedown": "move-column-to-workspace down",
+      "\(modifier)-cmd-pageup": "move-column-to-workspace up",
+      "\(modifier)-shift-u": "reorder-workspace down",
+      "\(modifier)-shift-i": "reorder-workspace up",
+      "\(modifier)-shift-pagedown": "reorder-workspace down",
+      "\(modifier)-shift-pageup": "reorder-workspace up",
+      "\(modifier)-leftbracket": "consume-or-expel-window left",
+      "\(modifier)-rightbracket": "consume-or-expel-window right",
+      "\(modifier)-period": "unjoin-windows",
+      "\(modifier)-semicolon": "join-window left",
+      "\(modifier)-quote": "join-window right",
+      "\(modifier)-r": "cycle-width next",
       "\(modifier)-minus": "cycle-width previous",
       "\(modifier)-equal": "cycle-width next",
       "\(modifier)-f": "maximize-column",
       "\(modifier)-c": "center-column",
-      "\(modifier)-backslash": "toggle-floating",
-      "\(modifier)-shift-backslash": "activate-floating",
-      "\(modifier)-comma": "focus-floating previous",
-      "\(modifier)-period": "focus-floating next",
-      "\(modifier)-semicolon": "join-window left",
-      "\(modifier)-quote": "join-window right",
-      "\(modifier)-r": "unjoin-windows",
+      "\(modifier)-v": "toggle-floating",
+      "\(modifier)-shift-v": "activate-floating",
+      "\(modifier)-shift-comma": "focus-floating previous",
+      "\(modifier)-shift-period": "focus-floating next",
       "\(modifier)-o": "toggle-overview",
+      "\(modifier)-shift-slash": "toggle-cheatsheet",
     ]
-    // Configured navigation takes precedence over colliding fixed monitor keys.
-    let monitorKeys = [
-      "ctrl-cmd-left": "focus-monitor left",
-      "ctrl-cmd-right": "focus-monitor right",
-      "ctrl-cmd-up": "focus-monitor up",
-      "ctrl-cmd-down": "focus-monitor down",
-      "ctrl-cmd-shift-left": "move-column-to-monitor left",
-      "ctrl-cmd-shift-right": "move-column-to-monitor right",
-      "ctrl-cmd-shift-up": "move-column-to-monitor up",
-      "ctrl-cmd-shift-down": "move-column-to-monitor down",
-      "ctrl-cmd-alt-left": "move-workspace-to-monitor left",
-      "ctrl-cmd-alt-right": "move-workspace-to-monitor right",
-      "ctrl-cmd-alt-up": "move-workspace-to-monitor up",
-      "ctrl-cmd-alt-down": "move-workspace-to-monitor down",
+    let directions = [
+      ("left", "h", "left"), ("right", "l", "right"), ("up", "k", "up"), ("down", "j", "down"),
     ]
+    for (arrow, letter, direction) in directions {
+      let horizontal = direction == "left" || direction == "right"
+      for key in [arrow, letter] {
+        result["\(modifier)-\(key)"] =
+          horizontal ? "focus-column \(direction)" : "focus-window \(direction)"
+        result["\(modifier)-cmd-\(key)"] =
+          horizontal ? "move-column \(direction)" : "move-window \(direction)"
+        result["\(modifier)-shift-\(key)"] = "focus-monitor \(direction)"
+        result["\(modifier)-shift-cmd-\(key)"] = "move-column-to-monitor \(direction)"
+      }
+    }
     for number in 1...9 {
       if workspaceNames.indices.contains(number - 1) {
         let workspace = workspaceNames[number - 1]
         result["\(modifier)-\(number)"] = "workspace \(workspace)"
-        result["\(modifier)-shift-\(number)"] =
+        result["\(modifier)-cmd-\(number)"] =
           "move-column-to-workspace-name \(workspace)"
       } else {
         result["\(modifier)-\(number)"] = "focus-workspace-position \(number)"
-        result["\(modifier)-shift-\(number)"] =
+        result["\(modifier)-cmd-\(number)"] =
           "move-column-to-workspace-position \(number)"
       }
     }
-    // If the modifier already includes Shift, preserve base navigation.
-    let shifted = result.filter { $0.key.hasPrefix("\(modifier)-shift-") }
-    let base = result.filter { !$0.key.hasPrefix("\(modifier)-shift-") }
-    let generated = mergingKeyBindings(shifted, overrides: base, aliases: aliases)
-    return mergingKeyBindings(monitorKeys, overrides: generated, aliases: aliases)
+    // When `mod` already includes Shift or Command, the binding with fewer added
+    // modifiers wins the chord they share.
+    func addedModifiers(_ accelerator: String) -> Int {
+      ["-shift-", "-cmd-"].filter(accelerator.contains).count
+    }
+    return [2, 1, 0].reduce(into: [String: String]()) { merged, count in
+      merged = mergingKeyBindings(
+        merged, overrides: result.filter { addedModifiers($0.key) == count }, aliases: aliases)
+    }
   }
 }
 

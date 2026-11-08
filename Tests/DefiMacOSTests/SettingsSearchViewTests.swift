@@ -64,17 +64,16 @@ final class SettingsSearchViewTests: XCTestCase {
     let search = try XCTUnwrap(descendants(window).compactMap { $0 as? NSSearchField }.first)
     XCTAssertTrue(window.makeFirstResponder(search))
     let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
-    editor.insertText("focus column left", replacementRange: NSRange(location: 0, length: 0))
-    // focus-column first (via its leftbracket key), focus-column left, focus-column-or-monitor left.
-    XCTAssertTrue(converge { rows() == 3 })
+    editor.insertText("column first", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(converge { rows() == 2 })
     window.sendEvent(try arrowDown(window))
     XCTAssertTrue(converge { shortcutFilter() == "focus-column first" }, "Down must select and reveal the actual shortcut action")
     XCTAssertNil(search.currentEditor(), "Down must transfer focus into the results")
     window.sendEvent(try arrowDown(window))
-    XCTAssertTrue(converge { shortcutFilter() == "focus-column left" }, "Further arrows must navigate the native result list")
+    XCTAssertTrue(converge { shortcutFilter() == "move-column first" }, "Further arrows must navigate the native result list")
     XCTAssertTrue(converge {
       descendants(window).compactMap { $0 as? ShortcutRecorderButton }.contains {
-        $0.accessibilityLabel() == "Record shortcut for focus-column left" && isVisibleInViewport($0)
+        $0.accessibilityLabel() == "Record shortcut for move-column first" && isVisibleInViewport($0)
       }
     }, "The selected shortcut's recorder must be visible inside the detail viewport")
     let cancel = try XCTUnwrap((search.cell as? NSSearchFieldCell)?.cancelButtonCell)

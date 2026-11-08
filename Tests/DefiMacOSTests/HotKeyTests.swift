@@ -40,12 +40,15 @@ struct OverviewHotKeyTests {
     (126, hyper, "focus-window-or-workspace up", .up),
     (123, hyperShift, "move-column left", .layout(.moveColumn(.left))),
     (126, hyperShift, "move-window up", .moveUp), (125, hyperShift, "move-window down", .moveDown),
+    (40, hyper, "move-window up", .moveUp), (38, hyper, "move-window down", .moveDown),
     (123, hyper, "focus-monitor left", .monitor(.left)),
     (124, hyperShift, "move-column-to-monitor right", .moveToMonitor(.right)),
     (125, hyperShift, "move-window-to-monitor down", .moveToMonitor(.down)),
     (124, hyper, "focus-column-or-monitor right", .right),
     (124, hyperShift, "move-column-or-to-monitor right", .layout(.moveColumn(.right))),
-    (36, 0, nil, .select), (36, hyper, "focus-column left", nil), (53, 0, nil, .cancel), (0, 0, nil, nil),
+    (4, hyper, "focus-column left", .left), (37, hyper, "focus-column right", .right),
+    (38, hyper, "focus-window down", .down), (40, hyper, "focus-window up", .up),
+    (36, 0, nil, .select), (36, hyper, "focus-column left", .left), (53, 0, nil, .cancel), (0, 0, nil, nil),
   ] as [(CGKeyCode, UInt64, String?, OverviewKeyAction?)])
   func overviewKeyActionFollowsKeyAndBinding(keyCode: CGKeyCode, modifiers: UInt64, command: String?,
     action: OverviewKeyAction?) {

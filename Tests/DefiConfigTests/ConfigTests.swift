@@ -34,10 +34,13 @@ struct ConfigTests {
   }
 
   @Test(arguments: ["ctrl+alt", "ctrl+alt+shift", "ctrl+cmd", "ctrl+cmd+shift"])
-  func collidingMonitorKeysPreserveConfiguredNavigation(modifier: String) throws {
+  func layeredBindingsYieldToBaseNavigation(modifier: String) throws {
     let config = try Config.decode(Data("mod = \"\(modifier)\"".utf8))
     #expect(config.keys["mod-left"] == "focus-column left")
-    #expect(config.keys["mod-shift-left"] == (modifier.contains("shift") ? nil : "move-column left"))
+    #expect(config.keys["mod-cmd-left"] == (modifier.contains("cmd") ? nil : "move-column left"))
+    #expect(config.keys["mod-shift-left"] == (modifier.contains("shift") ? nil : "focus-monitor left"))
+    let monitorMove = config.keys["mod-shift-cmd-left"]
+    #expect(monitorMove == (modifier.contains("cmd") || modifier.contains("shift") ? nil : "move-column-to-monitor left"))
     let overridden = Config(mod: modifier, keys: ["mod-left": "focus-monitor left"])
     #expect(overridden.keys["mod-left"] == "focus-monitor left")
   }
@@ -48,12 +51,26 @@ struct ConfigTests {
   }
 
   @Test
-  func defaultControlOptionBindingsKeepEveryMonitorShortcut() {
+  func defaultBindingsFocusMoveAndReachMonitorsInLayers() {
     let keys = Config().keys
-    #expect(keys["mod-shift-left"] == "move-column left")
-    #expect(keys["ctrl-cmd-alt-left"] == "move-workspace-to-monitor left")
-    #expect(keys["ctrl-cmd-left"] == "focus-monitor left")
-    #expect(keys["ctrl-cmd-shift-left"] == "move-column-to-monitor left")
+    #expect(keys["mod-h"] == "focus-column left")
+    #expect(keys["mod-down"] == "focus-window down")
+    #expect(keys["mod-home"] == "focus-column first")
+    #expect(keys["mod-u"] == "focus-workspace down")
+    #expect(keys["mod-pageup"] == "focus-workspace up")
+    #expect(keys["mod-cmd-l"] == "move-column right")
+    #expect(keys["mod-cmd-k"] == "move-window up")
+    #expect(keys["mod-cmd-end"] == "move-column last")
+    #expect(keys["mod-cmd-i"] == "move-column-to-workspace up")
+    #expect(keys["mod-cmd-2"] == "move-column-to-workspace-position 2")
+    #expect(keys["mod-shift-j"] == "focus-monitor down")
+    #expect(keys["mod-shift-cmd-right"] == "move-column-to-monitor right")
+    #expect(keys["mod-shift-u"] == "reorder-workspace down")
+    #expect(keys["mod-leftbracket"] == "consume-or-expel-window left")
+    #expect(keys["mod-period"] == "unjoin-windows")
+    #expect(keys["mod-r"] == "cycle-width next")
+    #expect(keys["mod-shift-slash"] == "toggle-cheatsheet")
+    #expect(!keys.values.contains { $0.hasPrefix("move-workspace-to-monitor") })
   }
 
   @Test
@@ -281,16 +298,17 @@ struct ConfigTests {
     #expect(config.animation.stiffness == 1000 && config.animation.dampingRatio == 0.9)
     #expect(config.workspaces.defaultName == "dev")
     #expect(config.keys["mod-1"] == "workspace dev")
-    #expect(config.keys["mod-shift-1"] == "move-column-to-workspace-name dev")
+    // A Hyper mod already holds Command, so mod-1 keeps the chord mod-cmd-1 would take.
+    #expect(config.keys["mod-cmd-1"] == nil)
     #expect(config.keys["mod-3"] == "focus-workspace-position 3")
     #expect(config.keys["mod-minus"] == "cycle-width previous")
     #expect(config.keys["mod-equal"] == "cycle-width next")
     #expect(config.keys["mod-f"] == "maximize-column")
     #expect(config.keys["mod-c"] == "center-column")
-    #expect(config.keys["mod-backslash"] == "toggle-floating")
-    #expect(config.keys["mod-shift-backslash"] == "activate-floating")
-    #expect(config.keys["mod-comma"] == "focus-floating previous")
-    #expect(config.keys["mod-period"] == "focus-floating next")
+    #expect(config.keys["mod-v"] == "toggle-floating")
+    #expect(config.keys["mod-shift-v"] == "activate-floating")
+    #expect(config.keys["mod-shift-comma"] == "focus-floating previous")
+    #expect(config.keys["mod-shift-period"] == "focus-floating next")
     #expect(config.mod == "ctrl+alt+cmd")
   }
 

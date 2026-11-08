@@ -226,10 +226,10 @@ struct DefiSettingsModelTests {
     let model = DefiSettingsModel(configURL: url)
     let french = try #require(keyboardLayout(inputSourceID: "com.apple.keylayout.French", keyboardType: 91))
     model.followKeyboardLayout { french }
-    let row = try #require(model.shortcutRows.first { $0.accelerator == "mod-shift-backslash" })
+    let row = try #require(model.shortcutRows.first { $0.accelerator == "mod-shift-period" })
     model.saveShortcut(row, accelerator: row.accelerator, command: "center-column")
     #expect(model.message?.contains("already used") != true)
-    #expect(model.config.keys["alt-ctrl-shift-backslash"] == "center-column")
+    #expect(model.config.keys["alt-ctrl-shift-period"] == "center-column")
   }
 
   @Test

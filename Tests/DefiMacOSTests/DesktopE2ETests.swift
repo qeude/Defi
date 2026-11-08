@@ -606,13 +606,16 @@ final class DesktopE2ETests: XCTestCase {
       key.type = .keyUp
       key.post(tap: .cghidEventTap)
     }
+    // Built-in bindings stay merged in, so the other key may run its own command
+    // (Dvorak prints U there); only maximize-column is counted.
+    func maximized() -> Int { log.all.filter { $0 == "maximize-column" }.count }
     func assertFires(onlyOn expected: CGKeyCode, not other: CGKeyCode, _ message: String) throws {
-      let before = log.count
+      let before = maximized()
       try press(other)
       pumpRunLoop(for: 0.3)
-      XCTAssertEqual(log.count, before, "\(message): key code \(other) must be free")
+      XCTAssertEqual(maximized(), before, "\(message): key code \(other) must not maximize")
       try press(expected)
-      XCTAssertTrue(pumpRunLoop(until: { log.count == before + 1 }, timeout: 2), "\(message): key code \(expected) must fire")
+      XCTAssertTrue(pumpRunLoop(until: { maximized() == before + 1 }, timeout: 2), "\(message): key code \(expected) must fire")
     }
 
     try assertFires(onlyOn: 3, not: 16, "ABC prints F on the home row")
