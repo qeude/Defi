@@ -11,7 +11,10 @@
 <p align="center">A scrolling window manager for macOS.</p>
 
 <p align="center">
-macOS 15.4+ · Alpha
+  <a href="https://github.com/qeude/Defi/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/qeude/Defi?include_prereleases&style=flat-square"></a>
+  <img alt="macOS 15.4+ on Apple Silicon" src="https://img.shields.io/badge/macOS-15.4%2B%20·%20Apple%20Silicon-blue?style=flat-square">
+  <img alt="Status: alpha" src="https://img.shields.io/badge/status-alpha-orange?style=flat-square">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-green?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -22,206 +25,183 @@ macOS 15.4+ · Alpha
 
 https://github.com/user-attachments/assets/1b1a4250-9940-42c3-b99b-614b77b053b7
 
-Defi arranges your windows in columns on a horizontal strip. Open another
-window and the strip grows. Move to a window beyond the edge of your screen
-and the desktop scrolls to bring it into view.
+Defi lays out your windows as columns on a strip that scrolls sideways. Each new
+window adds a column, and focusing one off screen scrolls it into view. Clicks,
+the Dock, and Command-Tab work as usual.
 
-Inspired by [Niri](https://github.com/YaLTeR/niri), built for native macOS
-windows. Click a window, select it in the Dock, or use Command-Tab as usual.
+Inspired by [Niri](https://github.com/YaLTeR/niri), built for native macOS windows.
+Defi is in alpha, so behavior and configuration may still change.
 
 ## Features
 
-- **Automatic tiling**: Open a window and Defi places it in the layout. Close
-  one and the remaining windows reflow automatically.
-- **Scrolling columns**: Arrange windows on a
-  horizontal strip, stack them vertically, and adjust column widths.
-- **Dynamic workspaces**: Always have an empty
-  workspace ready, and keep named workspaces for recurring tasks.
-- **App rules & floating windows**: Send apps to named workspaces, keep them
-  floating, or set their initial width. Float any other window with a shortcut.
-- **Independent monitors**: Each display has its own workspaces and layout.
-- **Overview**: Browse workspaces, select windows,
-  and drag them between workspaces, with optional window previews.
-- **Window borders**: Highlight the focused
-  window, with configurable colors, width, and optional inactive borders.
-- **Keyboard controls & cheatsheet**: Customize shortcuts and hold your
-  modifier key to see available commands.
-- **Mouse reordering**: Rearrange tiled
-  windows by dragging them.
-- **Native macOS interaction**: Keep using window clicks, the Dock, and
-  Command-Tab.
-- **Live configuration**: Customize gaps,
-  animations, shortcuts, and rules in TOML; changes reload automatically.
-- **CLI & SketchyBar integration**: Control Defi from scripts
-  and expose workspace state in your bar.
+- **Scrolling columns**: automatic tiling, vertical stacks, adjustable widths.
+- **Workspaces**: each display keeps its own, with an empty one always ready.
+  The Overview shows them all.
+- **Smooth motion**: windows glide on an overlay, then move once underneath.
+- **App rules**: send apps to a workspace, float them, or set their width.
+- **Keyboard and mouse**: custom shortcuts with a cheatsheet, and drag to reorder.
+- **Scriptable**: live TOML config, a CLI, and a
+  [SketchyBar integration](contrib/sketchybar/README.md).
 
-[Configuration and commands](CONFIGURATION.md) ·
-[SketchyBar integration](contrib/sketchybar/README.md)
+Window borders, gaps, and every other option are in the
+[configuration reference](CONFIGURATION.md).
 
 ## Get started
-
-Defi supports **Apple Silicon Macs running macOS 15.4 or newer**.
-Install with Homebrew:
 
 ```sh
 brew install --cask qeude/tap/defi
 open /Applications/Defi.app
 ```
 
-Or without Homebrew:
+> [!NOTE]
+> Defi is self-signed and not notarized, so only install it if you trust this
+> source. Homebrew and the install script skip the quarantine check; the script
+> verifies the release signature instead.
+
+<details>
+<summary>Other ways to install</summary>
+
+**Install script**
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/qeude/Defi/main/script/install.sh | sh
 ```
 
-The app is signed with a self-signed certificate and is not notarized. Both
-commands avoid macOS's block on unnotarized downloads, so only install if you
-trust this source: the Cask removes the quarantine attribute, `curl` never adds
-it, and the script checks the release signature.
-
-You can also download the DMG from the
+**DMG**: download it from the
 [latest release](https://github.com/qeude/Defi/releases/latest) and drag Defi to
-Applications. macOS blocks its first launch: open Defi, close the warning, click
-**Open Anyway** in System Settings › Privacy & Security, and confirm. Updates
-then install without this step.
+Applications. On first launch, close the warning, click **Open Anyway** in
+System Settings › Privacy & Security, and confirm. Later updates skip this step.
 
-You can also [build from source](CONTRIBUTING.md#build-and-run).
+**From source**: see [Build and run](CONTRIBUTING.md#build-and-run).
 
-The alpha is experimental. Behavior and configuration may change before the
-first stable release.
+</details>
 
-On first launch, Defi requests **Accessibility** access. Grant it in System
-Settings; Defi starts managing windows automatically, without a restart.
-Defi needs this permission to focus and arrange windows.
+### Permissions
 
-Defi then requests **Screen Recording**. Many apps apply a window move late, so
-moving real windows frame by frame stutters. Defi instead takes a picture of
-each window, animates the pictures on an overlay, and moves each real window
-once underneath. The Overview shows the same pictures in its cards. These
-pictures stay in memory on your Mac. Defi never writes them to disk and never
-sends them anywhere. Defi's only network use is the update check described in
-[Updates](#updates). Without Screen Recording,
-windows move at once and the Overview shows cards without pictures. You can
-check or change the permission in Defi Settings › General.
+Defi asks for both on first launch and picks them up without a restart.
 
-Enable **Launch at Login** in the menu bar if you want Defi to start with macOS.
+| Permission | Used to | Without it |
+| --- | --- | --- |
+| **Accessibility** (required) | Focus and arrange windows | Defi cannot manage windows |
+| **Screen Recording** | Animate window pictures and show Overview previews | Windows move at once; Overview cards have no pictures |
 
-## Keyboard controls
+Window pictures stay in memory and never leave your Mac. To start Defi with
+macOS, turn on **Launch Defi at login** in Settings › General.
 
-Built-in shortcuts use Control + Option, which leaves Option free for typing
-and word-by-word text editing. Hold Control + Option on their own to show the
-shortcut guide, or start with these:
+### Updates
+
+Defi checks GitHub once a day and sends nothing about you. New releases install
+from a small panel and keep your workspaces. Turn this off in Settings › General.
+
+## Keyboard shortcuts
+
+Shortcuts use <kbd>⌃</kbd><kbd>⌥</kbd> (Control + Option), leaving Option free
+for typing. Hold them to show the cheatsheet.
 
 | Action | Shortcut |
 | --- | --- |
-| Focus a column | Control + Option + ← / → |
-| Switch workspace | Control + Option + ↑ / ↓ |
-| Focus a window in a stack | Control + Option + J / K |
-| Move a column left or right | Control + Option + Shift + ← / → |
-| Move a column to another workspace | Control + Option + Shift + ↑ / ↓ |
-| Cycle column width | Control + Option + − / = |
-| Toggle full column width | Control + Option + F |
-| Open Overview | Control + Option + O |
+| Focus a column | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>←</kbd> <kbd>→</kbd> |
+| Focus a window in a stack | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>J</kbd> <kbd>K</kbd> |
+| Switch workspace | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>↑</kbd> <kbd>↓</kbd> or <kbd>1</kbd>…<kbd>9</kbd> |
+| Move a column | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>←</kbd> <kbd>→</kbd> |
+| Move a column to another workspace | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>↑</kbd> <kbd>↓</kbd> |
+| Cycle column width | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>−</kbd> <kbd>=</kbd> |
+| Toggle full width | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>F</kbd> |
+| Open Overview | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>O</kbd> |
+| Focus another display | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> |
 
-For a single-key modifier, map a key such as Caps Lock to a **Hyper key**
-(Control + Option + Command) and set [`mod`](CONFIGURATION.md#mod) to
-`"ctrl+alt+cmd"`, or pick the same modifiers in Settings → Input → Mod key.
+See [all built-in shortcuts](CONFIGURATION.md#built-in-defaults).
+
+> [!TIP]
+> Prefer one key? Remap Caps Lock to a Hyper key (⌃⌥⌘), then set
+> [`mod`](CONFIGURATION.md#mod) to `"ctrl+alt+cmd"` in your config or in
+> Settings › Input › Mod key.
 
 ## Configuration
 
-Defi works without a config file. Add overrides to
-`~/.config/defi/config.toml` for gaps, shortcuts, named workspaces, and app rules.
-
-Existing config files are preserved when you rebuild or update Defi.
-Defi creates the config directory if needed, but no config file.
-Changes reload automatically when you save, including your first config. The
-[example configuration](config.example.toml) is the maintainer's setup;
-copy only the parts you want.
+Defi works without a config file. Add overrides to `~/.config/defi/config.toml`;
+changes reload on save and updates never touch it. Start from the
+[configuration reference](CONFIGURATION.md), or borrow from the
+[maintainer's setup](config.example.toml).
 
 <details>
-<summary>Command-line control</summary>
+<summary>Command line</summary>
 
-The CLI is bundled with the app. For a source installation:
+The `defi` CLI ships inside the app:
 
 ```sh
-~/Applications/Defi.app/Contents/MacOS/defi status
-~/Applications/Defi.app/Contents/MacOS/defi focus-column right
-~/Applications/Defi.app/Contents/MacOS/defi workspace dev
+/Applications/Defi.app/Contents/MacOS/defi status
+/Applications/Defi.app/Contents/MacOS/defi focus-column right
+/Applications/Defi.app/Contents/MacOS/defi workspace dev  # needs a workspace named dev
 ```
 
-The last command requires a named workspace called `dev`.
-Use `/Applications/Defi.app` instead if that is where you installed Defi.
-See the [command reference](CONFIGURATION.md#commands) for the full list.
+Builds from source install to `~/Applications` instead. See the
+[command reference](CONFIGURATION.md#commands).
 
 </details>
 
 <details>
-<summary>Uninstall completely</summary>
+<summary>Uninstall</summary>
 
-For a Homebrew installation, use `brew uninstall --cask --zap defi`.
-This also removes your configuration and saved state.
-
-For a manual or source installation, run the CLI from your installed app:
+With Homebrew, `brew uninstall --cask --zap defi` also removes your config and
+saved state. Otherwise, run the CLI of the app to remove:
 
 ```sh
-~/Applications/Defi.app/Contents/MacOS/defi uninstall --purge
+/Applications/Defi.app/Contents/MacOS/defi uninstall --purge
 ```
 
-Use `/Applications/Defi.app` instead for an app installed there.
-This removes the app containing the invoked CLI, plus Defi's shared
-configuration, saved workspace state, logs, login item, and privacy permissions.
-Other Defi app bundles are preserved, but they share the removed user data.
+This removes that app, plus Defi's config, saved state, logs, login item, and
+privacy permissions. Other Defi app bundles stay but lose that shared data.
 
 </details>
 
 ## Troubleshooting
 
-If shortcuts do not respond, check Accessibility permission for the installed
-Defi app; newly granted access is detected automatically. Check
-`mod` in your config:
-a Hyper `mod` requires a matching keyboard remap. Temporarily quit
-other window managers to rule out conflicting shortcuts or window moves.
+<details>
+<summary>Shortcuts do nothing</summary>
 
-To stop Defi, choose **Quit Defi** in the menu bar. If the menu is unavailable,
-run `~/Applications/Defi.app/Contents/MacOS/defi quit`, or quit `defi-daemon`
-through Activity Monitor. Adjust the app path for an installation in
-`/Applications`.
+1. Check that the installed Defi app has Accessibility permission.
+2. With a Hyper `mod`, make sure your keyboard remap sends the same keys.
+3. Quit other window managers to rule out conflicting shortcuts.
 
-For a bug report, run the bundled CLI's `defi triage` first, or choose **Start
-Triage** under **Settings > About**. It writes your machine facts and a
-support playbook to a session folder, then starts your own `claude` or `codex` in
-the terminal to investigate the problem and draft the issue with you. It needs
-one of those agents installed and asks before it fixes anything or posts anything.
-Without an agent it prints the file paths so you can paste the prompt into any
+</details>
+
+<details>
+<summary>An app does not tile well</summary>
+
+Some apps limit their window size or support Accessibility poorly.
+[Open an issue](https://github.com/qeude/Defi/issues/new/choose) with the app name
+and what you expected.
+
+</details>
+
+<details>
+<summary>How do I quit Defi without the menu bar?</summary>
+
+Run `defi quit` from the bundled CLI, or quit `defi-daemon` in Activity Monitor.
+
+</details>
+
+<details>
+<summary>How do I report a bug?</summary>
+
+Run `defi triage`, or choose **Start Triage** in Settings › General ›
+Diagnostics. It collects your machine facts, then starts your own `claude` or
+`codex` to investigate and draft the issue with you. It asks before it fixes or
+posts anything. Without an agent, it prints a prompt you can paste into any
 coding agent.
 
-To report by hand, include your Defi and macOS versions, affected apps, monitor
-setup, and steps to reproduce. The bundled CLI's `status` and `trace` commands
-can help explain what happened. Review their output, config snippets, and
-recordings before posting: they may expose window titles, paths, workspace
-names, or other private information. Share only the relevant, redacted parts.
+To report by hand, include your Defi and macOS versions, the affected apps, your
+monitor setup, and steps to reproduce. `defi status` and `defi trace` help.
+Their output can show window titles, paths, and workspace names, so share only
+the relevant parts, redacted.
 
-### Alpha limitations
-
-Defi manages its own virtual workspaces, not native macOS Spaces. Apps can
-impose window size constraints or expose limited Accessibility support, so
-please report app-specific behavior. Screen Recording is optional; without it,
-animations and Overview window previews are off.
-
-### Updates
-
-Once a day, Defi asks GitHub for the latest release and sends nothing about you
-or your windows. When a newer version exists, a small panel offers to install
-it; Defi then downloads the release, accepts it only if it is signed by the same
-release certificate, and restarts with your workspaces intact. Turn the check
-off in Defi Settings › About, or run it by hand there or from the menu bar. Builds not signed with the
-release certificate never check. Homebrew installations can keep using `brew upgrade --cask defi`.
+</details>
 
 ## Contribute
 
-Bug reports and focused pull requests are welcome.
-See [Contributing](CONTRIBUTING.md) for setup and checks, or
-[open an issue](https://github.com/qeude/Defi/issues/new/choose) to report a
-problem or propose an improvement.
+Bug reports and focused pull requests are welcome. See
+[Contributing](CONTRIBUTING.md) or
+[open an issue](https://github.com/qeude/Defi/issues/new/choose).
 
 [MIT License](LICENSE)
