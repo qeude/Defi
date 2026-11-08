@@ -236,18 +236,23 @@ intrinsic_size = true
 | --- | --- | --- | --- |
 | `app_id` | unset | string | Bundle ID or app name, case-insensitive. Exact and suffix matches in either direction pass. |
 | `title` | unset | string | Case-insensitive substring of the window title. |
+| `title_regex` | unset | regular expression | Case-insensitive search in the window title, in ICU syntax. An invalid expression fails config load. |
 | `role` | unset | string | Exact, case-sensitive Accessibility role, such as `AXWindow`. |
 | `workspace` | unset | a name from `[workspaces].names` | Opens matching windows on this workspace. |
+| `monitor` | unset | display name | Opens matching windows on the active workspace of this display. The name is the one in System Settings, matched ignoring case; the first display wins when names repeat. While that display is disconnected, windows open where they would without this rule. Cannot be combined with `workspace` in one rule. |
 | `follow_focus` | `false` | boolean | Switches to that workspace when the new window has focus. |
+| `open_focused` | unset | boolean | Unset keeps the default: a window the frontmost app opens takes focus. `false` opens it without focus or scrolling, and gives focus back to the previous window if the app takes it within a second. `true` focuses it and shows its workspace even when it opens in the background. Windows already open when Defi starts keep the default. |
 | `window` | unset | `"force-floating"`, `"force-tiled"` | Overrides automatic placement. `"force-tiled"` also tiles windows Defi would float or ignore. Leave unset unless Defi places a window wrong. |
 | `initial_column_width` | `layout.default_column_width` | `0.05` to `1.0` | Starting width of the window's column. Floating windows and `intrinsic_size` are unaffected. |
 | `include_initial_width_in_cycle` | `false` | boolean | Adds `initial_column_width` to `cycle-width` for this app. |
 | `intrinsic_size` | `false` | boolean | Keeps the window's own width and height inside its tile. |
 
-A rule needs at least one of `app_id`, `title`, or `role`, and all the ones it
-sets must match. When several rules match, they combine in file order: the last
-`workspace`, `window`, and `initial_column_width` win, and booleans combine with
-OR, so a later `false` cannot clear an earlier `true`.
+A rule needs at least one of `app_id`, `title`, `title_regex`, or `role`, and
+all the ones it sets must match. When several rules match, they combine in file
+order: the last `workspace` or `monitor` wins, replacing an earlier one of the
+other kind; the last `window`, `initial_column_width`, and set `open_focused`
+win; and booleans combine with OR, so a later `false` cannot clear an earlier
+`true`.
 
 **Examples**
 
@@ -268,6 +273,15 @@ app_id = "net.kovidgoyal.kitty"
 window = "force-tiled"
 ```
 
+Open a chat app on the built-in display without taking focus:
+
+```toml
+[[rules]]
+app_id = "com.tinyspeck.slackmacgap"
+monitor = "Built-in Retina Display"
+open_focused = false
+```
+
 Open Device Hub at 44% and add that width to its `cycle-width` steps:
 
 ```toml
@@ -278,8 +292,10 @@ include_initial_width_in_cycle = true
 ```
 
 Prefer `app_id` alone when it is enough. Titles follow the system language,
-some apps set them shortly after opening a window, and `title` has no wildcards
-or regular expressions.
+some apps set them shortly after opening a window, and rules apply only when Defi
+first discovers a window, so a title set later never matches. `title` has no
+wildcards; use `title_regex` for anchors or alternatives, such as
+`title_regex = "^(Settings|Preferences)$"`.
 
 <details>
 <summary>Automatic floating and width details</summary>

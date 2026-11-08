@@ -190,6 +190,10 @@ final class Daemon {
   var deferredMouseFocusIntent: DeferredMouseFocusIntent?
   var consumedMouseFocusIntentTimestamp: TimeInterval = 0
   var suppressNativeFocusUntil: TimeInterval = 0
+  /// Windows a rule opened without focus, by discovery uptime, until their app's first focus.
+  var unfocusedOpenings: [WindowID: TimeInterval] = [:]
+  /// Windows found by the first sync already existed; rules' `open_focused` applies only after it.
+  var hasSynchronizedDesktop = false
   var ignoredRedundantNativeFocusCount = 0
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
   var preservedWindowRemovalFocusCount = 0

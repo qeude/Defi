@@ -165,6 +165,11 @@ struct ConfigTests {
     ("\(rule) = -inf", .invalidValue("rules.initial_column_width")),
     ("[workspaces]\nnames = [\"__defi_dynamic_1\"]", .invalidWorkspaces),
     ("[workspaces]\nnames = [\"dev\"]\n[[rules]]\napp_id = \"app\"\nworkspace = \"missing\"", .unknownWorkspace("missing")),
+    ("[[rules]]\napp_id = \"a\"\ntitle_regex = \"(unclosed\"", .invalidValue("rules.title_regex")),
+    ("[[rules]]\napp_id = \"a\"\nmonitor = 2", .invalidValue("rules.monitor takes a display name")),
+    ("[[rules]]\napp_id = \"a\"\nmonitor = \"\"", .invalidValue("rules.monitor")),
+    ("[workspaces]\nnames = [\"dev\"]\n[[rules]]\napp_id = \"a\"\nworkspace = \"dev\"\nmonitor = \"DELL\"",
+      .invalidValue("rules.monitor cannot be combined with rules.workspace")),
   ] as [(String, ConfigError)])
   func invalidValuesAreRejectedWithTheirKey(toml: String, error: ConfigError) {
     #expect(throws: error) { try Config.decode(Data(toml.utf8)) }
@@ -345,6 +350,37 @@ struct ConfigTests {
     #expect(!decision.floating)
     #expect(decision.forceTiling)
     #expect(decision.intrinsicSize)
+  }
+
+  @Test
+  func `Placement rules decode monitor, focus, and title regex`() throws {
+    let config = try Config.decode(Data("""
+      [workspaces]
+      names = ["chat"]
+      [[rules]]
+      app_id = "slack"
+      monitor = "Built-in Retina Display"
+      open_focused = false
+      [[rules]]
+      title_regex = "^(settings|preferences)$"
+      monitor = "DELL U2720Q"
+      open_focused = true
+      [[rules]]
+      app_id = "slack"
+      title = "Huddle"
+      workspace = "chat"
+      """.utf8))
+    #expect(config.rules.map(\.monitor) == ["Built-in Retina Display", "DELL U2720Q", nil])
+    #expect(config.rules.map(\.openFocused) == [false, true, nil])
+    #expect(config.decision(appID: "slack", title: "General", role: nil)
+      == RuleDecision(monitor: "Built-in Retina Display", openFocused: false))
+    #expect(config.decision(appID: "notes", title: "Settings", role: nil)
+      == RuleDecision(monitor: "DELL U2720Q", openFocused: true))
+    // The regex searches case-insensitively and must match the whole title only when anchored.
+    #expect(config.decision(appID: "notes", title: "App Settings", role: nil) == RuleDecision())
+    // A later workspace replaces an earlier monitor.
+    #expect(config.decision(appID: "slack", title: "Huddle", role: nil)
+      == RuleDecision(workspace: WorkspaceID(rawValue: "chat"), openFocused: false))
   }
 
   @Test

@@ -107,6 +107,32 @@ struct DefiSettingsModelTests {
   }
 
   @Test
+  func editingARuleWritesPlacementFocusAndTitlePattern() throws {
+    let url = try configFile()
+    defer { removeConfig(url) }
+    try Data("[workspaces]\nnames = [\"chat\"]\n\n[[rules]]\napp_id = \"slack\"\nworkspace = \"chat\"\n".utf8).write(to: url)
+    let model = DefiSettingsModel(configURL: url)
+    let original = model.config.rules[0]
+    var edited = original
+    edited.workspace = nil
+    edited.monitor = "DELL U2720Q"
+    edited.openFocused = false
+    edited.titleRegex = "^General$"
+
+    model.updateRule(edited, original: original, originalIndex: 0)
+    #expect(model.message == nil)
+    #expect(DefiSettingsModel(configURL: url).config.rules == [edited])
+
+    var cleared = edited
+    cleared.monitor = nil
+    cleared.openFocused = nil
+    cleared.titleRegex = nil
+    cleared.followFocus = true
+    model.updateRule(cleared, original: edited, originalIndex: 0)
+    #expect(DefiSettingsModel(configURL: url).config.rules == [cleared])
+  }
+
+  @Test
   func dragReorderingPreservesRulesAndWorkspaceAssignments() throws {
     let url = try configFile()
     defer { removeConfig(url) }

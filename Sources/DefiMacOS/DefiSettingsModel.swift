@@ -749,7 +749,9 @@ public final class DefiSettingsModel {
   }
 
   private func validateRule(_ rule: Rule) -> Bool {
-    guard rule.appID?.isEmpty == false || rule.title?.isEmpty == false || rule.role?.isEmpty == false else {
+    guard rule.appID?.isEmpty == false || rule.title?.isEmpty == false
+      || rule.titleRegex?.isEmpty == false || rule.role?.isEmpty == false
+    else {
       message = "Choose an application or add a title or role condition."
       return false
     }
@@ -761,8 +763,8 @@ public final class DefiSettingsModel {
   }
 
   private func hasActions(_ rule: Rule) -> Bool {
-    rule.workspace != nil || rule.followFocus || rule.window != nil
-      || rule.intrinsicSize || rule.initialColumnWidth != nil || rule.includeInitialWidthInCycle
+    rule.workspace != nil || rule.monitor != nil || rule.followFocus || rule.openFocused != nil
+      || rule.window != nil || rule.intrinsicSize || rule.initialColumnWidth != nil || rule.includeInitialWidthInCycle
   }
 
   private func ruleOperations(_ rule: Rule, at index: Int) -> [SettingsTOMLOperation] {
@@ -775,8 +777,10 @@ public final class DefiSettingsModel {
     }
     add("app_id", original.appID, rule.appID)
     add("title", original.title, rule.title)
+    add("title_regex", original.titleRegex, rule.titleRegex)
     add("role", original.role, rule.role)
     add("workspace", original.workspace, rule.workspace)
+    add("monitor", original.monitor, rule.monitor)
     add("window", original.window?.rawValue, rule.window?.rawValue)
     func addBool(_ key: String, _ old: Bool, _ new: Bool) {
       guard old != new else { return }
@@ -784,6 +788,10 @@ public final class DefiSettingsModel {
     }
     addBool("follow_focus", original.followFocus, rule.followFocus)
     addBool("intrinsic_size", original.intrinsicSize, rule.intrinsicSize)
+    if original.openFocused != rule.openFocused {
+      changes.append(.set(
+        table: "rules", key: "open_focused", value: rule.openFocused.map { String($0) }, occurrence: index))
+    }
     if original.initialColumnWidth != rule.initialColumnWidth {
       let width = rule.initialColumnWidth.map { String($0) }
       changes.append(SettingsTOMLOperation.set(
@@ -796,11 +804,12 @@ public final class DefiSettingsModel {
   private func ruleValues(_ rule: Rule) -> [(String, String)] {
     var values: [(String, String)] = []
     for (key, value) in [
-      ("app_id", rule.appID), ("title", rule.title), ("role", rule.role), ("workspace", rule.workspace),
-      ("window", rule.window?.rawValue),
+      ("app_id", rule.appID), ("title", rule.title), ("title_regex", rule.titleRegex), ("role", rule.role),
+      ("workspace", rule.workspace), ("monitor", rule.monitor), ("window", rule.window?.rawValue),
     ] {
       if let value { values.append((key, tomlString(value))) }
     }
+    if let openFocused = rule.openFocused { values.append(("open_focused", String(openFocused))) }
     for (key, enabled) in [
       ("follow_focus", rule.followFocus), ("intrinsic_size", rule.intrinsicSize),
       ("include_initial_width_in_cycle", rule.includeInitialWidthInCycle),

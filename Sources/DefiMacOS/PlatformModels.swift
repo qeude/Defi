@@ -12,15 +12,19 @@ public struct MonitorSnapshot: Equatable, Sendable {
   public let frame: Rect
   public let physicalFrame: Rect
   public let refreshRateHz: Double
+  /// The display's localized name, as System Settings shows it.
+  public let name: String?
 
   public init(
     id: MonitorID,
     frame: Rect,
     stableID: String? = nil,
     physicalFrame: Rect? = nil,
-    refreshRateHz: Double = 60
+    refreshRateHz: Double = 60,
+    name: String? = nil
   ) {
     self.id = id
+    self.name = name
     self.stableID = stableID
     self.frame = frame
     self.physicalFrame = physicalFrame ?? frame
