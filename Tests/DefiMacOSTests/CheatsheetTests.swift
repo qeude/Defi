@@ -112,8 +112,9 @@ struct CheatsheetHotKeyTests {
     )
     let groups = shortcutGroups(config: config, displayMod: true)
     let rows = groups.flatMap(\.rows)
-    // A Hyper mod already holds Command, so the move layer yields to focus.
-    #expect(rows.contains(ShortcutRow(modifiers: "✧", key: "←", action: "First column", shifted: nil)))
+    // A Hyper mod already holds Command, so the move layer takes Shift.
+    #expect(rows.contains(ShortcutRow(modifiers: "✧", key: "←", action: "First column",
+      shifted: ShiftedShortcut(modifiers: "✧⇧", action: "Move column left"))))
     #expect(groups.last == ShortcutGroup(title: "Other", rows: [
       ShortcutRow(modifiers: "✧", key: "/", action: "Shortcuts",
         shifted: ShiftedShortcut(modifiers: "✧⇧", action: "Shortcuts")),
