@@ -8,6 +8,7 @@ import DefiRuntime
 import OSLog
 import QuartzCore
 import ScreenCaptureKit
+import Synchronization
 import VideoToolbox
 
 let ribbonProxyLogger = Logger(subsystem: "com.qeude.defi", category: "ribbon-proxy")
@@ -1658,7 +1659,7 @@ let ribbonProxyWindowServerCapture: (@Sendable ([CGWindowID]) -> [CGImage]?)? = 
   else { return nil }
   let connectionID = unsafeBitCast(connection, to: Connection.self)()
   let capture = unsafeBitCast(symbol, to: Capture.self)
-  return { windowIDs in
+  return ribbonProxyBoundedCapture(deadline: ribbonProxyCaptureDeadline) { windowIDs in
     var windowIDs = windowIDs
     // Ignore the global clip shape; bit 15 keeps the parts beyond the display, so a
     // parked window comes whole rather than as its one-point strip.
@@ -1667,6 +1668,49 @@ let ribbonProxyWindowServerCapture: (@Sendable ([CGWindowID]) -> [CGImage]?)? = 
       .takeRetainedValue() as? [CGImage]
   }
 }()
+
+/// A capture takes tens of milliseconds; one still running past this has stalled.
+let ribbonProxyCaptureDeadline: TimeInterval = 0.25
+
+/// macOS can hold the WindowServer capture for minutes (it waits on the screen capture
+/// service, e.g. after a cold boot). Callers run on Swift concurrency and dispatch worker
+/// threads; blocked there, they starved the threads IPC and window discovery run on.
+/// Each call runs on its own thread and is abandoned (nil) past `deadline`; while an
+/// abandoned call is still running, every call returns nil at once, so callers fall back.
+func ribbonProxyBoundedCapture(deadline: TimeInterval,
+  _ capture: @escaping @Sendable ([CGWindowID]) -> [CGImage]?) -> @Sendable ([CGWindowID]) -> [CGImage]? {
+  let stalled = Mutex(0)
+  return { windowIDs in
+    guard stalled.withLock({ $0 == 0 }) else { return nil }
+    let call = Mutex<(finished: Bool, abandoned: Bool, images: [CGImage]?)>((false, false, nil))
+    let done = DispatchSemaphore(value: 0)
+    // A plain thread, not a worker: a stalled one never counts against any pool.
+    let thread = Thread {
+      let images = capture(windowIDs)
+      let abandoned = call.withLock { state in
+        state.finished = true
+        state.images = images
+        return state.abandoned
+      }
+      if abandoned {
+        stalled.withLock { $0 -= 1 }
+        ribbonProxyLogger.notice("capture-recovered")
+      }
+      done.signal()
+    }
+    thread.qualityOfService = .userInitiated
+    thread.start()
+    guard done.wait(timeout: .now() + deadline) == .timedOut else { return call.withLock { $0.images } }
+    // The count rises under the call's lock, so its late completion can only lower it after.
+    return call.withLock { state in
+      guard !state.finished else { return state.images }
+      state.abandoned = true
+      stalled.withLock { $0 += 1 }
+      ribbonProxyLogger.error("capture-stalled ids=\(windowIDs.count)")
+      return nil
+    }
+  }
+}
 
 /// The wallpaper and desktop icons of a display (`area` in global top-left points),
 /// one capture of its desktop-level windows.
