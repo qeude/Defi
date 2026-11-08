@@ -6,6 +6,7 @@ import Darwin
 public func discoverWindow(
   _ original: Window,
   decision: RuleDecision,
+  ruleMonitorID: MonitorID? = nil,
   isNativelyFocused: Bool = false,
   isFrontmostAppSpawn: Bool = false,
   isNativeFullscreen: Bool = false,
@@ -36,6 +37,7 @@ public func discoverWindow(
   let monitorID =
     transientLocation?.monitorID
     ?? ruleLocation.map { state.monitors[$0.monitorIndex].id }
+    ?? ruleMonitorID.flatMap { id in state.monitors.contains { $0.id == id } ? id : nil }
     ?? window.monitorID
     ?? state.monitors[0].id
   let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }) ?? 0
@@ -54,8 +56,8 @@ public func discoverWindow(
   // its assigned workspace and takes focus. The native focused-window event
   // can legitimately lag window creation, so it alone must not gate this.
   let followsFocus =
-    followFocusIntent
-    || (isFrontmostAppSpawn && !window.floating)
+    decision.openFocused
+    ?? (followFocusIntent || (isFrontmostAppSpawn && !window.floating))
 
   if window.floating && !window.forceTiling {
     state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.append(window.id)
@@ -81,6 +83,11 @@ public func discoverWindow(
   }
   state.windows[window.id] = window
   state.maintainWorkspaceLifecycle()
+}
+
+/// Resolves a rule's display name, ignoring case; equal names resolve to the first in `NSScreen` order.
+public func ruleMonitorID(_ name: String, displays: [(id: MonitorID, name: String?)]) -> MonitorID? {
+  displays.first { $0.name?.caseInsensitiveCompare(name) == .orderedSame }?.id
 }
 
 public func transientPlacementLocation(
@@ -160,6 +167,8 @@ public func reconcileWindows(
   viewports: [MonitorID: Rect] = [:],
   nativeFocusedWindowID: WindowID? = nil,
   frontmostProcessID: pid_t? = nil,
+  displays: [(id: MonitorID, name: String?)] = [],
+  appliesOpenFocus: Bool = true,
   state: inout RuntimeState
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
@@ -194,9 +203,12 @@ public func reconcileWindows(
 
   for window in discovered {
     if state.windows[window.id] == nil {
+      var decision = config.decision(for: window)
+      if !appliesOpenFocus { decision.openFocused = nil }
       try? discoverWindow(
         window,
-        decision: config.decision(for: window),
+        decision: decision,
+        ruleMonitorID: decision.monitor.flatMap { ruleMonitorID($0, displays: displays) },
         isNativelyFocused: window.id == nativeFocusedWindowID,
         isFrontmostAppSpawn: window.processID != nil
           && window.processID == frontmostProcessID,

@@ -1087,7 +1087,7 @@ private struct AppRulesSettingsView: View {
   var body: some View {
     Form {
       Section {
-        Text("Rules apply only to new windows when an app opens them. Saving a rule does not change existing windows. Matching rules combine in list order: the last workspace, window placement, or initial width wins, while enabled behavior flags accumulate.")
+        Text("Rules apply only to new windows when an app opens them. Saving a rule does not change existing windows. Matching rules combine in list order: the last workspace or display, window placement, opening focus, or initial width wins, while enabled behavior flags accumulate.")
           .font(.caption)
           .foregroundStyle(.secondary)
         Button(SettingsOption.addAppRule.title) { editor = RuleSheet(rule: nil, index: nil) }
@@ -1202,10 +1202,13 @@ private struct AppRulesSettingsView: View {
   private func ruleSummary(_ rule: Rule) -> String {
     var conditions: [String] = []
     if let title = rule.title { conditions.append("title contains ‘\(title)’") }
+    if let pattern = rule.titleRegex { conditions.append("title matches ‘\(pattern)’") }
     if let role = rule.role { conditions.append("role \(role)") }
     var actions: [String] = []
     if let workspace = rule.workspace { actions.append("workspace \(workspace)") }
+    if let monitor = rule.monitor { actions.append("display \(ruleDisplayTitle(monitor))") }
     if rule.followFocus { actions.append("follow focus") }
+    if let openFocused = rule.openFocused { actions.append(openFocused ? "open focused" : "open unfocused") }
     if let window = rule.window { actions.append(window.settingsTitle.lowercased()) }
     if rule.intrinsicSize { actions.append("intrinsic size") }
     if let width = rule.initialColumnWidth { actions.append("initial width \(percent(width))") }
@@ -1262,7 +1265,7 @@ private struct SettingsRuleEditor: View {
     _originalIndex = State(initialValue: index)
     _draft = State(initialValue: rule ?? Rule())
     _customApplication = State(initialValue: false)
-    _conditionsExpanded = State(initialValue: rule?.title != nil || rule?.role != nil)
+    _conditionsExpanded = State(initialValue: rule?.title != nil || rule?.titleRegex != nil || rule?.role != nil)
     _originalRuleCount = State(initialValue: model.config.rules.count)
     _originalWasRemoved = State(initialValue: false)
   }
@@ -1281,8 +1284,10 @@ private struct SettingsRuleEditor: View {
   }
 
   private var isValid: Bool {
-    let hasMatcher = !(draft.appID?.isEmpty ?? true) || !(draft.title?.isEmpty ?? true) || !(draft.role?.isEmpty ?? true)
-    let hasAction = draft.workspace != nil || draft.followFocus || draft.window != nil
+    let hasMatcher = !(draft.appID?.isEmpty ?? true) || !(draft.title?.isEmpty ?? true)
+      || !(draft.titleRegex?.isEmpty ?? true) || !(draft.role?.isEmpty ?? true)
+    let hasAction = draft.workspace != nil || draft.monitor != nil || draft.followFocus
+      || draft.openFocused != nil || draft.window != nil
       || draft.intrinsicSize || draft.initialColumnWidth != nil || draft.includeInitialWidthInCycle
     return hasMatcher && hasAction && (!customApplication || !(draft.appID?.isEmpty ?? true))
   }
@@ -1317,6 +1322,10 @@ private struct SettingsRuleEditor: View {
               "Matches windows whose title contains this text, in any case. For example, “picture-in-picture” for a browser’s floating video.",
               note: "Match the app alone when you can: titles change with the system language and some appear late.")
           }
+          TextField(text: optionalStringBinding(\.titleRegex), prompt: nil) {
+            RuleInfoLabel("Title matches pattern",
+              "Matches windows whose title matches this regular expression, in any case. For example, “^note-[0-9]+$”.")
+          }
           TextField(text: optionalStringBinding(\.role), prompt: nil) {
             RuleInfoLabel("Accessibility role",
               "Matches the window’s accessibility role exactly, such as “AXWindow”. Rarely needed.")
@@ -1326,15 +1335,40 @@ private struct SettingsRuleEditor: View {
       Section("Actions") {
         Picker(selection: Binding(
           get: { draft.workspace ?? "" },
-          set: { draft.workspace = $0.isEmpty ? nil : $0 }
+          set: {
+            draft.workspace = $0.isEmpty ? nil : $0
+            if draft.workspace != nil { draft.monitor = nil }
+          }
         )) {
           Text("Leave workspace unchanged").tag("")
           ForEach(model.config.workspaces.names, id: \.self) { Text($0).tag($0) }
         } label: {
           RuleInfoLabel("Move to workspace", "Opens new matching windows on this named workspace.")
         }
+        Picker(selection: Binding(
+          get: { draft.monitor },
+          set: {
+            draft.monitor = $0
+            if $0 != nil { draft.workspace = nil }
+          }
+        )) {
+          Text("Leave display unchanged").tag(String?.none)
+          ForEach(displayOptions, id: \.self) { Text(ruleDisplayTitle($0)).tag(Optional($0)) }
+        } label: {
+          RuleInfoLabel("Move to display",
+            "Opens new matching windows on this display’s active workspace.",
+            note: "While the display is disconnected, windows open where they would without this rule.")
+        }
         settingsDraftToggle("Follow focus", "Switches to that workspace when the new window takes focus.",
           value: \Rule.followFocus)
+        Picker(selection: $draft.openFocused) {
+          Text("Default").tag(Bool?.none)
+          Text("Focus the window").tag(Optional(true))
+          Text("Keep current focus").tag(Optional(false))
+        } label: {
+          RuleInfoLabel("When the window opens",
+            "Default focuses a window opened from the app you are using. Keep current focus opens it in the background without scrolling.")
+        }
         Picker(selection: $draft.window) {
           Text("Automatic").tag(RuleWindow?.none)
           ForEach(RuleWindow.allCases, id: \.self) { Text($0.settingsTitle).tag(Optional($0)) }
@@ -1430,6 +1464,18 @@ private struct SettingsRuleEditor: View {
         customApplication = !model.applications.contains(where: { $0.bundleIdentifier == appID })
       }
     }
+  }
+
+  /// Connected displays by name, plus the rule's own display when it is not connected, so editing never drops it.
+  private var displayOptions: [String] {
+    var options = NSScreen.screens.map(\.localizedName)
+    guard let monitor = draft.monitor else { return options }
+    if let i = options.firstIndex(where: { $0.caseInsensitiveCompare(monitor) == .orderedSame }) {
+      options[i] = monitor  // keep the rule's own spelling selected
+    } else {
+      options.append(monitor)
+    }
+    return options
   }
 
   private func optionalStringBinding(_ keyPath: WritableKeyPath<Rule, String?>) -> Binding<String> {
@@ -2042,4 +2088,11 @@ func writeTriageLauncher(cli: URL, directory: URL) throws -> URL {
   try "#!/bin/sh\nrm -f \"$0\"\nexec \(quoted) triage\n".write(to: url, atomically: true, encoding: .utf8)
   try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
   return url
+}
+
+/// A rule's display as Settings shows it, marked when no connected display matches.
+@MainActor
+private func ruleDisplayTitle(_ name: String) -> String {
+  let connected = NSScreen.screens.contains { $0.localizedName.caseInsensitiveCompare(name) == .orderedSame }
+  return connected ? name : "\(name) (not connected)"
 }

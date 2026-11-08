@@ -273,6 +273,16 @@ public struct Config: Equatable, Sendable {
       if let workspace = rule.workspace, !workspaces.names.contains(workspace) {
         throw ConfigError.unknownWorkspace(workspace)
       }
+      if let pattern = rule.titleRegex, Rule.titleExpression(pattern) == nil {
+        throw ConfigError.invalidValue("rules.title_regex")
+      }
+      if let monitor = rule.monitor {
+        guard !monitor.isEmpty else { throw ConfigError.invalidValue("rules.monitor") }
+        // A named workspace already decides its monitor.
+        guard rule.workspace == nil else {
+          throw ConfigError.invalidValue("rules.monitor cannot be combined with rules.workspace")
+        }
+      }
     }
   }
 
@@ -295,6 +305,14 @@ public struct Config: Equatable, Sendable {
     for rule in rules where rule.matches(appID: appID, title: title, role: role) {
       if let workspace = rule.workspace {
         result.workspace = WorkspaceID(rawValue: workspace)
+        result.monitor = nil
+      }
+      if let monitor = rule.monitor {
+        result.monitor = monitor
+        result.workspace = nil
+      }
+      if let openFocused = rule.openFocused {
+        result.openFocused = openFocused
       }
       if let width = rule.initialColumnWidth {
         result.initialColumnWidth = width

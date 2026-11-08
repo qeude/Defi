@@ -414,9 +414,12 @@ public enum RuleWindow: String, Codable, Equatable, Sendable, CaseIterable {
 public struct Rule: Codable, Equatable, Sendable {
   public var appID: String?
   public var title: String?
+  public var titleRegex: String?
   public var role: String?
   public var workspace: String?
+  public var monitor: String?
   public var followFocus: Bool
+  public var openFocused: Bool?
   public var window: RuleWindow?
   public var intrinsicSize: Bool
   public var initialColumnWidth: Double?
@@ -425,9 +428,12 @@ public struct Rule: Codable, Equatable, Sendable {
   public init(
     appID: String? = nil,
     title: String? = nil,
+    titleRegex: String? = nil,
     role: String? = nil,
     workspace: String? = nil,
+    monitor: String? = nil,
     followFocus: Bool = false,
+    openFocused: Bool? = nil,
     window: RuleWindow? = nil,
     intrinsicSize: Bool = false,
     initialColumnWidth: Double? = nil,
@@ -435,9 +441,12 @@ public struct Rule: Codable, Equatable, Sendable {
   ) {
     self.appID = appID
     self.title = title
+    self.titleRegex = titleRegex
     self.role = role
     self.workspace = workspace
+    self.monitor = monitor
     self.followFocus = followFocus
+    self.openFocused = openFocused
     self.window = window
     self.intrinsicSize = intrinsicSize
     self.initialColumnWidth = initialColumnWidth
@@ -447,9 +456,12 @@ public struct Rule: Codable, Equatable, Sendable {
   enum CodingKeys: String, CodingKey {
     case appID = "app_id"
     case title
+    case titleRegex = "title_regex"
     case role
     case workspace
+    case monitor
     case followFocus = "follow_focus"
+    case openFocused = "open_focused"
     case window
     case intrinsicSize = "intrinsic_size"
     case initialColumnWidth = "initial_column_width"
@@ -461,9 +473,17 @@ public struct Rule: Codable, Equatable, Sendable {
     let defaults = Rule()
     appID = try values.decodeIfPresent(String.self, forKey: .appID)
     title = try values.decodeIfPresent(String.self, forKey: .title)
+    titleRegex = try values.decodeIfPresent(String.self, forKey: .titleRegex)
     role = try values.decodeIfPresent(String.self, forKey: .role)
     workspace = try values.decodeIfPresent(String.self, forKey: .workspace)
+    if values.contains(.monitor) {
+      guard let name = try? values.decode(String.self, forKey: .monitor) else {
+        throw ConfigError.invalidValue("rules.monitor takes a display name")
+      }
+      monitor = name
+    }
     followFocus = try values.decodeIfPresent(Bool.self, forKey: .followFocus) ?? defaults.followFocus
+    openFocused = try values.decodeIfPresent(Bool.self, forKey: .openFocused)
     window = try values.decodeIfPresent(RuleWindow.self, forKey: .window)
     intrinsicSize = try values.decodeIfPresent(Bool.self, forKey: .intrinsicSize) ?? defaults.intrinsicSize
     initialColumnWidth = try values.decodeIfPresent(Double.self, forKey: .initialColumnWidth)
@@ -488,16 +508,30 @@ public struct Rule: Codable, Equatable, Sendable {
     if let title, !actualTitle.localizedCaseInsensitiveContains(title) {
       return false
     }
+    if let titleRegex {
+      // shortcut: compiles on each match; discovery is rare, cache if rules ever run per frame.
+      guard let regex = Self.titleExpression(titleRegex),
+        regex.firstMatch(
+          in: actualTitle, range: NSRange(actualTitle.startIndex..., in: actualTitle)) != nil
+      else { return false }
+    }
     if let role, actualRole != role {
       return false
     }
-    return appID != nil || title != nil || role != nil
+    return appID != nil || title != nil || titleRegex != nil || role != nil
+  }
+
+  static func titleExpression(_ pattern: String) -> NSRegularExpression? {
+    try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
   }
 }
 
 public struct RuleDecision: Equatable, Sendable {
   public var workspace: WorkspaceID?
+  public var monitor: String?
   public var followFocus: Bool
+  /// Unset keeps the default; `false` opens without focus, `true` forces focus.
+  public var openFocused: Bool?
   public var floating: Bool
   public var forceTiling: Bool
   public var intrinsicSize: Bool
@@ -506,7 +540,9 @@ public struct RuleDecision: Equatable, Sendable {
 
   public init(
     workspace: WorkspaceID? = nil,
+    monitor: String? = nil,
     followFocus: Bool = false,
+    openFocused: Bool? = nil,
     floating: Bool = false,
     forceTiling: Bool = false,
     intrinsicSize: Bool = false,
@@ -514,7 +550,9 @@ public struct RuleDecision: Equatable, Sendable {
     includeInitialWidthInCycle: Bool = false
   ) {
     self.workspace = workspace
+    self.monitor = monitor
     self.followFocus = followFocus
+    self.openFocused = openFocused
     self.floating = floating
     self.forceTiling = forceTiling
     self.intrinsicSize = intrinsicSize

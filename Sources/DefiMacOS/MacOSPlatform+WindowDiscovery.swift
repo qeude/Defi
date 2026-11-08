@@ -177,7 +177,8 @@ extension MacOSPlatform {
           width: physical.width,
           height: physical.height
         ),
-        refreshRateHz: Double(screen.maximumFramesPerSecond)
+        refreshRateHz: Double(screen.maximumFramesPerSecond),
+        name: screen.localizedName
       )
     }
   }

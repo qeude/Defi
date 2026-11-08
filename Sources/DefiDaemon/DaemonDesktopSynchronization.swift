@@ -47,6 +47,9 @@ func nativeFocusPendingSkippedWindowIDs(
   })
 }
 
+/// How long after discovery a rule's `open_focused = false` still refuses its app's focus.
+let unfocusedOpeningGrace: TimeInterval = 1
+
 func shouldCommitNativeFocusSelection(
   nativeFocusAccepted: Bool,
   selectionChanged: Bool
@@ -372,8 +375,37 @@ extension Daemon {
       viewports: viewportsByMonitor,
       nativeFocusedWindowID: snapshot.focusedWindowID,
       frontmostProcessID: snapshot.frontmostProcessID,
+      displays: latestMonitors.map { ($0.id, $0.name) },
+      appliesOpenFocus: hasSynchronizedDesktop,
       state: &state
     )
+    var forcedOpeningFocusWindowID: WindowID?
+    // Floating windows a rule sent to another display, by the display they opened on.
+    var ruleRelocatedFloatingMonitorIDs: [WindowID: MonitorID] = [:]
+    unfocusedOpenings = unfocusedOpenings.filter {
+      state.windows[$0.key] != nil && snapshotCompletedAt - $0.value <= unfocusedOpeningGrace
+    }
+    // Discovery order, as `reconcileWindows` selects: the last forced window it kept selected wins.
+    for windowID in snapshot.windows.map(\.id) where !previouslyManagedWindowIDs.contains(windowID) {
+      guard let window = state.windows[windowID] else { continue }
+      let decision = config.decision(for: window)
+      if decision.monitor != nil, window.floating, let observedMonitorID = window.monitorID,
+        state.monitorID(containing: windowID) != observedMonitorID
+      {
+        ruleRelocatedFloatingMonitorIDs[windowID] = observedMonitorID
+      }
+      guard hasSynchronizedDesktop, let openFocused = decision.openFocused else { continue }
+      if !openFocused {
+        unfocusedOpenings[windowID] = snapshotCompletedAt
+      } else if snapshot.focusedWindowID != windowID,
+        let monitorID = state.monitorID(containing: windowID),
+        state.selectedWindowID(on: monitorID) == windowID
+      {
+        forcedOpeningFocusWindowID = windowID
+        activeMonitorID = monitorID
+      }
+    }
+    hasSynchronizedDesktop = true
     let relocatedFloatingWindowIDs =
       displayGeometryChanged
       ? []
@@ -440,6 +472,14 @@ extension Daemon {
         windowIDs: relocatedFloatingWindowIDs
       )
     }
+    if !ruleRelocatedFloatingMonitorIDs.isEmpty {
+      rebaseFloatingWindowFrames(
+        previousViewports: viewportsByMonitor,
+        nextViewports: viewportsByMonitor,
+        previousMonitorIDs: ruleRelocatedFloatingMonitorIDs,
+        windowIDs: Set(ruleRelocatedFloatingMonitorIDs.keys)
+      )
+    }
     let reassignedMonitorID =
       snapshot.focusedWindowID.flatMap {
         reassignedFloatingMonitorIDs[$0]
@@ -467,7 +507,7 @@ extension Daemon {
     if let newRemovalFocusGuard {
       pendingWindowRemovalFocusGuard = newRemovalFocusGuard
     }
-    var preservesWorkspaceAfterRemoval = false
+    var preservesSelectionOverNativeFocus = false
     var guardedRemovalFocus: GuardedWindowRemovalFocusAction?
     if let focusGuard = pendingWindowRemovalFocusGuard {
       let decision = windowRemovalFocusDecision(
@@ -494,7 +534,7 @@ extension Daemon {
       case .wait:
         break
       case .preserve(let localFallback):
-        preservesWorkspaceAfterRemoval = true
+        preservesSelectionOverNativeFocus = true
         pendingWindowRemovalFocusGuard = nil
         preservedWindowRemovalFocusCount += 1
         platform.recordPerformanceTrace(
@@ -503,6 +543,18 @@ extension Daemon {
       }
     }
     var acceptedNativeFocusMonitorID: MonitorID?
+    // The app's own focus on a window a rule opened unfocused returns to the previous selection.
+    var refusedOpeningFocusWindowID: WindowID?
+    if let focusedWindowID = snapshot.focusedWindowID,
+      unfocusedOpenings.removeValue(forKey: focusedWindowID) != nil,
+      snapshot.mouseFocusIntentWindowID != focusedWindowID,
+      snapshot.keyboardFocusIntentTimestamp == nil,
+      let previousSelectedWindowID, previousSelectedWindowID != focusedWindowID,
+      state.windows[previousSelectedWindowID] != nil
+    {
+      refusedOpeningFocusWindowID = previousSelectedWindowID
+      preservesSelectionOverNativeFocus = true
+    }
     if let focusedWindowID = snapshot.focusedWindowID {
       let currentActivation = platform.userInputTracker.pendingApplicationActivation(
         frontmostProcessID: platform.frontmostProcessID
@@ -549,7 +601,7 @@ extension Daemon {
           applicationActivationTimestamp: activationTimestamp,
           latestCommandInputTimestamp: latestFocusIntentTimestamp
         )
-        && !preservesWorkspaceAfterRemoval
+        && !preservesSelectionOverNativeFocus
         && !nativeActivationLacksHumanIntent(
           applicationActivation: activationTimestamp != nil,
           switchesWorkspace: state.monitors.contains { monitor in
@@ -619,7 +671,7 @@ extension Daemon {
           "mouse-focus-deferred window=\(focusedWindowID.rawValue)"
         )
       }
-      if !preservesWorkspaceAfterRemoval
+      if !preservesSelectionOverNativeFocus
         && (!snapshot.leftMouseButtonDown || nativeFocusAccepted)
         && shouldCommitNativeFocusSelection(
           nativeFocusAccepted: nativeFocusAccepted,
@@ -1005,7 +1057,8 @@ extension Daemon {
       cursorWarpIsCurrentAfterCommit:
         nativeCursorWarpIsCurrentAfterCommit,
       forceFloatingFrameWrites: displayGeometryChanged,
-      forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs,
+      forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs.union(
+        ruleRelocatedFloatingMonitorIDs.keys),
       source: animatesNativeFocus
         ? "native-focus-animation"
         : (nativelyActivatedWorkspace ? "native-workspace"
@@ -1017,6 +1070,9 @@ extension Daemon {
         guardedRemovalFocus.windowID,
         unlessUserInputAfter: guardedRemovalFocus.inputTimestamp
       )
+    }
+    if let windowID = refusedOpeningFocusWindowID ?? forcedOpeningFocusWindowID {
+      platform.focus(windowID, unlessUserInputAfter: snapshot.latestUserInputTimestamp)
     }
     persistTopology()
     updateMenuBar()

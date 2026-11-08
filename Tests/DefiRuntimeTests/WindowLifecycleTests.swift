@@ -35,6 +35,63 @@ struct WindowLifecycleTests {
   }
 
   @Test
+  func `Rule monitor and open focus place a new window`() throws {
+    let second = MonitorID(rawValue: 2)
+    var state = RuntimeState(config: Config())
+    state.attachMonitor(monitorID)
+    state.attachMonitor(second)
+    let displays: [(id: MonitorID, name: String?)] = [(monitorID, "Built-in"), (second, "DELL")]
+    #expect(ruleMonitorID("dell", displays: displays) == second)
+    #expect(ruleMonitorID("Studio Display", displays: displays) == nil)
+    let existing = Window(
+      id: WindowID(rawValue: 1), appID: "editor", title: "Code",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800), monitorID: monitorID
+    )
+    try discoverWindow(existing, decision: RuleDecision(), isFrontmostAppSpawn: true, state: &state)
+    let chat = Window(
+      id: WindowID(rawValue: 2), appID: "chat", title: "General",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800), monitorID: monitorID
+    )
+
+    try discoverWindow(
+      chat, decision: RuleDecision(monitor: "DELL", openFocused: false),
+      ruleMonitorID: second, isNativelyFocused: true, isFrontmostAppSpawn: true, state: &state
+    )
+
+    #expect(state.monitorID(containing: chat.id) == second)
+    #expect(state.selectedWindowID(on: monitorID) == existing.id)
+
+    // A missing display falls back to the window's own monitor; `true` forces focus.
+    let note = Window(
+      id: WindowID(rawValue: 3), appID: "notes", title: "Note",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800), monitorID: monitorID
+    )
+    try discoverWindow(note, decision: RuleDecision(openFocused: true), state: &state)
+    #expect(state.monitorID(containing: note.id) == monitorID)
+    #expect(state.selectedWindowID(on: monitorID) == note.id)
+  }
+
+  @Test
+  func `Open focus applies only to windows opened after the first sync`() {
+    let config = Config(rules: [Rule(appID: "notes", openFocused: true)])
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    func window(_ id: UInt64, _ appID: String) -> Window {
+      Window(
+        id: WindowID(rawValue: id), appID: appID, title: appID,
+        frame: Rect(x: 0, y: 0, width: 600, height: 800), monitorID: monitorID
+      )
+    }
+    let existing = [window(1, "editor"), window(2, "notes")]
+
+    reconcileWindows(existing, config: config, appliesOpenFocus: false, state: &state)
+    #expect(state.selectedWindowID(on: monitorID) != WindowID(rawValue: 2))
+
+    reconcileWindows(existing + [window(3, "notes")], config: config, state: &state)
+    #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
+  }
+
+  @Test
   func `Transient inherits owners workspace without activating it`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
