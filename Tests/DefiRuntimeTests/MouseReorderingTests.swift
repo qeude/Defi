@@ -712,12 +712,13 @@ struct MouseReorderingTests {
   }
 
   @Test
-  func `Dropping over the middle of another column stacks the window into it`() throws {
+  func `Dropping near the bottom of another column's window stacks the window below it`() throws {
     var state = try makeState(windowCount: 3)
+    narrowColumns(&state)
     let dragged = WindowID(rawValue: 1)
-    let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    let host = try heldFrame(WindowID(rawValue: 2), holding: dragged, state: state)
     let target = try #require(mouseStackTarget(
-      dragged, pointer: (host.x + host.width / 2, host.y + host.height * 3 / 4),
+      dragged, pointer: (host.x + host.width / 2, host.y + host.height - 20),
       state: state, viewports: [monitorID: viewport]))
     #expect(target.row == 1)
     #expect(stackTiledWindow(dragged, into: target, state: &state, viewports: [monitorID: viewport]))
@@ -732,26 +733,87 @@ struct MouseReorderingTests {
   @Test
   func `Dropping into a stack that cannot fit its minimum heights does not stack`() throws {
     var state = try makeState(windowCount: 3)
+    narrowColumns(&state)
     state.windows[WindowID(rawValue: 1)]?.minimumTiledHeight = 400
     state.windows[WindowID(rawValue: 2)]?.minimumTiledHeight = 500
-    let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    let host = try heldFrame(WindowID(rawValue: 2), holding: WindowID(rawValue: 1), state: state)
     #expect(mouseStackTarget(
-      WindowID(rawValue: 1), pointer: (host.x + host.width / 2, host.y + host.height * 3 / 4),
+      WindowID(rawValue: 1), pointer: (host.x + host.width / 2, host.y + host.height - 20),
       state: state, viewports: [monitorID: viewport]) == nil)
   }
 
   @Test
   func `The stack preview keeps the dragged window's minimum height`() throws {
     var state = try makeState(windowCount: 3)
+    narrowColumns(&state)
     state.windows[WindowID(rawValue: 1)]?.minimumTiledHeight = 450
-    let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    let host = try heldFrame(WindowID(rawValue: 2), holding: WindowID(rawValue: 1), state: state)
     let target = try #require(mouseStackTarget(
-      WindowID(rawValue: 1), pointer: (host.x + host.width / 2, host.y + host.height * 3 / 4),
+      WindowID(rawValue: 1), pointer: (host.x + host.width / 2, host.y + host.height - 20),
       state: state, viewports: [monitorID: viewport]))
     #expect(stackTiledWindow(WindowID(rawValue: 1), into: target, state: &state, viewports: [monitorID: viewport]))
     let held = try #require(mouseDropPreviewFrames(in: state, viewports: [monitorID: viewport])[WindowID(rawValue: 1)])
     #expect(held.height >= 450)
     #expect(abs(held.y + held.height - (host.y + host.height)) < 0.001)
+  }
+
+  @Test
+  func `The closest edge decides, and another column's top counts once pushed above it`() throws {
+    var state = try makeState(windowCount: 3)
+    narrowColumns(&state)
+    let host = try heldFrame(WindowID(rawValue: 2), holding: WindowID(rawValue: 1), state: state)
+    func target(_ y: Double) -> MouseDropTarget? {
+      mouseDropTarget(WindowID(rawValue: 1), pointer: (host.x + host.width / 2, y),
+        state: state, viewports: [monitorID: viewport], monitorFrames: menuBarScreens)
+    }
+    // Crossing at title-bar height: the gaps are closer than the window's bottom.
+    guard case .column = target(host.y + 10) else { Issue.record("expected a new column on the title row"); return }
+    // Near its bottom: below it. Pushed up into the menu bar: above it.
+    guard case .stack(let below) = target(host.y + host.height - 10),
+      case .stack(let above) = target(viewport.y - 20)
+    else { Issue.record("expected stacks at the bottom and pushed above"); return }
+    #expect(below.row == 1 && above.row == 0)
+    // Without room above the windows, the screen's top edge still means above.
+    let flush = [monitorID: viewport]
+    guard case .stack(let edge) = mouseDropTarget(WindowID(rawValue: 1), pointer: (host.x + host.width / 2, viewport.y),
+      state: state, viewports: [monitorID: viewport], monitorFrames: flush), edge.row == 0
+    else { Issue.record("expected the screen's top edge to stack above"); return }
+  }
+
+  @Test
+  func `While held the strip closes up once and the slot waits for the drop`() throws {
+    var state = try makeState(windowCount: 4)
+    narrowColumns(&state)
+    let viewports = [monitorID: viewport]
+    let dragged = WindowID(rawValue: 1)
+    let before = mouseDropPreviewFrames(in: state, viewports: viewports)
+    let closed = mouseDropPreviewFrames(in: mouseDropHeldState(dragged, state: state), viewports: viewports)
+    let host = try #require(closed[WindowID(rawValue: 2)])
+    let open = try #require(before[WindowID(rawValue: 2)])
+    #expect(closed[dragged] == nil && host.x < open.x)
+    // Every other window stays as the closed strip shows it, whatever the target.
+    let below = try #require(mouseStackTarget(dragged, pointer: (host.x + host.width / 2, host.y + host.height - 20),
+      state: state, viewports: viewports))
+    let stacked = mouseDropHeldFrames(dragged, .stack(below), state: state, viewports: viewports)
+    for id in [2, 3, 4].map({ WindowID(rawValue: $0) }) { #expect(stacked[id] == closed[id]) }
+    // The held window keeps its landing slot for the drop, and the hint sits on the border.
+    let slot = try #require(stacked[dragged])
+    #expect(slot.y > host.y)
+    let hint = try #require(mouseDropHintFrame(dragged, .stack(below), state: state, viewports: viewports))
+    #expect(hint.x == host.x && hint.width == host.width && hint.y + hint.height == host.y + host.height)
+  }
+
+  @Test
+  func `A drop keeps the strip still while the dropped window stays in view`() throws {
+    var state = try makeState(windowCount: 3)
+    narrowColumns(&state)
+    let viewports = [monitorID: viewport]
+    let workspace = state.monitors[0].workspaces[0].id
+    let still = WorkspaceScrollAnchor(monitorID: monitorID, workspaceID: workspace, scrollOffset: 0)
+    #expect(windowStaysInView(WindowID(rawValue: 2), holding: still, state: state, viewports: viewports))
+    // Scrolled past the first column, that column's window would sit off screen.
+    let past = WorkspaceScrollAnchor(monitorID: monitorID, workspaceID: workspace, scrollOffset: 0.4)
+    #expect(!windowStaysInView(WindowID(rawValue: 1), holding: past, state: state, viewports: viewports))
   }
 
   @Test
@@ -830,15 +892,16 @@ struct MouseReorderingTests {
     narrowColumns(&state)
     let stacked = try #require(state.monitors[0].workspaces[0].columns.first { $0.windows.count == 2 })
     let lower = stacked.windows[1]
-    let frame = try targetFrame(for: lower, state: state)
-    let upper = try targetFrame(for: stacked.windows[0], state: state)
+    // Held, its stack shows the upper window alone, filling the column.
+    let upper = try heldFrame(stacked.windows[0], holding: lower, state: state)
 
     let own = try #require(mouseDropTarget(
-      lower, pointer: (frame.x + frame.width / 2, frame.y + 5), state: state, viewports: [monitorID: viewport]))
+      lower, pointer: (upper.x + upper.width / 2, upper.y + upper.height - 10), state: state,
+      viewports: [monitorID: viewport]))
     #expect(!applyMouseDrop(lower, own, state: &state, viewports: [monitorID: viewport]))
 
     let above = try #require(mouseDropTarget(
-      lower, pointer: (frame.x + frame.width / 2, upper.y + 5), state: state, viewports: [monitorID: viewport]))
+      lower, pointer: (upper.x + upper.width / 2, upper.y + 10), state: state, viewports: [monitorID: viewport]))
     #expect(applyMouseDrop(lower, above, state: &state, viewports: [monitorID: viewport]))
     let column = try #require(state.monitors[0].workspaces[0].columns.first { $0.windows.contains(lower) })
     #expect(column.windows == [lower, stacked.windows[0]])
@@ -852,9 +915,11 @@ struct MouseReorderingTests {
       let dragged = WindowID(rawValue: UInt64(stackSize + 1))
       let hostWindows = state.monitors[0].workspaces[0].columns[0].windows
       let frames = try hostWindows.map { try targetFrame(for: $0, state: state) }
+      // The top of another column takes a push above it, toward the menu bar.
+      let y = expectedRow == 0 ? viewport.y - 20 : frames[expectedRow].y + frames[expectedRow].height * 0.3
       let target = try #require(mouseDropTarget(
-        dragged, pointer: (frames[0].x + frames[0].width / 2, frames[expectedRow].y + 1), state: state,
-        viewports: [monitorID: viewport]))
+        dragged, pointer: (frames[0].x + frames[0].width / 2, y), state: state,
+        viewports: [monitorID: viewport], monitorFrames: menuBarScreens))
       #expect(applyMouseDrop(dragged, target, state: &state, viewports: [monitorID: viewport]))
       var expected = hostWindows
       expected.insert(dragged, at: expectedRow)
@@ -893,8 +958,9 @@ struct MouseReorderingTests {
     narrowColumns(&state)
     let dragged = WindowID(rawValue: 1)
     let host = try targetFrame(for: WindowID(rawValue: 2), state: state)
+    let aimed = try heldFrame(WindowID(rawValue: 2), holding: dragged, state: state)
     let target = try #require(mouseDropTarget(
-      dragged, pointer: (host.x + host.width / 2, host.y + host.height / 4), state: state,
+      dragged, pointer: (aimed.x + aimed.width / 2, aimed.y + aimed.height - 20), state: state,
       viewports: [monitorID: viewport]))
     guard case .rejectedStack = target else {
       Issue.record("expected a rejected stack, got \(target)")
@@ -931,10 +997,12 @@ struct MouseReorderingTests {
   @Test
   func `A stale stack target changes nothing`() throws {
     var state = try makeState(windowCount: 3)
+    narrowColumns(&state)
     let dragged = WindowID(rawValue: 1)
-    let host = try targetFrame(for: WindowID(rawValue: 3), state: state)
+    let host = try heldFrame(WindowID(rawValue: 3), holding: dragged, state: state)
     let target = try #require(mouseStackTarget(
-      dragged, pointer: (host.x + host.width / 2, host.y + 5), state: state, viewports: [monitorID: viewport]))
+      dragged, pointer: (host.x + host.width / 2, host.y + host.height - 20), state: state,
+      viewports: [monitorID: viewport]))
     state.monitors[0].workspaces[0].columns.removeAll { $0.windows.contains(WindowID(rawValue: 3)) }
     let before = state
     #expect(!stackTiledWindow(dragged, into: target, state: &state, viewports: [monitorID: viewport]))
@@ -971,15 +1039,19 @@ struct MouseReorderingTests {
   func `A pointer resting on a boundary keeps the previewed target`() throws {
     var state = try makeState(windowCount: 3)
     narrowColumns(&state)
-    let third = try targetFrame(for: WindowID(rawValue: 3), state: state)
-    let stackEdge = third.x + third.width / 4
-    let gap = try #require(dropTarget(1, stackEdge - 10, state: state))
-    guard case .column = gap, case .stack = dropTarget(1, stackEdge + 5, state: state) else {
-      Issue.record("the outer quarter targets a gap and the middle half stacks")
-      return
-    }
-    #expect(dropTarget(1, stackEdge + 5, previous: gap, state: state) == gap)
-    guard case .stack = dropTarget(1, stackEdge + 40, previous: gap, state: state) else {
+    let dragged = WindowID(rawValue: 1)
+    let second = try heldFrame(WindowID(rawValue: 2), holding: dragged, state: state)
+    let third = try heldFrame(WindowID(rawValue: 3), holding: dragged, state: state)
+    // Moving from the gap into the third window, low down: a new column, then a stack below it.
+    let gapX = (second.x + second.width + third.x) / 2, y = third.y + third.height - 40
+    let gap = try #require(dropTarget(1, gapX, y: y, state: state))
+    guard case .column = gap else { Issue.record("expected the gap at the gap"); return }
+    let boundary = try #require((0..<200).first {
+      if case .stack = dropTarget(1, gapX + Double($0), y: y, state: state) { return true }
+      return false
+    })
+    #expect(dropTarget(1, gapX + Double(boundary), y: y, previous: gap, state: state) == gap)
+    guard case .stack = dropTarget(1, gapX + Double(boundary) + 20, y: y, previous: gap, state: state) else {
       Issue.record("a clear move past the boundary changes the target")
       return
     }
@@ -1006,13 +1078,13 @@ struct MouseReorderingTests {
       mouseDropTarget(WindowID(rawValue: 1), pointer: (viewport.width / 2, y), previous: previous,
         state: state, viewports: viewports, monitorFrames: viewports)
     }
-    let above = try #require(target(viewport.height - 10))
-    guard case .display = target(viewport.height + 10) else {
+    let above = try #require(target(viewport.height - 4))
+    guard case .display = target(viewport.height + 4) else {
       Issue.record("past the edge, the pointer targets the display below")
       return
     }
 
-    #expect(target(viewport.height + 10, previous: above) == above)
+    #expect(target(viewport.height + 4, previous: above) == above)
   }
 
   @Test
@@ -1139,11 +1211,22 @@ struct MouseReorderingTests {
     state.monitors[0].workspaces[0].targetScrollOffset = 0
   }
 
+  /// A 25-point menu bar above the viewport.
+  private var menuBarScreens: [MonitorID: Rect] {
+    [monitorID: Rect(x: viewport.x, y: viewport.y - 25, width: viewport.width, height: viewport.height + 25)]
+  }
+
+  /// Where `windowID` shows while `held` is dragged: the strip closed up without it.
+  private func heldFrame(_ windowID: WindowID, holding held: WindowID, state: RuntimeState) throws -> Rect {
+    try #require(mouseDropPreviewFrames(in: mouseDropHeldState(held, state: state),
+      viewports: [monitorID: viewport])[windowID])
+  }
+
   private func dropTarget(
-    _ rawID: UInt64, _ pointerX: Double, previous: MouseDropTarget? = nil, state: RuntimeState
+    _ rawID: UInt64, _ pointerX: Double, y: Double? = nil, previous: MouseDropTarget? = nil, state: RuntimeState
   ) -> MouseDropTarget? {
     mouseDropTarget(
-      WindowID(rawValue: rawID), pointer: (pointerX, viewport.height / 2), previous: previous,
+      WindowID(rawValue: rawID), pointer: (pointerX, y ?? viewport.height / 2), previous: previous,
       state: state, viewports: [monitorID: viewport])
   }
 

@@ -121,6 +121,22 @@ struct DragEdgeScrollTests {
   }
 
   @Test
+  func aPointerUnderTheMenuBarKeepsScrolling() throws {
+    let state = try makeState()
+    // The viewport starts below a 25-point menu bar; the title bar is held right under it.
+    let screen = Rect(x: 0, y: -25, width: 1_000, height: 725)
+    var edge = try #require(DragEdgeScroll(windowID: held, state: state,
+      viewports: [monitorID: viewport], monitorFrames: [monitorID: screen]))
+    var now = 0.0
+    for step in 0..<60 {
+      // The hand trembles across the menu bar's bottom edge.
+      edge.advance(pointer: (right.x, step.isMultiple(of: 2) ? -3 : 3), now: now, refreshRate: rate, state: state)
+      now += 1 / rate
+    }
+    #expect(edge.isInEdgeZone && edge.scrolled)
+  }
+
+  @Test
   func topologyChangesEndTheSession() throws {
     var state = try makeState()
     let edge = try #require(session(state))

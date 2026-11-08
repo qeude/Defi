@@ -116,9 +116,11 @@ public struct DragEdgeScroll: Equatable, Sendable {
 
   private var zone: Double { min(Self.zoneWidth, viewport.width / 4) }
 
+  /// The whole display: a title bar held at the top drifts under the menu bar, and the
+  /// hand there still means this edge.
   private func onScreen(_ pointer: (x: Double, y: Double)) -> Bool {
     pointer.x >= screen.x && pointer.x <= screen.x + screen.width
-      && pointer.y >= viewport.y && pointer.y <= viewport.y + viewport.height
+      && pointer.y >= screen.y && pointer.y <= screen.y + screen.height
   }
 
   /// Off this display (toward a neighbor) is no edge: the drop goes to that display.

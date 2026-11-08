@@ -1,4 +1,5 @@
 import CoreGraphics
+import DefiCore
 import DefiModel
 import DefiRuntime
 import Foundation
@@ -13,7 +14,7 @@ extension Daemon {
   }
 
   /// Every held frame: scrolls the strip while the dragged window rests at a side edge and
-  /// redraws the drop over it. Only the overlay moves; the drop commits the scroll.
+  /// updates the drop under the pointer. Only the overlay moves; the drop commits the scroll.
   func advanceDragEdgeScroll() {
     guard var edge = dragEdgeScroll, let pointer = mousePointer() else { return }
     guard dragEdgeScrollIsCurrent(edge) else {
@@ -29,10 +30,11 @@ extension Daemon {
       platform.recordPerformanceTrace(
         "drag-edge-scroll window=\(edge.windowID.rawValue) phase=\(edge.phase) offset=\(edge.offset)")
     }
-    if changed { presentMouseDropPreview(edge.windowID, pointer: pointer, force: true) }
+    // The target follows the pointer every frame; an unchanged one redraws nothing.
+    presentMouseDropPreview(edge.windowID, pointer: pointer, force: changed)
   }
 
-  /// Shows on the overlay the layout a drop at `pointer` would produce; nil previews no drop.
+  /// Marks on the overlay where a drop at `pointer` would land; nil previews no drop.
   func presentMouseDropPreview(_ windowID: WindowID, pointer: (x: Double, y: Double)?, force: Bool = false) {
     var force = force
     if let edge = dragEdgeScroll, edge.windowID != windowID || !dragEdgeScrollIsCurrent(edge) {
@@ -61,16 +63,31 @@ extension Daemon {
           + (dragEdgeScroll.map { " edge-offset=\($0.offset)" } ?? ""))
     }
     proxyPreviewTarget = target
-    var preview = viewed
-    if let target {
-      applyMouseDrop(windowID, target, state: &preview, viewports: viewports, monitorFrames: monitorFrames)
+    // The strip scrolling at an edge moves under the pointer at once.
+    var scroll: (shift: Double, windowIDs: Set<WindowID>)?
+    if let edge = dragEdgeScroll {
+      scroll = presentedEdgeScrollOffset.map { edgeScrollShift(edge, since: $0, viewports: viewports) }
+      presentedEdgeScrollOffset = edge.offset
+    } else {
+      presentedEdgeScrollOffset = nil
     }
-    // At an edge the strip stays where the scroll draws it instead of turning to the drop.
-    if let edge = dragEdgeScroll, edge.isInEdgeZone { preview = edge.applied(to: preview) }
     platform.presentWindowProxyPreview(
-      mouseDropPreviewFrames(in: preview, viewports: viewports),
+      mouseDropHeldFrames(windowID, target, state: viewed, viewports: viewports, monitorFrames: monitorFrames),
       heldWindowID: windowID,
-      rejectedFrame: mouseDropRejectedFrame(target, state: viewed, viewports: viewports))
+      rejectedFrame: mouseDropRejectedFrame(target, state: viewed, viewports: viewports),
+      hint: target.flatMap { mouseDropHintFrame(windowID, $0, state: viewed, viewports: viewports) },
+      scroll: scroll)
+  }
+
+  /// The points the strip moved since `offset` was drawn: its windows follow the pointer
+  /// at once instead of springing after it.
+  private func edgeScrollShift(
+    _ edge: DragEdgeScroll, since offset: Double, viewports: [MonitorID: Rect]
+  ) -> (shift: Double, windowIDs: Set<WindowID>) {
+    let windowIDs = state.monitors.first { $0.id == edge.anchor.monitorID }?.workspaces
+      .first { $0.id == edge.anchor.workspaceID }.map { Set($0.columns.flatMap(\.windows)) } ?? []
+    let strip = viewports[edge.anchor.monitorID].map { stripViewport($0, settings: state.layout).width } ?? 0
+    return ((offset - edge.offset) * strip, windowIDs)
   }
 
   /// Without the overlay carrying the window nothing draws the scroll, so the strip stays.

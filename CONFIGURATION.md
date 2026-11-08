@@ -751,12 +751,22 @@ starts with the modifier held works on the display under the pointer:
 
 ## Mouse reordering
 
-Drag a tiled window by its title bar to move it. While you drag, the overlay
-previews the layout the drop would produce; releasing commits it.
+Drag a tiled window by its title bar to move it. As the drag starts, the other
+windows close up the place it leaves, once; then nothing moves until the release.
+A translucent band marks where the window would land, and releasing moves
+everything once to put it there.
 
-- Dropping on the middle half of another column adds the window to its stack.
-  The outer quarters and the gaps create a new column beside it.
-- Dragging vertically picks a row inside the same stack.
+- The closest edge to the pointer wins: a gap between two columns opens a new
+  column there; a border between two windows of the column under the pointer, or
+  that column's bottom, adds the window to its stack there.
+- Another column's top counts once the pointer enters the menu bar above it, or
+  reaches the screen's top edge: a title bar crossing columns runs along their tops.
+  In the window's own stack, its top counts like any border.
+- The dragged window stops at the menu bar, as macOS keeps a real window below it.
+- The pointer still counts as over the strip under the menu bar or beside the Dock.
+- The band follows the pointer at once, every frame, and releasing drops where it
+  shows. The strip scrolls after a drop only when the dropped window would
+  otherwise sit partly off screen.
 - A stack the window cannot fit in gets a red outline, and dropping there
   changes nothing.
 

@@ -140,10 +140,23 @@ def main():
             if x < 0 or x + w > display_width:
                 raise RuntimeError(f'fixture {number} not fully on screen; three columns must fit')
 
+        def held_targets(number, targets, before):
+            """Targets aimed at the strip as it shows while held: a window alone in its column
+            leaves, and the columns after it close up by its width and a gap."""
+            if [number] not in before:
+                return targets
+            x, _, w, _ = frame(windows[number], number)
+            firsts = sorted(frame(windows[col[0]], col[0])[:3] for col in before if col[0] in windows)
+            spacing = next((n[0] - p[0] - p[2] for p, n in zip(firsts, firsts[1:])), 8)
+            def shifted(tx):
+                return tx - (w + spacing) if tx > x + w else tx
+            return [(shifted(t[0]), t[1]) if isinstance(t, tuple) else shifted(t) for t in targets]
+
         def check(name, number, targets, want, want_preview):
             before = columns(empty)
             previews, held, held_frame, pointer = drag(
-                windows[number], number, targets, empty, display_width, out / f'held-{name}.png')
+                windows[number], number, held_targets(number, targets, before), empty, display_width,
+                out / f'held-{name}.png')
             want = want or before
             actual, settled = converge(empty, want)
             ok = settled and actual == want and held == before and (bool(previews) or not want_preview)
@@ -163,7 +176,9 @@ def main():
         # live frames because every join rebalances the column.
         def row_point(host, row):
             x, y, w, h = frame(windows[host], host)
-            return x + w / 2, y + h * (.25 if row == 'above' else .75)
+            # Above: pushed up into the menu bar over the window; below: near its bottom, the
+            # border closest to the pointer.
+            return x + w / 2, (y - 20 if row == 'above' else y + h - 40)
 
         def add_window(binary='PerformanceFixture'):
             extra = pe.Fixture(out / binary, out / f'extra-{len(fixtures)}.jsonl')

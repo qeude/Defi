@@ -309,12 +309,14 @@ extension Daemon {
 
   func beginMouseGesture() {
     mouseGestureGeneration &+= 1
+    mouseGestureDroppedOnOverlay = false
     mouseGestureSettlement = nil
     mouseGesturePreempted = false
     activelyResizedWindowID = nil
     mouseGestureInitialFrame = nil
     proxyPreviewTarget = nil
     dragEdgeScroll = nil
+    presentedEdgeScrollOffset = nil
     mouseGestureChangedWindowFrame = false
     mouseGestureScrollAnchor = nil
     mouseGestureDisplayedOriginFrames.removeAll(keepingCapacity: true)
@@ -334,6 +336,7 @@ extension Daemon {
     mouseGestureInitialFrame = nil
     proxyPreviewTarget = nil
     dragEdgeScroll = nil
+    presentedEdgeScrollOffset = nil
     mouseGestureChangedWindowFrame = false
     if !preservingScrollAnchor {
       mouseGestureScrollAnchor = nil
