@@ -33,14 +33,22 @@ struct ConfigTests {
     #expect(config.keys["ctrl-alt-¥"] == "toggle-floating")
   }
 
-  @Test(arguments: ["ctrl+alt", "ctrl+alt+shift", "ctrl+cmd", "ctrl+cmd+shift"])
-  func layeredBindingsYieldToBaseNavigation(modifier: String) throws {
+  /// Each layer takes a modifier `mod` lacks: Command moves first, Shift then reaches other monitors.
+  @Test(arguments: [
+    ("ctrl+alt", "cmd", "shift"),
+    ("ctrl+alt+cmd", "shift", nil),
+    ("ctrl+alt+shift", "cmd", nil),
+    ("ctrl+alt+cmd+shift", nil, nil),
+  ] as [(String, String?, String?)])
+  func layersTakeModifiersThatModLacks(modifier: String, move: String?, monitor: String?) throws {
     let config = try Config.decode(Data("mod = \"\(modifier)\"".utf8))
     #expect(config.keys["mod-left"] == "focus-column left")
-    #expect(config.keys["mod-cmd-left"] == (modifier.contains("cmd") ? nil : "move-column left"))
-    #expect(config.keys["mod-shift-left"] == (modifier.contains("shift") ? nil : "focus-monitor left"))
+    let moved = move.flatMap { config.keys["mod-\($0)-left"] }
+    #expect(moved == (move == nil ? nil : "move-column left"))
+    let monitored = monitor.flatMap { config.keys["mod-\($0)-left"] }
+    #expect(monitored == (monitor == nil ? nil : "focus-monitor left"))
     let monitorMove = config.keys["mod-shift-cmd-left"]
-    #expect(monitorMove == (modifier.contains("cmd") || modifier.contains("shift") ? nil : "move-column-to-monitor left"))
+    #expect(monitorMove == (move != nil && monitor != nil ? "move-column-to-monitor left" : nil))
     let overridden = Config(mod: modifier, keys: ["mod-left": "focus-monitor left"])
     #expect(overridden.keys["mod-left"] == "focus-monitor left")
   }
@@ -305,7 +313,7 @@ struct ConfigTests {
     #expect(config.animation.stiffness == 1000 && config.animation.dampingRatio == 0.9)
     #expect(config.workspaces.defaultName == "dev")
     #expect(config.keys["mod-1"] == "workspace dev")
-    // A Hyper mod already holds Command, so mod-1 keeps the chord mod-cmd-1 would take.
+    // A Hyper mod already holds Command, so moving takes mod-shift and mod-cmd-1 stays unbound.
     #expect(config.keys["mod-cmd-1"] == nil)
     #expect(config.keys["mod-3"] == "focus-workspace-position 3")
     #expect(config.keys["mod-minus"] == "cycle-width previous")

@@ -126,8 +126,8 @@ See [all built-in shortcuts](CONFIGURATION.md#built-in-defaults).
 > Prefer one key? Remap Caps Lock to a Hyper key (⌃⌥⌘), then set
 > [`mod`](CONFIGURATION.md#mod) to `"ctrl+alt+cmd"` in your config or in
 > Settings › Input › Mod key.
-> Hyper already holds Command, so the move shortcuts then need bindings of your
-> own in `[keys]`.
+> Hyper already holds Command, so moving takes `mod-shift` instead of `mod-cmd`,
+> and the monitor shortcuts need bindings of your own in `[keys]`.
 
 ## Configuration
 

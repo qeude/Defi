@@ -46,7 +46,7 @@ public struct Config: Equatable, Sendable {
     self.keyOverrides = keys ?? [:]
     let defaults = Self.defaultKeys(
       modifier: "mod", workspaceNames: workspaces.names,
-      aliases: modifierAliases
+      aliases: modifierAliases, mod: mod
     ).filter { accelerator, _ in
       guard let normalized = normalizedAccelerator(accelerator, aliases: modifierAliases) else {
         return true
@@ -351,26 +351,36 @@ public struct Config: Equatable, Sendable {
   private static func defaultKeys(
     modifier: String,
     workspaceNames: [String],
-    aliases: [String: String]
+    aliases: [String: String],
+    mod: String
   ) -> [String: String] {
-    // `mod` focuses, `mod-cmd` moves, and `mod-shift` reaches other monitors.
+    // `mod` focuses, the first of Command and Shift that `mod` lacks moves, and the
+    // other one reaches other monitors; a layer with no free modifier stays unbound.
+    let used = Set((normalizedAccelerator("mod-a", aliases: ["mod": mod]) ?? "").split(separator: "-"))
+    var free = ["cmd", "shift"].filter { !used.contains(Substring($0)) }
+    let move = free.isEmpty ? nil : free.removeFirst()
+    let monitor = free.first
+    // An unbound layer's prefix starts with "!" and is dropped below.
+    let moveKey = move.map { "\(modifier)-\($0)" } ?? "!move"
+    let monitorKey = monitor.map { "\(modifier)-\($0)" } ?? "!monitor"
+    let moveMonitorKey = move.flatMap { m in monitor.map { "\(modifier)-\($0)-\(m)" } } ?? "!both"
     var result: [String: String] = [
       "\(modifier)-home": "focus-column first",
       "\(modifier)-end": "focus-column last",
-      "\(modifier)-cmd-home": "move-column first",
-      "\(modifier)-cmd-end": "move-column last",
+      "\(moveKey)-home": "move-column first",
+      "\(moveKey)-end": "move-column last",
       "\(modifier)-u": "focus-workspace down",
       "\(modifier)-i": "focus-workspace up",
       "\(modifier)-pagedown": "focus-workspace down",
       "\(modifier)-pageup": "focus-workspace up",
-      "\(modifier)-cmd-u": "move-column-to-workspace down",
-      "\(modifier)-cmd-i": "move-column-to-workspace up",
-      "\(modifier)-cmd-pagedown": "move-column-to-workspace down",
-      "\(modifier)-cmd-pageup": "move-column-to-workspace up",
-      "\(modifier)-shift-u": "reorder-workspace down",
-      "\(modifier)-shift-i": "reorder-workspace up",
-      "\(modifier)-shift-pagedown": "reorder-workspace down",
-      "\(modifier)-shift-pageup": "reorder-workspace up",
+      "\(moveKey)-u": "move-column-to-workspace down",
+      "\(moveKey)-i": "move-column-to-workspace up",
+      "\(moveKey)-pagedown": "move-column-to-workspace down",
+      "\(moveKey)-pageup": "move-column-to-workspace up",
+      "\(monitorKey)-u": "reorder-workspace down",
+      "\(monitorKey)-i": "reorder-workspace up",
+      "\(monitorKey)-pagedown": "reorder-workspace down",
+      "\(monitorKey)-pageup": "reorder-workspace up",
       "\(modifier)-leftbracket": "consume-or-expel-window left",
       "\(modifier)-rightbracket": "consume-or-expel-window right",
       "\(modifier)-period": "unjoin-windows",
@@ -396,21 +406,21 @@ public struct Config: Equatable, Sendable {
       for key in [arrow, letter] {
         result["\(modifier)-\(key)"] =
           horizontal ? "focus-column \(direction)" : "focus-window \(direction)"
-        result["\(modifier)-cmd-\(key)"] =
+        result["\(moveKey)-\(key)"] =
           horizontal ? "move-column \(direction)" : "move-window \(direction)"
-        result["\(modifier)-shift-\(key)"] = "focus-monitor \(direction)"
-        result["\(modifier)-shift-cmd-\(key)"] = "move-column-to-monitor \(direction)"
+        result["\(monitorKey)-\(key)"] = "focus-monitor \(direction)"
+        result["\(moveMonitorKey)-\(key)"] = "move-column-to-monitor \(direction)"
       }
     }
     for number in 1...9 {
       if workspaceNames.indices.contains(number - 1) {
         let workspace = workspaceNames[number - 1]
         result["\(modifier)-\(number)"] = "workspace \(workspace)"
-        result["\(modifier)-cmd-\(number)"] =
+        result["\(moveKey)-\(number)"] =
           "move-column-to-workspace-name \(workspace)"
       } else {
         result["\(modifier)-\(number)"] = "focus-workspace-position \(number)"
-        result["\(modifier)-cmd-\(number)"] =
+        result["\(moveKey)-\(number)"] =
           "move-column-to-workspace-position \(number)"
       }
     }
@@ -419,6 +429,7 @@ public struct Config: Equatable, Sendable {
     func addedModifiers(_ accelerator: String) -> Int {
       ["-shift-", "-cmd-"].filter(accelerator.contains).count
     }
+    result = result.filter { !$0.key.hasPrefix("!") }
     return [2, 1, 0].reduce(into: [String: String]()) { merged, count in
       merged = mergingKeyBindings(
         merged, overrides: result.filter { addedModifiers($0.key) == count }, aliases: aliases)
