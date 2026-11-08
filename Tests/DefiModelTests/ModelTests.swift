@@ -142,6 +142,8 @@ struct ModelTests {
     (Command.maximizeColumn, true),
     (Command.setColumnWidth(.set(.fraction(0.5))), true),
     (Command.expandColumnToAvailableWidth, true),
+    (Command.setWindowHeight(.adjust(0.1)), true),
+    (Command.resetWindowHeight, true),
     (Command.centerColumn, false),
     (Command.centerVisibleColumns, false),
     (Command.focusWindowOrWorkspace(.down), false),

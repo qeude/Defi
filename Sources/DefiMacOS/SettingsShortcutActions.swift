@@ -63,7 +63,9 @@ enum SettingsShortcutActions {
   }
 
   /// Listed unbound rows for actions whose argument is free text.
-  static let argumentSuggestions: [String: [String]] = ["set-column-width": ["-10%", "+10%"]]
+  static let argumentSuggestions: [String: [String]] = [
+    "set-column-width": ["-10%", "+10%"], "set-window-height": ["-10%", "+10%"],
+  ]
 
   static let argumentOptions: [String: [String]] = [
     "focus-column": ["left", "right", "first", "last"],
@@ -81,7 +83,6 @@ enum SettingsShortcutActions {
     "move-workspace-to-monitor": ["left", "right", "up", "down"],
     "focus-monitor": ["left", "right", "up", "down"],
     "cycle-width": ["previous", "next"],
-    "set-window-height": ["-10%", "+10%"],
     "join-window": ["left", "right"],
     "consume-or-expel-window": ["left", "right"],
     "swap-window": ["left", "right"],
