@@ -351,16 +351,18 @@ value.
 
 The built-in shortcuts form three layers: `mod` focuses, `mod-cmd` moves the
 focused column or window, and `mod-shift` reaches other monitors and reorders
-workspaces.
+workspaces. A layer uses a modifier that `mod` lacks: moving takes Command, or
+Shift when `mod` already holds Command, and the monitor layer takes the other
+one when it is free. With a Hyper `mod` (`ctrl+alt+cmd`), `mod-shift` moves and
+the monitor layer is unbound; with all four modifiers, both are unbound.
 
 <details>
 <summary>How a new <code>mod</code> interacts with other shortcuts</summary>
 
 Changing `mod` moves every built-in shortcut, and every `mod-` shortcut you
 wrote, to the new modifiers. If `mod` already includes Shift or Command, the
-shortcut with fewer added modifiers wins the chord they share, so with a Hyper
-`mod` (`ctrl+alt+cmd`), `mod-cmd-left` is column focus and moving needs
-shortcuts of your own. Your own `[keys]` entries still win.
+shortcut with fewer added modifiers wins the chord they share. Your own `[keys]`
+entries still win.
 
 `mod` replaced `default_key_modifier` and `[modifier_combinations]`. Defi
 rewrites a file that still uses them on launch: `mod` takes the old default
