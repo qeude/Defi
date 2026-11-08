@@ -1,14 +1,12 @@
 # SketchyBar integration
 
-Defi publishes workspace state through the distributed notification
-`com.qeude.defi.workspaceChanged`. SketchyBar can consume it as the custom
-event `defi_workspace_change`. No polling is needed after initial setup.
+Show Defi's workspaces in [SketchyBar](https://github.com/FelixKratz/SketchyBar),
+one item per workspace and display. Defi pushes every change to SketchyBar, so
+nothing polls. Clicking an item switches that display to the workspace.
 
-## Install the example
+## Install
 
-Run the installation commands from the Defi repository root.
-The example requires `jq`. Scripts find Defi in `~/Applications`, then
-`/Applications`, then `PATH`.
+You need `jq`. From the Defi repository root:
 
 ```sh
 mkdir -p ~/.config/sketchybar/plugins
@@ -18,24 +16,31 @@ cp contrib/sketchybar/defi.sh ~/.config/sketchybar/defi.sh
 chmod +x ~/.config/sketchybar/defi.sh
 ```
 
-Source the integration near the end of `~/.config/sketchybar/sketchybarrc`:
+Then source it near the end of `~/.config/sketchybar/sketchybarrc` and reload
+SketchyBar:
 
 ```sh
 source "$CONFIG_DIR/defi.sh"
 ```
 
-Reload SketchyBar. The setup creates one item for every workspace currently
-owned by each display. A hidden observer reconciles dynamic workspaces after display connection or
-disconnection. Clicking an item targets that display, including when another
-display currently owns focus.
+The scripts look for Defi in `~/Applications`, then `/Applications`, then your
+`PATH`. If Defi lives elsewhere, set `DEFI_BIN` in SketchyBar's service
+environment.
 
-Set `DEFI_BIN` in SketchyBar's service environment when Defi lives elsewhere.
+A hidden observer adds and removes items as workspaces come and go, including
+when displays connect or disconnect.
 
-## Reserved bar area
+To hide Defi's own menu bar item, add this to your Defi config:
 
-Defi starts with `NSScreen.visibleFrame`, which already excludes the macOS menu
-bar and Dock. Reserve only the extra portion of SketchyBar that overlaps this
-visible frame:
+```toml
+[menu_bar]
+enabled = false
+```
+
+## Keep windows clear of the bar
+
+Defi already avoids the macOS menu bar and the Dock. If your bar reaches below
+the menu bar, reserve only the part that sticks out:
 
 ```toml
 [layout]
@@ -43,27 +48,22 @@ reserved_top = 8
 reserved_bottom = 0
 ```
 
-Restart Defi after changing persistent configuration. Test values live without
-restart:
+To find the right value, try it live. These commands accept 0 to 512 points and
+apply to every display unless you pass `--monitor`:
 
 ```sh
 defi set-reserved-area top 8
 defi --monitor 2 set-reserved-area top 12
-defi clear-reserved-area
+defi clear-reserved-area          # back to the configured values
 ```
 
-Omitting `--monitor` applies a reserved-area command to every connected display.
-`clear-reserved-area` restores configured values. Valid values range from 0 to
-512 points.
+Compute the overlap from SketchyBar's `height`, `notch_display_height`,
+`margin`, `y_offset`, `position`, and `hidden` rather than copying the bar
+height. A bar that fits inside the menu bar needs no reservation.
 
-SketchyBar exposes `height`, `notch_display_height`, `margin`, `y_offset`,
-`position`, and `hidden`. Calculate overlap after those properties, rather than
-copying raw bar height. A bar entirely inside the native menu-bar exclusion
-needs no additional reservation.
+## State for your own scripts
 
-## State contract
-
-Bootstrap current state at any time:
+Read the current state at any time:
 
 ```sh
 defi list-workspaces --json
@@ -71,30 +71,19 @@ defi list-workspaces --json
 
 The versioned JSON contains:
 
-- focused monitor ID;
-- AppKit/SketchyBar display index;
-- active workspace per display;
-- stable workspace ID, 1-based position, optional name, and `named`, `ordinary`,
-  or `trailing` kind;
-- window count and occupied state;
-- bundle identifiers present on every workspace;
-- focused application per active workspace.
+- the focused monitor ID
+- each display's AppKit/SketchyBar index and active workspace
+- each workspace's stable ID, 1-based position, optional name, and kind
+  (`named`, `ordinary`, or `trailing`)
+- each workspace's window count, occupied state, and the bundle IDs on it
+- the focused app of each active workspace
 
-`defi list-workspaces` without `--json` prints current labels per display.
-Distributed notifications contain the same JSON object in SketchyBar's `$INFO`
-variable. Defi emits only when this state changes.
+Without `--json`, `defi list-workspaces` prints the labels per display.
 
-Both come from the daemon's one state publication: `defi subscribe --json`
-carries the same object in its `snapshot`, `workspaces-changed`, and
-`monitors-changed` events, along with focus and window events, for tools that
-keep a connection open instead. See
+On every change, Defi posts the same object as the distributed notification
+`com.qeude.defi.workspaceChanged`, which SketchyBar receives as the
+`defi_workspace_change` event with the JSON in `$INFO`. Tools that keep a
+connection open can use `defi subscribe --json` instead: it carries the same
+object in its `snapshot`, `workspaces-changed`, and `monitors-changed` events,
+plus focus and window events. See
 [Event stream](../../CONFIGURATION.md#event-stream).
-
-## Native Defi menu item
-
-Disable Defi's native status item when SketchyBar replaces it:
-
-```toml
-[menu_bar]
-enabled = false
-```
