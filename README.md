@@ -78,7 +78,8 @@ System Settings › Privacy & Security, and confirm. Later updates skip this ste
 
 ### Permissions
 
-Defi asks for both on first launch and picks them up without a restart.
+Defi asks for Accessibility on first launch and picks it up without a restart,
+then asks for Screen Recording.
 
 | Permission | Used to | Without it |
 | --- | --- | --- |
@@ -90,8 +91,13 @@ macOS, turn on **Launch Defi at login** in Settings › General.
 
 ### Updates
 
-Defi checks GitHub once a day and sends nothing about you. New releases install
-from a small panel and keep your workspaces. Turn this off in Settings › General.
+Once a day, Defi checks GitHub for a new release. It is Defi's only network
+request and sends nothing about you. New releases install from a small panel,
+only if signed by the same release certificate, and keep your workspaces.
+
+Turn the check off in Settings › General, or run it by hand from Settings ›
+About or the menu bar. Builds not signed with the release certificate never
+check. Homebrew users can keep using `brew upgrade --cask defi`.
 
 ## Keyboard shortcuts
 
@@ -135,7 +141,8 @@ The `defi` CLI ships inside the app:
 /Applications/Defi.app/Contents/MacOS/defi workspace dev  # needs a workspace named dev
 ```
 
-Builds from source install to `~/Applications` instead. See the
+Source builds, and installs where `/Applications` is not writable, use
+`~/Applications` instead. See the
 [command reference](CONFIGURATION.md#commands).
 
 </details>
@@ -169,7 +176,8 @@ privacy permissions. Other Defi app bundles stay but lose that shared data.
 <details>
 <summary>An app does not tile well</summary>
 
-Some apps limit their window size or support Accessibility poorly.
+Some apps limit their window size or support Accessibility poorly. Defi also
+manages its own virtual workspaces, not native macOS Spaces.
 [Open an issue](https://github.com/qeude/Defi/issues/new/choose) with the app name
 and what you expected.
 
@@ -178,7 +186,8 @@ and what you expected.
 <details>
 <summary>How do I quit Defi without the menu bar?</summary>
 
-Run `defi quit` from the bundled CLI, or quit `defi-daemon` in Activity Monitor.
+Run `/Applications/Defi.app/Contents/MacOS/defi quit`, or quit `defi-daemon` in
+Activity Monitor.
 
 </details>
 

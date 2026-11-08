@@ -233,10 +233,10 @@ intrinsic_size = true
 | --- | --- | --- | --- |
 | `app_id` | unset | string | Bundle ID or app name, case-insensitive. Exact and suffix matches in either direction pass. |
 | `title` | unset | string | Case-insensitive substring of the window title. |
-| `role` | unset | string | Exact Accessibility role, such as `AXWindow`. |
+| `role` | unset | string | Exact, case-sensitive Accessibility role, such as `AXWindow`. |
 | `workspace` | unset | a name from `[workspaces].names` | Opens matching windows on this workspace. |
 | `follow_focus` | `false` | boolean | Switches to that workspace when the new window has focus. |
-| `window` | unset | `"force-floating"`, `"force-tiled"` | Overrides automatic placement. Leave unset unless Defi places a window wrong. |
+| `window` | unset | `"force-floating"`, `"force-tiled"` | Overrides automatic placement. `"force-tiled"` also tiles windows Defi would float or ignore. Leave unset unless Defi places a window wrong. |
 | `initial_column_width` | `layout.default_column_width` | `0.05` to `1.0` | Starting width of the window's column. Floating windows and `intrinsic_size` are unaffected. |
 | `include_initial_width_in_cycle` | `false` | boolean | Adds `initial_column_width` to `cycle-width` for this app. |
 | `intrinsic_size` | `false` | boolean | Keeps the window's own width and height inside its tile. |
@@ -489,7 +489,8 @@ Settings reads the same type but only refreshes when the input source changes.
 ### Commands
 
 Shortcuts and the `defi` CLI use the same command strings. Named targets must be
-declared in `[workspaces].names`. "Unset" means no built-in shortcut.
+declared in `[workspaces].names`; rules cannot target dynamic positions.
+"Unset" means no built-in shortcut.
 
 **Focus**
 
@@ -651,7 +652,7 @@ scroll_gesture_snap = true
 | --- | --- | --- | --- |
 | `focus_follows_mouse` | `false` | boolean | Focuses the managed window under the pointer. |
 | `focus_follows_mouse_max_scroll_amount` | `0` | `0` to `1` | How far the strip may scroll to do so, as a fraction of the monitor width. `0` focuses only windows already fully in view; `0.1` allows up to 10%. |
-| `focus_follows_mouse_delay_ms` | `50` | `0` to `1000` | How long the pointer must rest first, in milliseconds. |
+| `focus_follows_mouse_delay_ms` | `50` | `0` to `1000` | How long the pointer must rest first, in milliseconds. `0` focuses at once. |
 | `mouse_follows_focus` | `false` | boolean | Moves the pointer to the center of a window you focus with the keyboard, unless it is already inside. |
 | `scroll_gestures` | `false` | boolean | Moves the strip with trackpad swipes, and with the mouse wheel while the modifier is held. |
 | `scroll_gesture_modifier` | `mod` | modifiers like `mod`, or `"none"` | Modifier held to start a swipe. `"none"` needs three or four fingers and turns the mouse wheel off. |
@@ -797,8 +798,9 @@ the final layout.
 
 Defi asks for Screen Recording right after Accessibility. If it is still missing
 and `window_previews = true`, it asks once more before the first Overview, so the
-panel does not cover the prompt. If access is denied or revoked, the Overview
-opens with plain cards, without asking again or showing an error. Settings ›
+panel does not cover the prompt. If access is denied, revoked, or unavailable, the
+Overview opens with plain cards, without an error, and Defi does not ask again
+until the daemon restarts. Settings ›
 General shows the permission.
 
 <details>
@@ -852,7 +854,7 @@ placement = "outside"
 
 | Setting | Default | Values | Description |
 | --- | --- | --- | --- |
-| `enabled` | `true` | boolean | Draws a border around the focused window. |
+| `enabled` | `true` | boolean | Draws a border around the focused tiled window. |
 | `width` | `4` | `0` to `64` | Border width, in points. |
 | `color` | `"#FFC099FF"` | `#AARRGGBB` or `0xAARRGGBB` | Focused-window border color. |
 | `inactive_enabled` | `false` | boolean | Also draws borders around the other visible tiled windows. |
@@ -987,7 +989,7 @@ CLI-only:
 | `--monitor <index> <command>` | Run a command on a display, by its 1-based `NSScreen.screens` / SketchyBar index. |
 | `set-reserved-area top\|bottom <points>` | Override the reserved edge on every display, or on one with `--monitor`. |
 | `clear-reserved-area` | Restore the configured reserved edges. |
-| `triage [--agent claude\|codex]` | Write machine facts and a support playbook to `~/Library/Application Support/Defi/triage/`, then start `claude` or `codex` to investigate a problem and draft an issue. |
+| `triage [--agent claude\|codex]` | Write machine facts and a support playbook to `~/Library/Application Support/Defi/triage/`, then start `claude` or `codex` to investigate a problem and draft an issue. Never sent to the daemon. |
 
 `list-windows` and the event stream include window titles. They are served only
 over the per-user Unix socket and never written to diagnostics files. See the

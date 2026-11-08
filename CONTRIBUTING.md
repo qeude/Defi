@@ -66,7 +66,10 @@ make verify-desktop FILTER='DesktopE2ETests/(testFocusFollowsLatestNativeIntent|
 ```
 
 Omit `FILTER` for the full suite, which is required on the release commit before
-tagging. Desktop tests drive only Defi-owned fixture windows. They need
+tagging. `make verify-desktop` runs `script/verify.sh full`: it prepares locally,
+never installs after a failed preparation, then waits for the shared desktop
+reservation. It needs exactly one installed daemon running, for its session
+checkpoint. Desktop tests drive only Defi-owned fixture windows. They need
 Accessibility and Screen Recording, with Reduce Motion off, and fail loudly
 otherwise. Automated checks do not certify animation quality or realistic Dock
 and Command-Tab interactions, so inspect those by hand when your change affects
