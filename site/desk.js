@@ -149,14 +149,15 @@ export const DEMO = ['ArrowRight', 'Semicolon', 'KeyK', 'KeyJ', 'Period', 'Minus
 // columns of sections; each row is a chord, its action, then its companion chord and action.
 const cheatsheet = [
   [
-    ['Columns', [['⌃⌥', '←', 'Column left', '⌃⌥⌘', 'Move column left'], ['⌃⌥', '→', 'Column right', '⌃⌥⌘', 'Move column right'], ['⌃⌥', '↖', 'First column', '⌃⌥⌘', 'Move column to first'], ['⌃⌥', '↘', 'Last column', '⌃⌥⌘', 'Move column to last']]],
-    ['Windows in a column', [['⌃⌥', '↑', 'Window up', '⌃⌥⌘', 'Move window up'], ['⌃⌥', '↓', 'Window down', '⌃⌥⌘', 'Move window down'], ['⌃⌥', '[', 'Join or leave stack left'], ['⌃⌥', ']', 'Join or leave stack right'], ['⌃⌥', ';', 'Join left column'], ['⌃⌥', "'", 'Join right column'], ['⌃⌥', '.', 'Unjoin']]],
-    ['Workspaces', [['⌃⌥', 'I', 'Workspace up', '⌃⌥⌘', 'Move column to workspace up'], ['⌃⌥', 'U', 'Workspace down', '⌃⌥⌘', 'Move column to workspace down'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⌘', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview']]],
+    ['Columns', [['⌃⌥', '←', 'Column left', '⌃⌥⌘', 'Move column left'], ['⌃⌥', '→', 'Column right', '⌃⌥⌘', 'Move column right'], ['⌃⌥', '↖', 'First column', '⌃⌥⌘', 'Move column to first'], ['⌃⌥', '↘', 'Last column', '⌃⌥⌘', 'Move column to last'], ['⌃⌥', 'C', 'Center column']]],
+    ['Windows in a column', [['⌃⌥', '↑', 'Window up', '⌃⌥⌘', 'Move window up'], ['⌃⌥', '↓', 'Window down', '⌃⌥⌘', 'Move window down'], ['⌃⌥', '[', 'Join or leave stack left'], ['⌃⌥', ']', 'Join or leave stack right'], ['⌃⌥', '.', 'Unjoin'], ['⌃⌥', ';', 'Join left column'], ['⌃⌥', "'", 'Join right column']]],
   ],
   [
+    ['Workspaces', [['⌃⌥', 'I', 'Workspace up', '⌃⌥⌘', 'Move column to workspace up'], ['⌃⌥', 'U', 'Workspace down', '⌃⌥⌘', 'Move column to workspace down'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⌘', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview'], ['⌃⌥⇧', 'I', 'Reorder workspace up'], ['⌃⌥⇧', 'U', 'Reorder workspace down']]],
     ['Monitors', [['⌃⌥⇧', '←↑↓→', 'Focus monitor', '⌃⌥⇧⌘', 'Move column to monitor']]],
-    ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column'], ['⌃⌥', 'C', 'Center column']]],
+    ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column']]],
     ['Floating', [['⌃⌥', 'V', 'Float or tile window', '⌃⌥⇧', 'Show floating layer'], ['⌃⌥⇧', ',', 'Previous floating'], ['⌃⌥⇧', '.', 'Next floating']]],
+    ['Other', [['⌃⌥⇧', '/', 'Shortcuts']]],
   ],
 ];
 const chord = (mods, key) => `<span class="chord"><kbd>${mods}</kbd><kbd>${key}</kbd></span>`;
