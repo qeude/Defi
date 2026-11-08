@@ -138,8 +138,8 @@ ribbon keeps its partial columns without spilling onto another display.
 Mirrored displays are left unchanged.
 
 Defi remembers the arrangement chosen in System Settings as the desk.
-`focus-monitor`, monitor moves of windows, columns, and workspaces, and the
-pointer follow the desk. When the pointer reaches an edge shared on the desk,
+`focus-monitor`, `focus-column-or-monitor`, monitor moves of windows, columns,
+and workspaces, and the pointer follow the desk. When the pointer reaches an edge shared on the desk,
 Defi moves it to the matching point of the neighboring display. This works for
 ordinary movement and dragging, with or without the focus-follows-mouse and
 mouse-follows-focus options.
@@ -643,6 +643,8 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `send-window-to-workspace-position <n>` | Move only the focused window to a position without following it. | unset |
 | `focus-monitor left\|right\|up\|down` | Focus the nearest monitor in that direction. | `ctrl-cmd-<arrow>` |
 | `move-column-to-monitor left\|right\|up\|down` | Move focused column to the nearest monitor. | `ctrl-cmd-shift-<arrow>` |
+| `focus-column-or-monitor left\|right` | Focus the adjacent column like `focus-column`. From the first or last column, or from an empty workspace, focus the nearest monitor in that direction like `focus-monitor`. That monitor keeps its remembered selection. With no monitor in that direction, it behaves exactly like `focus-column`. A floating selection returns to the tiled layer like `focus-column`. | unset |
+| `move-column-or-to-monitor left\|right` | Move the focused column like `move-column`. From the first or last column, move it to the nearest monitor in that direction like `move-column-to-monitor`. It lands after that monitor's focused column and keeps the focus. With no monitor in that direction, it behaves exactly like `move-column`. | unset |
 | `move-window-to-monitor left\|right\|up\|down` | Move only the focused window to the nearest monitor in that direction. | unset |
 | `reorder-workspace up\|down` | Reorder the active workspace inside its monitor stack. | unset |
 | `move-workspace-to-monitor left\|right\|up\|down` | Move the active workspace and update its monitor affinity. | `ctrl-cmd-alt-<arrow>` |

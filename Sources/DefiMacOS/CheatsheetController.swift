@@ -149,6 +149,8 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("focus-window-previous", "Previous window"),
   ("focus-workspace-name", "Workspace"), ("workspace", "Workspace"),
   ("focus-workspace-position", "Workspace"), ("toggle-overview", "Overview"),
+  ("focus-column-or-monitor left", "Column or monitor left"),
+  ("focus-column-or-monitor right", "Column or monitor right"),
   ("focus-monitor", "Focus monitor"), ("move-workspace-to-monitor", "Move workspace to monitor"),
   ("cycle-width previous", "Narrower"), ("cycle-width next", "Wider"),
   ("maximize-column", "Maximize column"), ("set-column-width", "Set width"),
@@ -164,6 +166,8 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("move-column-to-workspace", "Move column to workspace"),
   ("move-column-to-workspace-name", "Move column to workspace"),
   ("move-column-to-workspace-position", "Move column to workspace"),
+  ("move-column-or-to-monitor left", "Move column or to monitor left"),
+  ("move-column-or-to-monitor right", "Move column or to monitor right"),
   ("move-column-to-monitor", "Move column to monitor"), ("activate-floating", "Show floating layer"),
 ]
 

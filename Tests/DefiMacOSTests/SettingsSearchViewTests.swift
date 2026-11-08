@@ -65,7 +65,8 @@ final class SettingsSearchViewTests: XCTestCase {
     XCTAssertTrue(window.makeFirstResponder(search))
     let editor = try XCTUnwrap(search.currentEditor() as? NSTextView)
     editor.insertText("focus column left", replacementRange: NSRange(location: 0, length: 0))
-    XCTAssertTrue(converge { rows() == 2 })
+    // focus-column first (via its leftbracket key), focus-column left, focus-column-or-monitor left.
+    XCTAssertTrue(converge { rows() == 3 })
     window.sendEvent(try arrowDown(window))
     XCTAssertTrue(converge { shortcutFilter() == "focus-column first" }, "Down must select and reveal the actual shortcut action")
     XCTAssertNil(search.currentEditor(), "Down must transfer focus into the results")
