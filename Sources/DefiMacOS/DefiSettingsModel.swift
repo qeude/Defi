@@ -777,8 +777,10 @@ public final class DefiSettingsModel {
     }
     add("app_id", original.appID, rule.appID)
     add("title", original.title, rule.title)
+    add("title_regex", original.titleRegex, rule.titleRegex)
     add("role", original.role, rule.role)
     add("workspace", original.workspace, rule.workspace)
+    add("monitor", original.monitor, rule.monitor)
     add("window", original.window?.rawValue, rule.window?.rawValue)
     func addBool(_ key: String, _ old: Bool, _ new: Bool) {
       guard old != new else { return }
@@ -786,6 +788,10 @@ public final class DefiSettingsModel {
     }
     addBool("follow_focus", original.followFocus, rule.followFocus)
     addBool("intrinsic_size", original.intrinsicSize, rule.intrinsicSize)
+    if original.openFocused != rule.openFocused {
+      changes.append(.set(
+        table: "rules", key: "open_focused", value: rule.openFocused.map { String($0) }, occurrence: index))
+    }
     if original.initialColumnWidth != rule.initialColumnWidth {
       let width = rule.initialColumnWidth.map { String($0) }
       changes.append(SettingsTOMLOperation.set(
