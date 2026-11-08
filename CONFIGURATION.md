@@ -179,7 +179,7 @@ prefix is reserved.
 Named workspaces take the first number shortcuts. With
 `names = ["dev", "web", "tools"]`, `mod-1` to `mod-3` jump to them, and `mod-4`
 to `mod-9` address the other workspaces of the current monitor by position.
-`mod-shift-N` moves the focused column there and follows it. Positions are
+`mod-cmd-N` moves the focused column there and follows it. Positions are
 1-based, do not wrap, and a position past the end selects the trailing
 workspace.
 
@@ -330,17 +330,18 @@ mod = "ctrl+alt+cmd"
 Names and order are case-insensitive. Settings › Input › Mod key sets the same
 value.
 
+The built-in shortcuts form three layers: `mod` focuses, `mod-cmd` moves the
+focused column or window, and `mod-shift` reaches other monitors and reorders
+workspaces.
+
 <details>
 <summary>How a new <code>mod</code> interacts with other shortcuts</summary>
 
-Changing `mod` moves every generated navigation, layout, floating-window,
-stacking, and first-nine-workspace shortcut, and every `mod-` shortcut you wrote,
-to the new modifiers. If a generated shortcut matches a fixed monitor shortcut,
-the generated one wins, whatever the spelling. If `mod` already includes Shift,
-base navigation wins over the equivalent Shift shortcut. Your own `[keys]`
-entries still win over both. With a Hyper `mod` (`ctrl+alt+cmd`),
-`ctrl-cmd-alt-<arrow>` is column focus, so bind `move-workspace-to-monitor`
-yourself if you need it.
+Changing `mod` moves every built-in shortcut, and every `mod-` shortcut you
+wrote, to the new modifiers. If `mod` already includes Shift or Command, the
+shortcut with fewer added modifiers wins the chord they share, so with a Hyper
+`mod` (`ctrl+alt+cmd`), `mod-cmd-left` is column focus and moving needs
+shortcuts of your own. Your own `[keys]` entries still win.
 
 `mod` replaced `default_key_modifier` and `[modifier_combinations]`. Defi
 rewrites a file that still uses them on launch: `mod` takes the old default
@@ -363,7 +364,7 @@ show_cheatsheet_on_modifier_hold = false
 "mod-slash" = "toggle-cheatsheet"
 ```
 
-`toggle-cheatsheet` has no default shortcut. It keeps the help open until you
+`toggle-cheatsheet` is bound to `mod-shift-slash` (`mod-?`). It keeps the help open until you
 toggle it again, press Escape, click, or run any Defi shortcut. After a
 shortcut, release the modifiers before holding them again. Reloading the
 configuration and display or session changes also close it.
@@ -425,6 +426,7 @@ The key is one of these names, or any other single character, such as
 | Letters | `a` to `z` |
 | Digits | `0` to `9` |
 | Arrows | `left`, `right`, `up`, `down` |
+| Navigation | `home`, `end`, `pageup`, `pagedown` (Fn with an arrow on keyboards without them) |
 | Punctuation | `minus`, `equal`, `leftbracket`, `rightbracket`, `semicolon`, `quote`, `backslash`, `comma`, `period`, `slash` |
 
 ### Keyboard layouts
@@ -433,7 +435,7 @@ Shortcuts follow your keyboard layout and update when it changes:
 
 | Key | Where it lands |
 | --- | --- |
-| Digits and arrows | Always the same physical key. `ctrl-alt-1` stays on the number row on AZERTY. |
+| Digits, arrows, and navigation keys | Always the same physical key. `ctrl-alt-1` stays on the number row on AZERTY. |
 | Letters | The key printing that letter, such as `ctrl-alt-f` on Dvorak. A layout without the letter keeps the US position. |
 | Punctuation | The key printing the character, adding Shift or Option when it needs them: `ctrl-alt-period` is `⌃⌥⇧;` on French. |
 | Other characters | The key printing the character. If the layout lacks it, only that shortcut is inactive. |
@@ -496,44 +498,44 @@ declared in `[workspaces].names`; rules cannot target dynamic positions.
 
 | Command | Description | Built-in shortcut |
 | --- | --- | --- |
-| `focus-column left\|right` | Focus the previous or next column. | `mod-left` / `mod-right` |
-| `focus-column first\|last` | Focus the first or last column. | `mod-leftbracket` / `mod-rightbracket` |
-| `focus-window up\|down` | Focus the previous or next window in the stack. | `mod-k` / `mod-j` |
+| `focus-column left\|right` | Focus the previous or next column. | `mod-left` / `mod-right`, `mod-h` / `mod-l` |
+| `focus-column first\|last` | Focus the first or last column. | `mod-home` / `mod-end` |
+| `focus-window up\|down` | Focus the previous or next window in the stack. | `mod-up` / `mod-down`, `mod-k` / `mod-j` |
 | `focus-window first\|last` | Focus the first or last window in the stack. | unset |
 | `focus-window-or-workspace up\|down` | Like `focus-window`, but past the top or bottom of the stack, focus the adjacent workspace. | unset |
 | `focus-window-previous` | Go back to the window focused before this one, on any workspace or monitor. | unset |
-| `focus-floating previous\|next` | Focus the previous or next floating window, wrapping. | `mod-comma` / `mod-period` |
+| `focus-floating previous\|next` | Focus the previous or next floating window, wrapping. | `mod-shift-comma` / `mod-shift-period` |
 | `focus-floating first\|last` | Focus the first or last floating window. | unset |
-| `activate-floating` | Select the floating layer and bring its selected window forward. | `mod-shift-backslash` |
-| `focus-monitor left\|right\|up\|down` | Focus the nearest monitor in that direction. | `ctrl-cmd-<arrow>` |
+| `activate-floating` | Select the floating layer and bring its selected window forward. | `mod-shift-v` |
+| `focus-monitor left\|right\|up\|down` | Focus the nearest monitor in that direction. | `mod-shift-<arrow>`, `mod-shift-h/j/k/l` |
 | `focus-column-or-monitor left\|right` | Like `focus-column`, but past the first or last column, focus the next monitor. | unset |
 
 **Workspaces**
 
 | Command | Description | Built-in shortcut |
 | --- | --- | --- |
-| `focus-workspace up\|down` | Focus the adjacent workspace, without wrapping. | `mod-up` / `mod-down` |
+| `focus-workspace up\|down` | Focus the adjacent workspace, without wrapping. | `mod-i` / `mod-u`, `mod-pageup` / `mod-pagedown` |
 | `focus-workspace-position <n>` | Focus a 1-based position, clamped to the trailing workspace. | `mod-1` … `mod-9` after named ones |
 | `workspace <name>` or `focus-workspace-name <name>` | Focus a named workspace, on any monitor. | `mod-1` … `mod-9` for named ones |
 | `focus-workspace-previous` | Go back to the workspace this monitor showed before. | unset |
-| `reorder-workspace up\|down` | Move the active workspace up or down its monitor's stack. | unset |
-| `move-workspace-to-monitor left\|right\|up\|down` | Move the active workspace to another monitor and remember it there. | `ctrl-cmd-alt-<arrow>` |
+| `reorder-workspace up\|down` | Move the active workspace up or down its monitor's stack. | `mod-shift-i` / `mod-shift-u`, `mod-shift-pageup` / `mod-shift-pagedown` |
+| `move-workspace-to-monitor left\|right\|up\|down` | Move the active workspace to another monitor and remember it there. | unset |
 
 **Move columns and windows**
 
 | Command | Description | Built-in shortcut |
 | --- | --- | --- |
-| `move-column left\|right` | Move the focused column. | `mod-shift-left` / `mod-shift-right` |
-| `move-column first\|last` | Move the focused column to the start or end. | `mod-shift-leftbracket` / `mod-shift-rightbracket` |
-| `move-window up\|down` | Move the focused window inside its stack. | `mod-shift-k` / `mod-shift-j` |
-| `move-column-to-workspace up\|down\|<name>` | Move the focused column to a workspace and follow it. | `mod-shift-up` / `mod-shift-down` |
-| `move-column-to-workspace-position <n>` | Same, by position. | `mod-shift-1` … `mod-shift-9` after named ones |
+| `move-column left\|right` | Move the focused column. | `mod-cmd-left` / `mod-cmd-right`, `mod-cmd-h` / `mod-cmd-l` |
+| `move-column first\|last` | Move the focused column to the start or end. | `mod-cmd-home` / `mod-cmd-end` |
+| `move-window up\|down` | Move the focused window inside its stack. | `mod-cmd-up` / `mod-cmd-down`, `mod-cmd-k` / `mod-cmd-j` |
+| `move-column-to-workspace up\|down\|<name>` | Move the focused column to a workspace and follow it. | `mod-cmd-i` / `mod-cmd-u`, `mod-cmd-pageup` / `mod-cmd-pagedown` |
+| `move-column-to-workspace-position <n>` | Same, by position. | `mod-cmd-1` … `mod-cmd-9` after named ones |
 | `send-column-to-workspace up\|down\|<name>` | Move the focused column without following it. | unset |
 | `move-window-to-workspace up\|down\|<name>` | Move only the focused window and follow it. | unset |
 | `move-window-to-workspace-position <n>` | Same, by position. | unset |
 | `send-window-to-workspace up\|down\|<name>` | Move only the focused window, without following it. | unset |
 | `send-window-to-workspace-position <n>` | Same, by position. | unset |
-| `move-column-to-monitor left\|right\|up\|down` | Move the focused column to the nearest monitor. | `ctrl-cmd-shift-<arrow>` |
+| `move-column-to-monitor left\|right\|up\|down` | Move the focused column to the nearest monitor. | `mod-shift-cmd-<arrow>`, `mod-shift-cmd-h/j/k/l` |
 | `move-column-or-to-monitor left\|right` | Like `move-column`, but past the first or last column, move it to the next monitor. | unset |
 | `move-window-to-monitor left\|right\|up\|down` | Move only the focused window to the nearest monitor. | unset |
 
@@ -544,22 +546,24 @@ When a workspace is named `up` or `down`, use `move-column-to-workspace-name
 
 | Command | Description | Built-in shortcut |
 | --- | --- | --- |
-| `cycle-width previous\|next` | Step through `preset_column_widths`, wrapping. | `mod-minus` / `mod-equal` |
+| `cycle-width previous\|next` | Step through `preset_column_widths`, wrapping. | `mod-minus` / `mod-equal`; `mod-r` also steps forward |
 | `maximize-column` | Toggle the focused column between full width and its previous width. | `mod-f` |
 | `set-column-width <width>` | Set the width: `60%` of the usable width, `960` points, or relative, such as `+5%`, `-10%`, or `-40`. | unset |
 | `expand-column-to-available-width` | Grow the focused column into the free space beside the other fully visible columns. | unset |
 | `center-column` | Center the focused column until you select another one. | `mod-c` |
 | `center-visible-columns` | Center the columns fully in view as one group, while the selected column stays in view. | unset |
 | `join-window left\|right` | Add the focused window to the stack on the left or right. | `mod-semicolon` / `mod-quote` |
-| `unjoin-windows` | Split the focused window out of its stack into a new column. | `mod-r` |
-| `toggle-floating` | Switch the focused window between tiled and floating. | `mod-backslash` |
+| `unjoin-windows` | Split the focused window out of its stack into a new column. | `mod-period` |
+| `consume-or-expel-window left\|right` | Alone in its column, the focused window joins the stack on that side, like `join-window`. In a stack, it leaves as a new column on that side. | `mod-leftbracket` / `mod-rightbracket` |
+| `swap-window left\|right` | Swap the focused window with the one at the same row of the adjacent column, or its last window when that column is shorter. Columns keep their widths. | unset |
+| `toggle-floating` | Switch the focused window between tiled and floating. | `mod-v` |
 
 **Other**
 
 | Command | Description | Built-in shortcut |
 | --- | --- | --- |
 | `toggle-overview` | Open or close the Overview. | `mod-o` |
-| `toggle-cheatsheet` | Open or close the shortcut help. | unset |
+| `toggle-cheatsheet` | Open or close the shortcut help. | `mod-shift-slash` |
 | `open-settings` | Open Settings, even with the menu bar item hidden. | unset |
 | `diagnostic-mark` | Record the current status and recent trace, without changing windows. See [Diagnostics](#diagnostics). | unset |
 
@@ -620,7 +624,10 @@ spread evenly and each window is centered in its slot. No height proportions
 are stored.
 
 `join-window` is refused, with the required and available height in the error,
-when the stack would need more than the usable height. If a monitor shrinks or a
+when the stack would need more than the usable height. `consume-or-expel-window`
+and `swap-window` are refused the same way when a resulting stack would not fit.
+After either command, focus stays on the window that moved; both do nothing at
+the end of the strip. If a monitor shrinks or a
 constraint changes so a stack no longer fits, Defi keeps the longest
 top-to-bottom run that fits and moves the rest, in order, into new columns of
 the same width on its right. Columns are never merged back automatically. A
@@ -1095,54 +1102,52 @@ placement = "outside"
 names = []
 
 [keys]
-"mod-left" = "focus-column left"
-"mod-right" = "focus-column right"
-"mod-j" = "focus-window down"
-"mod-k" = "focus-window up"
-"mod-up" = "focus-workspace up"
-"mod-down" = "focus-workspace down"
-"mod-o" = "toggle-overview"
-"mod-leftbracket" = "focus-column first"
-"mod-rightbracket" = "focus-column last"
-
-"mod-shift-left" = "move-column left"
-"mod-shift-right" = "move-column right"
-"mod-shift-j" = "move-window down"
-"mod-shift-k" = "move-window up"
-"mod-shift-up" = "move-column-to-workspace up"
-"mod-shift-down" = "move-column-to-workspace down"
-"mod-shift-leftbracket" = "move-column first"
-"mod-shift-rightbracket" = "move-column last"
-
+# mod: focus
+"mod-left" = "focus-column left"         # also mod-h
+"mod-right" = "focus-column right"       # also mod-l
+"mod-up" = "focus-window up"             # also mod-k
+"mod-down" = "focus-window down"         # also mod-j
+"mod-home" = "focus-column first"
+"mod-end" = "focus-column last"
+"mod-i" = "focus-workspace up"           # also mod-pageup
+"mod-u" = "focus-workspace down"         # also mod-pagedown
 "mod-1" = "focus-workspace-position 1"
 # ... through mod-9
-"mod-shift-1" = "move-column-to-workspace-position 1"
-# ... through mod-shift-9
 
-"ctrl-cmd-left" = "focus-monitor left"
-"ctrl-cmd-right" = "focus-monitor right"
-"ctrl-cmd-up" = "focus-monitor up"
-"ctrl-cmd-down" = "focus-monitor down"
-"ctrl-cmd-shift-left" = "move-column-to-monitor left"
-"ctrl-cmd-shift-right" = "move-column-to-monitor right"
-"ctrl-cmd-shift-up" = "move-column-to-monitor up"
-"ctrl-cmd-shift-down" = "move-column-to-monitor down"
-"ctrl-cmd-alt-left" = "move-workspace-to-monitor left"
-"ctrl-cmd-alt-right" = "move-workspace-to-monitor right"
-"ctrl-cmd-alt-up" = "move-workspace-to-monitor up"
-"ctrl-cmd-alt-down" = "move-workspace-to-monitor down"
+# mod-cmd: move
+"mod-cmd-left" = "move-column left"      # also mod-cmd-h
+"mod-cmd-right" = "move-column right"    # also mod-cmd-l
+"mod-cmd-up" = "move-window up"          # also mod-cmd-k
+"mod-cmd-down" = "move-window down"      # also mod-cmd-j
+"mod-cmd-home" = "move-column first"
+"mod-cmd-end" = "move-column last"
+"mod-cmd-i" = "move-column-to-workspace up"     # also mod-cmd-pageup
+"mod-cmd-u" = "move-column-to-workspace down"   # also mod-cmd-pagedown
+"mod-cmd-1" = "move-column-to-workspace-position 1"
+# ... through mod-cmd-9
 
+# mod-shift: monitors and workspace order
+"mod-shift-left" = "focus-monitor left"  # also mod-shift-h, and up/down/right
+"mod-shift-cmd-left" = "move-column-to-monitor left"  # also mod-shift-cmd-h, and up/down/right
+"mod-shift-i" = "reorder-workspace up"   # also mod-shift-pageup
+"mod-shift-u" = "reorder-workspace down" # also mod-shift-pagedown
+
+"mod-leftbracket" = "consume-or-expel-window left"
+"mod-rightbracket" = "consume-or-expel-window right"
+"mod-period" = "unjoin-windows"
+"mod-semicolon" = "join-window left"
+"mod-quote" = "join-window right"
+"mod-r" = "cycle-width next"
 "mod-minus" = "cycle-width previous"
 "mod-equal" = "cycle-width next"
 "mod-f" = "maximize-column"
 "mod-c" = "center-column"
-"mod-backslash" = "toggle-floating"
-"mod-shift-backslash" = "activate-floating"
-"mod-comma" = "focus-floating previous"
-"mod-period" = "focus-floating next"
-"mod-semicolon" = "join-window left"
-"mod-quote" = "join-window right"
-"mod-r" = "unjoin-windows"
+"mod-v" = "toggle-floating"
+"mod-shift-v" = "activate-floating"
+"mod-shift-comma" = "focus-floating previous"
+"mod-shift-period" = "focus-floating next"
+"mod-o" = "toggle-overview"
+"mod-shift-slash" = "toggle-cheatsheet"
 
 # No rules by default.
 ```

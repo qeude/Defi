@@ -106,15 +106,19 @@ for typing. Hold them to show the cheatsheet.
 
 | Action | Shortcut |
 | --- | --- |
-| Focus a column | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>←</kbd> <kbd>→</kbd> |
-| Focus a window in a stack | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>J</kbd> <kbd>K</kbd> |
-| Switch workspace | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>↑</kbd> <kbd>↓</kbd> or <kbd>1</kbd>…<kbd>9</kbd> |
-| Move a column | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>←</kbd> <kbd>→</kbd> |
-| Move a column to another workspace | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⇧</kbd><kbd>↑</kbd> <kbd>↓</kbd> |
-| Cycle column width | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>−</kbd> <kbd>=</kbd> |
+| Focus a column | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>←</kbd> <kbd>→</kbd> or <kbd>H</kbd> <kbd>L</kbd> |
+| Focus a window in a stack | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>↑</kbd> <kbd>↓</kbd> or <kbd>K</kbd> <kbd>J</kbd> |
+| Switch workspace | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>I</kbd> <kbd>U</kbd> or <kbd>1</kbd>…<kbd>9</kbd> |
+| Move a column or window | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd> + arrow |
+| Move a column to another workspace | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>I</kbd> <kbd>U</kbd> |
+| Join a window to the next stack, or take it out | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>[</kbd> <kbd>]</kbd> |
+| Cycle column width | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>R</kbd>, or <kbd>−</kbd> <kbd>=</kbd> |
 | Toggle full width | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>F</kbd> |
 | Open Overview | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>O</kbd> |
-| Focus another display | <kbd>⌃</kbd><kbd>⌘</kbd><kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> |
+| Focus another display | <kbd>⌃</kbd><kbd>⌥</kbd><kbd>⇧</kbd> + arrow |
+
+Control + Option focuses, adding Command moves what is focused, and adding
+Shift reaches other displays or reorders workspaces.
 
 See [all built-in shortcuts](CONFIGURATION.md#built-in-defaults).
 
@@ -122,6 +126,8 @@ See [all built-in shortcuts](CONFIGURATION.md#built-in-defaults).
 > Prefer one key? Remap Caps Lock to a Hyper key (⌃⌥⌘), then set
 > [`mod`](CONFIGURATION.md#mod) to `"ctrl+alt+cmd"` in your config or in
 > Settings › Input › Mod key.
+> Hyper already holds Command, so the move shortcuts then need bindings of your
+> own in `[keys]`.
 
 ## Configuration
 
