@@ -98,6 +98,18 @@ An exact fit counts as fitting.
   focus moves inside a stack. Selecting another column drops it. Pressing it
   again changes nothing. It does nothing on an empty workspace or for a window in
   native fullscreen, and it leaves a floating selection in the floating layer.
+- `center-visible-columns` scrolls once so the columns fully in view, taken
+  together, sit in the middle of the screen: two 36 % columns at the left end
+  up centered. Partially visible columns are not part of the group and may
+  slide further out. It does nothing under `"always"` or, for a lone column,
+  `always_center_single_column`, since the focused column is already centered.
+  It also does nothing when the focused column is not fully in view, when the
+  group fills the screen, when the group is already centered, on an empty
+  workspace, or for a window in native fullscreen. The strip stays there while
+  the selected column is fully in view, including after selecting another
+  column of the group; a width change moves it only as far as keeps the
+  focused column in view. Selecting a column outside the screen drops it, and
+  the mode's normal rule takes over.
 - Moving focus within one column keeps that column where it is. Focusing the
   selected window again changes nothing.
 - The decision holds until the selected window changes. Moving the column or
@@ -640,6 +652,7 @@ in `[workspaces].names`; application rules cannot target dynamic positions.
 | `set-column-width <width>` | Set the focused column's width: `60%` of the usable width, `960` points of window width, or adjust it with a sign, such as `+5%`, `-10%` or `-40`. | unset |
 | `expand-column-to-available-width` | Grow the focused column into the space the other fully visible columns leave free on its monitor. | unset |
 | `center-column` | Center the focused column on screen until selection leaves it. | `<mod>-c` |
+| `center-visible-columns` | Center the columns fully in view as one group, while the selected column stays in view. | unset |
 | `toggle-floating` | Toggle focused window between tiled and floating layers. | `<mod>-backslash` |
 | `activate-floating` | Select floating layer and foreground its selected window. | `<mod>-shift-backslash` |
 | `focus-floating previous` | Focus previous floating window, wrapping. | `<mod>-comma` |

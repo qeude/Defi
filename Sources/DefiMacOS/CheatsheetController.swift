@@ -138,6 +138,7 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("focus-column left", "Column left"), ("focus-column right", "Column right"),
   ("focus-column first", "First column"), ("focus-column last", "Last column"),
   ("center-column", "Center column"),
+  ("center-visible-columns", "Center visible columns"),
   ("focus-window up", "Window up"), ("focus-window down", "Window down"),
   ("join-window left", "Join left column"), ("join-window right", "Join right column"),
   ("unjoin-windows", "Unjoin"),

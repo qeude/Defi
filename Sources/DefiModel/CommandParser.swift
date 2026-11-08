@@ -131,6 +131,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .expandColumnToAvailableWidth
   case "center-column":
     return .centerColumn
+  case "center-visible-columns":
+    return .centerVisibleColumns
   case "toggle-floating":
     return .toggleFloating
   case "activate-floating":

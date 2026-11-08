@@ -281,6 +281,31 @@ public func reduce(
           )
         }
       }
+    case .centerVisibleColumns:
+      let index = try workspaceIndex(state.monitors[monitorIndex])
+      let workspace = state.monitors[monitorIndex].workspaces[index]
+      if workspace.columns.indices.contains(workspace.focusedColumn) {
+        let column = workspace.columns[workspace.focusedColumn]
+        if column.windows.indices.contains(column.focusedWindow),
+          let offset = visibleColumnsCenteredOffset(
+            workspace: workspace,
+            viewport: viewports[state.monitors[monitorIndex].id]
+              ?? Rect(x: 0, y: 0, width: 1_000, height: 1),
+            windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
+            settings: layout,
+            excludingWindowIDs: state.nativeFullscreenWindowIDs
+          )
+        {
+          state.monitors[monitorIndex].workspaces[index].targetScrollOffset = offset
+          let windowID = column.windows[column.focusedWindow]
+          let recorded = workspace.scrollFocus
+          state.monitors[monitorIndex].workspaces[index].scrollFocus = ScrollFocus(
+            windowID: windowID,
+            centered: recorded?.windowID == windowID && recorded?.centered == true,
+            heldOffset: offset
+          )
+        }
+      }
     case .switchWorkspace(let workspaceID):
       guard let target = state.workspaceLocation(for: workspaceID) else {
         throw ReducerError.unknownWorkspace(workspaceID)
@@ -460,7 +485,7 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .moveWindowToWorkspace, .sendWindowToWorkspace, .cycleWidth,
     .moveColumnToWorkspace, .moveWindowToWorkspaceTarget,
     .reorderWorkspace, .moveWorkspaceToMonitor,
-    .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn,
+    .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn, .centerVisibleColumns,
     .toggleFloating, .joinWindow, .unjoinWindows:
     true
   case .focusColumn, .focusFloating, .focusWindow, .focusWindowOrWorkspace, .focusWindowPrevious,

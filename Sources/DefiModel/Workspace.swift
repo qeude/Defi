@@ -42,12 +42,19 @@ public struct ScrollFocus: Equatable, Codable, Sendable {
   /// `true` where an unsnapped swipe left the strip, until selection leaves the column:
   /// the strip stays put while the column is in view. Never `false`, like `pinned`.
   public var free: Bool?
+  /// Where `center-visible-columns` left the strip. The strip rests there while the
+  /// selected column is fully in view; a selected column outside it drops the offset.
+  public var heldOffset: Double?
 
-  public init(windowID: WindowID, centered: Bool, pinned: Bool? = nil, free: Bool? = nil) {
+  public init(
+    windowID: WindowID, centered: Bool, pinned: Bool? = nil, free: Bool? = nil,
+    heldOffset: Double? = nil
+  ) {
     self.windowID = windowID
     self.centered = centered
     self.pinned = pinned
     self.free = free
+    self.heldOffset = heldOffset
   }
 }
 
