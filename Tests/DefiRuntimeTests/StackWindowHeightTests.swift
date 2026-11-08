@@ -119,6 +119,22 @@ struct StackWindowHeightTests {
   }
 
   @Test
+  func `A swapped window takes over the height of the window it replaces`() throws {
+    var state = stackState(count: 4)
+    state.monitors[0].workspaces[0].columns = [
+      Column(windows: [ids[0], ids[1]], focusedWindow: 0, width: .fraction(0.5)),
+      Column(windows: [ids[2], ids[3]], focusedWindow: 0, width: .fraction(0.5)),
+    ]
+    try apply("set-window-height 70%", &state)
+    try apply("swap-window right", &state)
+    let columns = state.monitors[0].workspaces[0].columns
+    #expect(columns[0].windows == [ids[2], ids[1]])
+    #expect(abs((columns[0].windowHeights?[ids[2]] ?? 0) - 0.7) < 1e-9)
+    #expect(columns[0].windowHeights?[ids[0]] == nil)
+    #expect(columns[1].windowHeights == nil)
+  }
+
+  @Test
   func `Proportions follow a closed window and survive a topology round trip`() throws {
     var state = stackState()
     try apply("set-window-height 50%", &state)

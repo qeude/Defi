@@ -486,6 +486,15 @@ public func swapFocusedWindow(
   for windows in [sourceWindows, targetWindows] {
     if case .rejected(let rejection) = stackFit(windows) { throw rejection }
   }
+  // Each window takes over the other's height share, as each column keeps its width.
+  let (outgoing, incoming) = (targetWindows[targetRow], sourceWindows[sourceRow])
+  for (index, old, new) in [
+    (sourceColumnIndex, outgoing, incoming), (targetColumnIndex, incoming, outgoing),
+  ] {
+    if let share = workspace.columns[index].windowHeights?.removeValue(forKey: old) {
+      workspace.columns[index].windowHeights?[new] = share
+    }
+  }
   workspace.columns[sourceColumnIndex].windows = sourceWindows
   workspace.columns[targetColumnIndex].windows = targetWindows
   workspace.columns[targetColumnIndex].focusedWindow = targetRow
