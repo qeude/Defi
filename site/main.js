@@ -23,7 +23,7 @@ function recording(clip, poster, description) {
 }
 
 const keypad = [
-  ['ArrowLeft', '←', 'Left'], ['ArrowRight', '→', 'Right'], ['ArrowUp', '↑', 'Workspace up'], ['ArrowDown', '↓', 'Workspace down'],
+  ['ArrowLeft', '←', 'Left'], ['ArrowRight', '→', 'Right'], ['KeyI', 'I', 'Workspace up'], ['KeyU', 'U', 'Workspace down'],
   ['Minus', '−', 'Narrower'], ['Equal', '=', 'Wider'], ['KeyO', 'O', 'Overview'], ['KeyF', 'F', 'Maximize'],
 ];
 
@@ -143,7 +143,7 @@ const invite = desk.querySelector('.desk-invite');
 let demoPress;
 let demoRelease;
 // The demo plays its shortcuts on the invitation's keys: the modifiers go down and stay, then the key lands and the desk moves.
-const demoKeys = new Map([...keypad.map(([code, glyph, label]) => [code, [glyph, label]]), ['Semicolon', [';', 'Join left column']], ['KeyK', ['K', 'Window up']], ['KeyJ', ['J', 'Window down']], ['KeyR', ['R', 'Unjoin']], ['BracketLeft', ['[', 'First column']]]);
+const demoKeys = new Map([...keypad.map(([code, glyph, label]) => [code, [glyph, label]]), ['Semicolon', [';', 'Join left column']], ['KeyK', ['K', 'Window up']], ['KeyJ', ['J', 'Window down']], ['Period', ['.', 'Unjoin']], ['Home', ['↖', 'First column']]]);
 const playDemoKey = code => {
   const key = invite.querySelector('kbd:last-child');
   if (key) {
@@ -221,7 +221,8 @@ holdButton.addEventListener('click', event => {
 // Every shortcut works while the preview is on screen, no click needed; plain keys only act inside the Overview.
 const modifierKeys = ['Control', 'Alt'];
 document.addEventListener('keydown', event => {
-  if (event.metaKey || event.target.closest('input, textarea, select')) return;
+  // Command only counts on top of Control-Option, Defi's move layer; alone it stays the browser's.
+  if ((event.metaKey && !(event.ctrlKey && event.altKey)) || event.target.closest('input, textarea, select')) return;
   // Any sliver of the desk counts: the invitation at its top shows long before a fifth of it does.
   const engaged = deskOnScreen || document.activeElement === desk || deskHovered;
   const mod = event.ctrlKey && event.altKey;
@@ -237,7 +238,7 @@ document.addEventListener('keydown', event => {
   if (!engaged) return;
   // Before the visitor takes over, plain keys still scroll; Return still activates a focused link or button.
   if (!mod && (!userDriven || (['Enter', ' '].includes(event.key) && event.target.closest('a, button, summary')))) return;
-  const handled = mod ? controller.press(event.code, event.shiftKey) : controller.pressInOverview(event.code);
+  const handled = mod ? controller.press(event.code, event.shiftKey, event.metaKey) : controller.pressInOverview(event.code);
   if (handled) {
     event.preventDefault();
     stopDemo();
