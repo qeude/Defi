@@ -1037,8 +1037,9 @@ final class RibbonProxyPresenter {
   func picturesArrived() {
     guard presenting else { return }
     if !awaitingFresh.isEmpty {
-      // The reflowed content dissolves in rather than jumping.
-      CATransaction.begin(); CATransaction.setAnimationDuration(0.15)
+      // Swapped at once, as the app reflows: a dissolve showed the old layout twice and
+      // let the backdrop through where the old picture did not reach the grown frame.
+      CATransaction.begin(); CATransaction.setDisableActions(true)
       for id in awaitingFresh {
         guard let layer = windowLayers[id],
           let content = layer.sublayers?.first(where: { $0.name == "content" }),
