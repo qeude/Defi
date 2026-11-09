@@ -991,6 +991,11 @@ any time; Defi adopts it as the new desk. While System Settings is the active
 app, Defi lifts the staircase so Displays shows and edits the desk, and puts the
 staircase back when you switch away.
 
+When you connect another set of displays, such as a monitor at home and another
+at the office, the desk is the arrangement macOS restores for that set, as it
+would without Defi. Defi tells displays apart by their hardware identity, so a
+different monitor never inherits another one's side.
+
 `defi status` reports `displayArrangement` and `displayPointerWarps`:
 
 | `displayArrangement` | Meaning |
@@ -1010,9 +1015,10 @@ outlasts the process. The staircase uses the CoreGraphics application-lifetime
 scope, so macOS also returns to the desk if Defi quits unexpectedly. On start,
 Defi applies the staircase again only when the desk needs it. It saves the desk
 for the login session and recovers it if macOS keeps the staircase across a
-restart. Defi never adopts its own staircase as the desk. System Settings shows
-the staircase while Defi runs, and other apps see its coordinates. Resolution
-and main-display changes keep the existing desk.
+restart. Defi never adopts its own staircase as the desk. Other apps see the
+staircase coordinates while Defi runs. Resolution and main-display changes keep
+the existing desk. If macOS restores Defi's staircase for a set of displays,
+Defi uses the desk it last saw for that set.
 
 Pointer moves between displays work with or without `focus_follows_mouse` and
 `mouse_follows_focus`.

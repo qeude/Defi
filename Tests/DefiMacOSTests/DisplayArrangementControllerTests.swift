@@ -527,4 +527,87 @@ struct DisplayArrangementControllerTests {
     #expect(controller.status == "suspended")
     #expect(current[second] == Rect(x: 1_000, y: 0, width: 1_200, height: 800))
   }
+
+  @Test
+  func `Each set of displays gets the arrangement macOS restores for it`() {
+    let laptop = Rect(x: 0, y: 0, width: 1_512, height: 982)
+    let homeRight = [first: laptop, second: Rect(x: 1_512, y: 0, width: 2_560, height: 1_440)]
+    let officeLeft = [first: laptop, second: Rect(x: -1_920, y: 0, width: 1_920, height: 1_080)]
+    var current = homeRight
+    var panel = "home"
+    let controller = DisplayArrangementController(
+      readFrames: { current },
+      applyFrames: { frames, _ in current = frames; return .success },
+      primaryDisplay: { first },
+      displayIdentity: { $0 == self.first ? "laptop" : panel }
+    )
+    #expect(controller.reconcile())
+    #expect(controller.deskFrames == homeRight)
+    // Asleep while traveling: the office monitor wakes up with the home monitor's ID.
+    panel = "office"
+    current = officeLeft
+    controller.invalidate()
+    #expect(controller.reconcile())
+    #expect(controller.deskFrames == officeLeft)
+    #expect(controller.status == "isolated")
+    // Unplugged, then back home: macOS restores its arrangement for that monitor.
+    current = [first: laptop]
+    controller.invalidate()
+    _ = controller.reconcile()
+    panel = "home"
+    current = homeRight
+    controller.invalidate()
+    #expect(controller.reconcile())
+    #expect(controller.deskFrames == homeRight)
+    #expect(controller.restore() == homeRight)
+  }
+
+  @Test
+  func `Identical panels sharing a hardware identity stay distinct`() {
+    let third = MonitorID(rawValue: 3)
+    let desk = [
+      first: Rect(x: 0, y: 0, width: 1_512, height: 982),
+      second: Rect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+      third: Rect(x: 3_432, y: 0, width: 1_920, height: 1_080),
+    ]
+    var current = desk
+    let controller = DisplayArrangementController(
+      readFrames: { current },
+      applyFrames: { frames, _ in current = frames; return .success },
+      primaryDisplay: { first },
+      displayIdentity: { $0 == self.first ? "laptop" : "same-panel" }
+    )
+    #expect(controller.reconcile())
+    #expect(controller.deskFrames == desk)
+    #expect(controller.restore() == desk)
+  }
+
+  @Test
+  func `A reconnected set follows an arrangement changed while it was away`() {
+    let laptop = Rect(x: 0, y: 0, width: 1_512, height: 982)
+    let right = [first: laptop, second: Rect(x: 1_512, y: 0, width: 2_560, height: 1_440)]
+    let left = [first: laptop, second: Rect(x: -2_560, y: 0, width: 2_560, height: 1_440)]
+    var current = right
+    let controller = DisplayArrangementController(
+      readFrames: { current },
+      applyFrames: { frames, _ in current = frames; return .success },
+      primaryDisplay: { first }
+    )
+    #expect(controller.reconcile())
+    current = [first: laptop]
+    controller.invalidate()
+    _ = controller.reconcile()
+    current = left // Arranged elsewhere, for example without Defi running.
+    controller.invalidate()
+    #expect(controller.reconcile())
+    #expect(controller.deskFrames == left)
+    // macOS may also restore Defi's own staircase: the remembered desk applies then.
+    current = [first: laptop]
+    controller.invalidate()
+    _ = controller.reconcile()
+    current = isolatedDisplayArrangement(left, primary: first)
+    controller.invalidate()
+    _ = controller.reconcile()
+    #expect(controller.deskFrames == left)
+  }
 }

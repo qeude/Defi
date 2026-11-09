@@ -12,7 +12,10 @@ public final class DisplayArrangementController {
   public private(set) var deskFrames: [MonitorID: Rect] = [:]
   public private(set) var status = "native"
   private var appliedFrames: [MonitorID: Rect] = [:]
-  private var savedArrangements: [Set<MonitorID>: [MonitorID: Rect]] = [:]
+  private var appliedIdentities: [MonitorID: String] = [:]
+  /// Desks by physical display: macOS may hand a reconnected or different panel another
+  /// display's former ID, so IDs alone would replay one monitor's desk for another.
+  private var savedArrangements: [Set<String>: [String: Rect]] = [:]
   private var pending = true
   private var suspended = false
   private var suspensionChanged = false
@@ -21,6 +24,7 @@ public final class DisplayArrangementController {
   private let applyFrames: ([MonitorID: Rect], CGConfigureOption) -> CGError
   private let primaryDisplay: () -> MonitorID
   private let isMirrored: (MonitorID) -> Bool
+  private let displayIdentity: (MonitorID) -> String?
   private let stateURL: URL?
   private let sessionID: String?
   private var savedState: StoredDisplayArrangement?
@@ -32,6 +36,7 @@ public final class DisplayArrangementController {
       readFrames: Self.currentFrames, applyFrames: Self.apply,
       primaryDisplay: { MonitorID(rawValue: UInt64(CGMainDisplayID())) },
       isMirrored: { CGDisplayIsInMirrorSet(CGDirectDisplayID($0.rawValue)) != 0 },
+      displayIdentity: { stableDisplayIdentifier(CGDirectDisplayID($0.rawValue)) },
       pointerRouter: pointerRouter,
       stateURL: sessionID == nil ? nil : FileManager.default.homeDirectoryForCurrentUser
         .appending(path: "Library/Application Support/Defi/display-arrangement.json"),
@@ -44,6 +49,7 @@ public final class DisplayArrangementController {
     applyFrames: @escaping ([MonitorID: Rect], CGConfigureOption) -> CGError,
     primaryDisplay: @escaping () -> MonitorID,
     isMirrored: @escaping (MonitorID) -> Bool = { _ in false },
+    displayIdentity: @escaping (MonitorID) -> String? = { _ in nil },
     pointerRouter: DisplayPointerRouter = DisplayPointerRouter(),
     stateURL: URL? = nil,
     sessionID: String? = nil
@@ -52,12 +58,13 @@ public final class DisplayArrangementController {
     self.applyFrames = applyFrames
     self.primaryDisplay = primaryDisplay
     self.isMirrored = isMirrored
+    self.displayIdentity = displayIdentity
     self.pointerRouter = pointerRouter
     self.stateURL = stateURL
     self.sessionID = sessionID
     if let stateURL, let data = try? Data(contentsOf: stateURL),
       let stored = try? JSONDecoder().decode(StoredDisplayArrangement.self, from: data),
-      stored.version == 1, stored.sessionID == sessionID,
+      stored.version == 2, stored.sessionID == sessionID,
       stored.desk.values.allSatisfy({ frame in
         [frame.x, frame.y, frame.width, frame.height].allSatisfy(\.isFinite)
           && frame.width > 0 && frame.height > 0
@@ -111,29 +118,31 @@ public final class DisplayArrangementController {
       return false
     }
     let primary = primaryDisplay()
+    let identities = identities(of: current)
     // Display-mode changes can commit our temporary origins to the macOS session.
     // Recover only our exact last geometry; a new native arrangement wins.
     if appliedFrames.isEmpty, let savedState, savedState.technical == current,
-      Set(savedState.desk.keys) == Set(current.keys),
+      savedState.identities == identities, Set(savedState.desk.keys) == Set(current.keys),
       !isDisplayStaircase(savedState.desk, primary: primary)
     {
       deskFrames = savedState.desk
       appliedFrames = current
-      savedArrangements[Set(current.keys)] = deskFrames
+      appliedIdentities = identities
+      remember(deskFrames)
       status = current == deskFrames ? "native" : "isolated"
     }
-    if current == appliedFrames, !suspensionChanged {
+    if current == appliedFrames, identities == appliedIdentities, !suspensionChanged {
       pointerRouter.update(technical: current, desk: status == "native" ? current : deskFrames)
       return false
     }
-    let ids = Set(current.keys)
     guard let primaryFrame = current[primary] else {
       pending = true
       return false
     }
     suspensionChanged = false
     defer { saveArrangement() }
-    let sameDisplays = ids == Set(appliedFrames.keys)
+    let sameDisplays = identities == appliedIdentities
+    appliedIdentities = identities
     let sizesChanged = sameDisplays && current.contains {
       appliedFrames[$0.key]?.width != $0.value.width
         || appliedFrames[$0.key]?.height != $0.value.height
@@ -144,11 +153,10 @@ public final class DisplayArrangementController {
       $0.value.x - appliedFrames[$0.key]!.x == translationX
         && $0.value.y - appliedFrames[$0.key]!.y == translationY
     }
-    // Resolution and main-display changes keep desk relationships. A new native
-    // arrangement of the same displays is explicit user intent.
-    if !sameDisplays, let saved = savedArrangements[ids] {
-      deskFrames = saved
-    } else if !sizesChanged && !translatedOnly {
+    // macOS already restores its own arrangement for each set of displays, so a new
+    // set or a new native arrangement is the desk. Resolution and main-display
+    // changes keep desk relationships.
+    if !sameDisplays || (!sizesChanged && !translatedOnly) {
       deskFrames = desk(for: current, primary: primary)
     }
     if let anchor = deskFrames[primary] {
@@ -162,7 +170,7 @@ public final class DisplayArrangementController {
       status = "ambiguous"
       return false
     }
-    savedArrangements[ids] = deskFrames
+    remember(deskFrames)
     guard current.count > 1,
       !current.keys.contains(where: isMirrored)
     else {
@@ -210,9 +218,28 @@ public final class DisplayArrangementController {
   /// Limit: a user who really arranges that exact corner-touching diagonal is ambiguous.
   private func desk(for frames: [MonitorID: Rect], primary: MonitorID) -> [MonitorID: Rect] {
     guard isDisplayStaircase(frames, primary: primary) else { return frames }
-    return [deskFrames, savedState?.desk ?? [:]].first {
+    let identities = identities(of: frames)
+    let saved = savedArrangements[Set(identities.values)].map { saved in
+      identities.compactMapValues { saved[$0] }
+    }
+    let stored = savedState?.identities == identities ? savedState?.desk : nil
+    return [saved, stored].compactMap { $0 }.first {
       Set($0.keys) == Set(frames.keys) && !isDisplayStaircase($0, primary: primary)
     } ?? [:]
+  }
+
+  /// The display ID keeps identities unique: identical panels without a serial share a UUID.
+  private func identities(of frames: [MonitorID: Rect]) -> [MonitorID: String] {
+    Dictionary(uniqueKeysWithValues: frames.keys.map {
+      ($0, "\(displayIdentity($0) ?? "")#\($0.rawValue)")
+    })
+  }
+
+  private func remember(_ desk: [MonitorID: Rect]) {
+    let identities = identities(of: desk)
+    savedArrangements[Set(identities.values)] = Dictionary(
+      uniqueKeysWithValues: desk.map { (identities[$0.key]!, $0.value) }
+    )
   }
 
   @discardableResult
@@ -235,7 +262,7 @@ public final class DisplayArrangementController {
   private func saveArrangement() {
     guard let stateURL, let sessionID else { return }
     let updated = StoredDisplayArrangement(
-      sessionID: sessionID, technical: appliedFrames, desk: deskFrames
+      sessionID: sessionID, technical: appliedFrames, identities: appliedIdentities, desk: deskFrames
     )
     guard updated != savedState else { return }
     do {
@@ -287,9 +314,10 @@ public final class DisplayArrangementController {
 }
 
 private struct StoredDisplayArrangement: Codable, Equatable {
-  var version = 1
+  var version = 2
   let sessionID: String
   let technical: [MonitorID: Rect]
+  let identities: [MonitorID: String]
   let desk: [MonitorID: Rect]
 }
 
