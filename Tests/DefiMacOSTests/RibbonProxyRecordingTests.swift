@@ -15,6 +15,9 @@ struct RibbonProxyRecordingTests {
     let sharing = renderer.surfaceWindowIDs.compactMap {
       NSApplication.shared.window(withWindowNumber: Int($0))?.sharingType
     }
-    #expect(sharing == [.readOnly])
+    // Enabling the renderer warms one overlay per display, so assert the
+    // sharing state of every surface rather than assuming a single display.
+    #expect(!sharing.isEmpty)
+    #expect(sharing.allSatisfy { $0 == .readOnly })
   }
 }
