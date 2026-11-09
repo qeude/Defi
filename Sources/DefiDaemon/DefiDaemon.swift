@@ -320,6 +320,15 @@ final class Daemon {
       }
     )
 
+    DispatchQueue.main.async { [self] in
+      displayArrangement.suspendWhileSystemSettingsIsActive { [weak self] in
+        NavigationActor.enqueue {
+          guard self?.desktopSessionActive == true else { return }
+          self?.scheduleDisplayReconciliation()
+        }
+      }
+    }
+
     installHotKeys()
 
     synchronizeDesktop(

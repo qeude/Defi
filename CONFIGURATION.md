@@ -964,7 +964,9 @@ Commands, the pointer, and window moves still follow the arrangement you chose i
 System Settings, which Defi calls the desk. When the pointer reaches an edge
 shared on the desk, Defi moves it to the matching point of the neighboring
 display, while moving or dragging. Change the arrangement in System Settings at
-any time; Defi adopts it as the new desk.
+any time; Defi adopts it as the new desk. While System Settings is the active
+app, Defi lifts the staircase so Displays shows and edits the desk, and puts the
+staircase back when you switch away.
 
 `defi status` reports `displayArrangement` and `displayPointerWarps`:
 
@@ -972,6 +974,7 @@ any time; Defi adopts it as the new desk.
 | --- | --- |
 | `native` | The desk needs no staircase. |
 | `isolated` | The staircase is active and the pointer follows the desk. |
+| `suspended` | System Settings is active, so the desk is shown without the staircase. |
 | `ambiguous` | The displays already form Defi's staircase and no desk is known. Defi keeps native pointer movement. Rearrange the displays in System Settings › Displays to fix it. |
 | `observation-mismatch` | macOS accepted the change but reported other display frames. Defi restores the previous arrangement and keeps native pointer movement until a later change succeeds. |
 | `failed:<code>` | macOS refused the change. Defi keeps native pointer movement until a later change succeeds. |

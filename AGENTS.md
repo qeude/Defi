@@ -138,7 +138,9 @@ The scrolling workspace is one continuous horizontal strip.
   where macOS will leave it
 - when display heights overlap, apply the temporary display staircase so
   partially visible columns never spill onto another display; commands and
-  pointer crossings follow the desk the user arranged in System Settings
+  pointer crossings follow the desk the user arranged in System Settings;
+  lift the staircase while System Settings is the active app so Displays
+  shows and edits the desk
 - never adopt Defi's own staircase as the desk; report
   `displayArrangement=ambiguous` until the user rearranges the displays
 - restore the desk for the login session on shutdown, and never commit a
