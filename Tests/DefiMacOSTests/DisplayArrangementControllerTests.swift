@@ -583,6 +583,28 @@ struct DisplayArrangementControllerTests {
   }
 
   @Test
+  func `A hardware identity missing during wake keeps the known desk`() {
+    let desk = [
+      first: Rect(x: 0, y: 0, width: 1_512, height: 982),
+      second: Rect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+    ]
+    var current = desk
+    var identity: String? = "office"
+    let controller = DisplayArrangementController(
+      readFrames: { current },
+      applyFrames: { frames, _ in current = frames; return .success },
+      primaryDisplay: { first },
+      displayIdentity: { $0 == self.first ? "laptop" : identity }
+    )
+    #expect(controller.reconcile())
+    identity = nil
+    controller.invalidate()
+    #expect(!controller.reconcile())
+    #expect(controller.status == "isolated")
+    #expect(controller.restore() == desk)
+  }
+
+  @Test
   func `A reconnected set follows an arrangement changed while it was away`() {
     let laptop = Rect(x: 0, y: 0, width: 1_512, height: 982)
     let right = [first: laptop, second: Rect(x: 1_512, y: 0, width: 2_560, height: 1_440)]

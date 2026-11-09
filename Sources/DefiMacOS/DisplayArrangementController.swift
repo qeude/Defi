@@ -229,9 +229,12 @@ public final class DisplayArrangementController {
   }
 
   /// The display ID keeps identities unique: identical panels without a serial share a UUID.
+  /// A panel back under a new display ID is a new set; macOS's arrangement still applies.
   private func identities(of frames: [MonitorID: Rect]) -> [MonitorID: String] {
-    Dictionary(uniqueKeysWithValues: frames.keys.map {
-      ($0, "\(displayIdentity($0) ?? "")#\($0.rawValue)")
+    Dictionary(uniqueKeysWithValues: frames.keys.map { id in
+      // A UUID briefly missing during wake must not turn a known display into a new set.
+      let identity = displayIdentity(id).map { "\($0)#\(id.rawValue)" }
+      return (id, identity ?? appliedIdentities[id] ?? "#\(id.rawValue)")
     })
   }
 
