@@ -602,6 +602,41 @@ struct DisplayArrangementControllerTests {
     #expect(!controller.reconcile())
     #expect(controller.status == "isolated")
     #expect(controller.restore() == desk)
+    // Started without the UUID, then it appears.
+    current = desk
+    identity = nil
+    let startedEarly = DisplayArrangementController(
+      readFrames: { current },
+      applyFrames: { frames, _ in current = frames; return .success },
+      primaryDisplay: { first },
+      displayIdentity: { $0 == self.first ? "laptop" : identity }
+    )
+    #expect(startedEarly.reconcile())
+    identity = "office"
+    startedEarly.invalidate()
+    #expect(!startedEarly.reconcile())
+    #expect(startedEarly.status == "isolated")
+    #expect(startedEarly.restore() == desk)
+  }
+
+  @Test
+  func `A display lost during a failed apply is reconciled again when it returns`() {
+    let desk = [
+      first: Rect(x: 0, y: 0, width: 1_512, height: 982),
+      second: Rect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+    ]
+    var current = desk
+    let controller = DisplayArrangementController(
+      readFrames: { current },
+      applyFrames: { _, _ in current = [first: desk[first]!]; return .failure },
+      primaryDisplay: { first }
+    )
+    _ = controller.reconcile()
+    #expect(controller.status.hasPrefix("failed:"))
+    current = isolatedDisplayArrangement(desk, primary: first)
+    controller.invalidate()
+    _ = controller.reconcile()
+    #expect(controller.deskFrames == desk)
   }
 
   @Test

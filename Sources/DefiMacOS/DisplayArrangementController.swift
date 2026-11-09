@@ -141,7 +141,8 @@ public final class DisplayArrangementController {
     }
     suspensionChanged = false
     defer { saveArrangement() }
-    let sameDisplays = identities == appliedIdentities
+    // A failed apply can leave fewer applied frames than identities.
+    let sameDisplays = identities == appliedIdentities && Set(current.keys) == Set(appliedFrames.keys)
     appliedIdentities = identities
     let sizesChanged = sameDisplays && current.contains {
       appliedFrames[$0.key]?.width != $0.value.width
@@ -232,9 +233,12 @@ public final class DisplayArrangementController {
   /// A panel back under a new display ID is a new set; macOS's arrangement still applies.
   private func identities(of frames: [MonitorID: Rect]) -> [MonitorID: String] {
     Dictionary(uniqueKeysWithValues: frames.keys.map { id in
-      // A UUID briefly missing during wake must not turn a known display into a new set.
-      let identity = displayIdentity(id).map { "\($0)#\(id.rawValue)" }
-      return (id, identity ?? appliedIdentities[id] ?? "#\(id.rawValue)")
+      // A UUID missing during wake or startup must not turn a known display into a new
+      // set: keep the identity the display already has until it disconnects.
+      let fallback = "#\(id.rawValue)"
+      let known = appliedIdentities[id]
+      let identity = displayIdentity(id).map { "\($0)\(fallback)" }
+      return (id, known == fallback ? fallback : identity ?? known ?? fallback)
     })
   }
 
