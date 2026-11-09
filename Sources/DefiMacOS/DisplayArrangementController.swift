@@ -171,7 +171,15 @@ public final class DisplayArrangementController {
       status = "native"
       return false
     }
-    let desired = suspended ? deskFrames : isolatedDisplayArrangement(current, primary: primary)
+    // The desk keeps its sizes across resolution changes; only its origins are applied.
+    let desired = suspended
+      ? current.reduce(into: [:]) { result, display in
+        let origin = deskFrames[display.key] ?? display.value
+        result[display.key] = Rect(
+          x: origin.x, y: origin.y, width: display.value.width, height: display.value.height
+        )
+      }
+      : isolatedDisplayArrangement(current, primary: primary)
     let applied = suspended ? "suspended" : "isolated"
     guard desired != current else {
       appliedFrames = current

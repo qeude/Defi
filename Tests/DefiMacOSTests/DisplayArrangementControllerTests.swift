@@ -502,4 +502,29 @@ struct DisplayArrangementControllerTests {
     #expect(isDisplayStaircase(current, primary: first))
     #expect(controller.deskFrames == rearranged)
   }
+
+  @Test
+  func `System Settings shows the desk after a resolution change`() {
+    var current = [
+      first: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      second: Rect(x: 1_000, y: 0, width: 1_500, height: 900),
+    ]
+    let controller = DisplayArrangementController(
+      readFrames: { current },
+      applyFrames: { frames, _ in
+        for (id, frame) in frames { current[id]!.x = frame.x; current[id]!.y = frame.y }
+        return .success
+      },
+      primaryDisplay: { first }
+    )
+    #expect(controller.reconcile())
+    current[second]!.width = 1_200 // The desk keeps the old width.
+    current[second]!.height = 800
+    controller.invalidate()
+    _ = controller.reconcile()
+    #expect(controller.setSuspended(true))
+    #expect(controller.reconcile())
+    #expect(controller.status == "suspended")
+    #expect(current[second] == Rect(x: 1_000, y: 0, width: 1_200, height: 800))
+  }
 }
