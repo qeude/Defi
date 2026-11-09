@@ -173,7 +173,7 @@ icons = { dev = "terminal", web = "globe" }
 | `default` | first of `names` | a name from `names` | Workspace shown at startup on its monitor. |
 | `monitors` | `{}` | name → 1-based display index | Puts a named workspace on a display by position. Others use the primary display. |
 | `monitor_ids` | `{}` | name → display UUID | Same, by display identity. Settings writes it when you pick a screen there. |
-| `icons` | `{}` | name → SF Symbol name | Icon shown in the menu bar, see [`[menu_bar]`](#menu_bar). |
+| `icons` | `{}` | name → SF Symbol name | Icon shown in the menu bar, see [`[menu_bar]`](#menu_bar), and reported as `icon` by `list-workspaces --json` and the event stream. |
 
 Use names without spaces: command arguments are split on whitespace, so a name
 with a space cannot be used in shortcuts or the CLI. The `__defi_dynamic_`
@@ -1048,7 +1048,7 @@ CLI-only:
 | Command | Description |
 | --- | --- |
 | `status` | Print Defi's current state. |
-| `list-workspaces` | Print workspace labels per display. Add `--json` for versioned identity, position, name, kind, and app state. |
+| `list-workspaces` | Print workspace labels per display. Add `--json` for versioned identity, position, name, icon, kind, and app state. `icon` is the configured SF Symbol name, absent when none is set. |
 | `list-windows` | Print one managed window per line: ID, app name, and title. Add `--json` for bundle ID, workspace, display, column, row, floating, and focus. |
 | `focus-window-id <id>` | Focus a window by its `list-windows` ID, switching its display to its workspace. |
 | `subscribe --json` | Keep the connection open and print one JSON event per line. See [Event stream](#event-stream). |
@@ -1072,7 +1072,7 @@ over the per-user Unix socket and never written to diagnostics files. See the
 | --- | --- | --- |
 | `snapshot` | `workspaces`, `windows` | on connect |
 | `monitors-changed` | `workspaces` | a display connects, disconnects, or changes order |
-| `workspaces-changed` | `workspaces` | any workspace state changes, including activation, names, order, and occupancy |
+| `workspaces-changed` | `workspaces` | any workspace state changes, including activation, names, icons, order, and occupancy |
 | `workspace-activated` | `monitorID`, `display`, `workspace` | a display shows another workspace |
 | `window-opened` | `window` | Defi starts managing a window |
 | `window-closed` | `windowID` | Defi stops managing a window |
