@@ -1,0 +1,21 @@
+name: Macroscope label
+
+# Correctness runs on manual invocation only, so fork PRs wait for a maintainer to add the
+# macroscope-review label. Branches of this repository get it automatically.
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  label:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - run: gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label macroscope-review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}

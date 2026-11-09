@@ -24,6 +24,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Module boundaries
+        # AGENTS.md: pure modules stay off platform frameworks, and private macOS APIs stay in DefiMacOS.
+        run: |
+          if grep -rnE '^[[:space:]]*(@[A-Za-z_]+[[:space:]]+)*import[[:space:]]+((struct|class|enum|protocol|typealias|func|var|let)[[:space:]]+)?(AppKit|ApplicationServices|CoreGraphics|Cocoa|Carbon|CoreServices|QuartzCore|ScreenCaptureKit)\b' \
+            Sources/DefiModel Sources/DefiCore Sources/DefiConfig Sources/DefiRuntime Sources/DefiIPC; then
+            echo "::error::Pure modules must not import AppKit, ApplicationServices, CoreGraphics, or other platform frameworks."
+            exit 1
+          fi
+          if grep -rnE '\b(dlsym|dlopen)\b|@_silgen_name|SkyLight' Sources --exclude-dir=DefiMacOS; then
+            echo "::error::Private macOS API use must stay inside DefiMacOS."
+            exit 1
+          fi
+
       - name: Toolchain
         run: |
           xcodebuild -version
