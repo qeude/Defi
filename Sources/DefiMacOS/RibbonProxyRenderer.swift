@@ -120,6 +120,13 @@ struct RibbonProxyScreen: Sendable {
   let frame: Rect
   let visibleFrame: Rect
   let scale: Double
+
+  /// The overlay's surface: the whole screen below the menu bar. No window goes under the
+  /// menu bar, and a surface there turned the transparent menu bar opaque.
+  var overlayArea: Rect {
+    let top = max(visibleFrame.y, frame.y)
+    return Rect(x: frame.x, y: top, width: frame.width, height: frame.y + frame.height - top)
+  }
 }
 
 struct RibbonProxyRefresh: Sendable {
@@ -265,8 +272,8 @@ final class RibbonProxyRenderer {
     }
     // Warm each new or reshaped display's overlay and wallpaper now: its first motion
     // must not fall back for want of either.
-    for screen in screens where panels[screen.displayID]?.frame != appKitFrame(screen.frame) {
-      if let prepared = prepareSurface(area: screen.frame, display: screen.displayID) {
+    for screen in screens where panels[screen.displayID]?.frame != appKitFrame(screen.overlayArea) {
+      if let prepared = prepareSurface(area: screen.overlayArea, display: screen.displayID) {
         NavigationActor.enqueue { RibbonProxyPresenter.on(screen.displayID).adopt(prepared) }
       }
       WindowCaptureCache.shared.requestBackground(screen)
@@ -430,6 +437,8 @@ final class RibbonProxyPresenter {
   /// The carried window's own slot in the ribbon, and a stacking slot that overrides it.
   private var ownSlot: Rect?
   private var previewSlot: Rect?
+  /// The mark shown for the drop while held; the slot is where the window lands.
+  private var previewHint: Rect?
   private var rejectionMarker: CALayer?
   /// Running slide of each proxy centre, so a retarget keeps its velocity.
   private var slides: [WindowID: (from: CGPoint, to: CGPoint, start: CFTimeInterval, velocity: Double)] = [:]
@@ -481,9 +490,9 @@ final class RibbonProxyPresenter {
       DispatchQueue.main.async { RibbonProxyRenderer.shared.refreshEnvironment() }
       return fallback("screen")
     }
-    // The whole screen: a native window dragged under the Dock must stay hidden. The
-    // Dock and the menu bar sit above the overlay's level anyway.
-    let area = screen.frame
+    // Down to the screen's bottom: a native window dragged under the Dock must stay
+    // hidden. The Dock sits above the overlay's level anyway.
+    let area = screen.overlayArea
     guard let layers, layers.area == area else {
       prepareSurface(area)
       return fallback("surface")
@@ -1159,7 +1168,7 @@ final class RibbonProxyPresenter {
     holdUntil = 0
     expectedTargets = [:]; requestedTargets = [:]
     releasePointerTrack()
-    drag = .idle; panRelease = nil; ownSlot = nil; previewSlot = nil; awaitingFresh = []; veiled = []; refreshing = []; standIns = []
+    drag = .idle; panRelease = nil; ownSlot = nil; previewSlot = nil; previewHint = nil; awaitingFresh = []; veiled = []; refreshing = []; standIns = []
     removeRejection()
     guard presenting, let layers else { return }
     removePlaceholder()
@@ -1232,7 +1241,7 @@ final class RibbonProxyPresenter {
       lift.fromValue = ribbonProxyRestingShadowOpacity; lift.toValue = 1; lift.duration = 0.18
       ribbonProxyStartNow(lift, on: shadow)
     }
-    ownSlot = slot; previewSlot = nil
+    ownSlot = slot; previewSlot = nil; previewHint = nil
     showSlot(in: layers)
     ribbonProxyCommit(#line)
     RibbonProxyPointerTrack.shared.set(.carry(id: id, layer: layer, area: layers.area, grab: nil))
@@ -1303,7 +1312,7 @@ final class RibbonProxyPresenter {
       let layer = windowLayers[id], let layers
     else { return false }
     drag = .hosting(id)
-    ownSlot = nil; previewSlot = nil
+    ownSlot = nil; previewSlot = nil; previewHint = nil
     ribbonProxyLogger.notice("host id=\(id.rawValue)")
     CATransaction.begin(); CATransaction.setDisableActions(true)
     layer.zPosition = 200_000
@@ -1315,25 +1324,34 @@ final class RibbonProxyPresenter {
 
   /// Lays every other window out as the drop at the pointer would, on the overlay only,
   /// and marks the carried window's place in that layout and any column it cannot join.
-  func preview(_ frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?) {
+  /// `scroll` moves its windows by `shift` points at once: a strip scrolling under the
+  /// pointer follows it frame by frame, and only layout changes spring.
+  func preview(_ frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?, hint: Rect? = nil,
+    scroll: (shift: Double, windowIDs: Set<WindowID>)? = nil) {
     guard drag == .carrying(heldWindowID) || drag == .hosting(heldWindowID), let layers else { return }
     let now = CACurrentMediaTime()
+    func shift(_ id: WindowID) -> CGFloat { scroll.map { $0.windowIDs.contains(id) ? $0.shift : 0 } ?? 0 }
     CATransaction.begin(); CATransaction.setDisableActions(true)
     for (id, layer) in windowLayers where id != heldWindowID {
       guard let target = frames[id] else { continue }
       let current = (layer.presentation() ?? layer).frame
+      let followed = layer.frame.offsetBy(dx: shift(id), dy: 0)
       var to = local(target, layers.area)
-      // Same height: keep the app's own vertical placement (some snap a few points).
-      if abs(to.height - current.height) < 40 { to.origin.y = current.minY; to.size.height = current.height }
+      // Same height and place: keep the app's own vertical placement (some snap a few points).
+      // A window moving to another row of its stack keeps its height but must move.
+      if abs(to.height - followed.height) < 40, abs(to.minY - followed.minY) < 40 {
+        to.origin.y = followed.minY; to.size.height = followed.height
+      }
       // Logical and native frames differ by a point or two: not a move.
-      guard abs(to.minX - current.minX) >= 3 || abs(to.width - current.width) >= 3
-        || abs(to.minY - current.minY) >= 3 || abs(to.height - current.height) >= 3 else { continue }
-      let velocity = slides[id].map {
-        ribbonProxySpringVelocity(from: $0.from, to: $0.to, elapsed: now - $0.start, velocity: $0.velocity)
-      } ?? .zero
-      layer.removeAllAnimations()
-      let launched = ribbonProxyMove(layer, from: current, to: to, velocity: velocity)
-      slides[id] = (CGPoint(x: current.midX, y: current.midY), CGPoint(x: to.midX, y: to.midY), now, launched)
+      guard abs(to.minX - followed.minX) >= 3 || abs(to.width - followed.width) >= 3
+        || abs(to.minY - followed.minY) >= 3 || abs(to.height - followed.height) >= 3
+      else {
+        layer.position.x += shift(id)
+        continue
+      }
+      // Retargets stack on the motions under way, which keep their own velocity.
+      slides[id] = (CGPoint(x: current.midX, y: current.midY), CGPoint(x: to.midX, y: to.midY), now, 0)
+      ribbonProxyRetarget(layer, to: to, following: shift(id))
       // Stacking shrinks the window in place: its picture is cropped to the new frame
       // instead of overflowing it at full height.
       if let content = layer.sublayers?.first(where: { $0.name == "content" }),
@@ -1349,7 +1367,8 @@ final class RibbonProxyPresenter {
       }
     }
     previewSlot = frames[heldWindowID]
-    showSlot(in: layers)
+    previewHint = hint
+    showSlot(in: layers, following: shift(heldWindowID))
     showRejection(rejectedFrame, in: layers)
     ribbonProxyCommit(#line)
   }
@@ -1387,11 +1406,23 @@ final class RibbonProxyPresenter {
     releasePointerTrack()
     drag = .dropping(id)
     ribbonProxyLogger.notice("drop id=\(id.rawValue) slot=\(self.placeholder.map { Int($0.frame.minX) } ?? -1)")
-    if carried, let layer = windowLayers[id], let slot = placeholder?.frame {
+    // The mark becomes the landing slot under the window gliding into it.
+    let landing = previewSlot.flatMap { slot in layers.map { local(slot, $0.area) } } ?? placeholder?.frame
+    if let placeholder, let landing, placeholder.frame != landing {
+      CATransaction.begin(); CATransaction.setDisableActions(true)
+      placeholder.zPosition = -1
+      placeholder.borderWidth = 4
+      placeholder.cornerRadius = 12
+      ribbonProxyRetarget(placeholder, to: landing, following: 0)
+      ribbonProxyCommit(#line)
+    }
+    if carried, let layer = windowLayers[id], let slot = landing {
       let current = layer.presentation() ?? layer
       let from = CGRect(x: current.position.x - layer.bounds.width / 2,
         y: current.position.y - layer.bounds.height / 2, width: layer.bounds.width, height: layer.bounds.height)
       CATransaction.begin(); CATransaction.setDisableActions(true)
+      // The window lands into the zone: it goes back under it.
+      placeholder?.zPosition = -1
       layer.removeAllAnimations()
       ribbonProxyMove(layer, from: from, to: slot)
       layer.sublayers?.first { $0.name == "shadow" }?.opacity = ribbonProxyRestingShadowOpacity
@@ -1436,26 +1467,22 @@ final class RibbonProxyPresenter {
   }
 
   /// The landing zone, on the display the drop lands on only.
-  private func showSlot(in layers: RibbonProxyLayers) {
-    if let slot = previewSlot ?? ownSlot, slot.ribbonIntersects(layers.area) {
-      showPlaceholder(at: local(slot, layers.area), in: layers)
+  private func showSlot(in layers: RibbonProxyLayers, following shift: CGFloat = 0) {
+    if let slot = previewHint ?? previewSlot ?? ownSlot, slot.ribbonIntersects(layers.area) {
+      showPlaceholder(at: local(slot, layers.area), in: layers, following: shift)
     } else {
       removePlaceholder()
     }
   }
 
-  private func showPlaceholder(at slot: CGRect, in layers: RibbonProxyLayers) {
+  private func showPlaceholder(at slot: CGRect, in layers: RibbonProxyLayers, following shift: CGFloat = 0) {
     if placeholder?.frame != slot {
       ribbonProxyLogger.notice("placeholder x=\(Int(slot.minX)) width=\(Int(slot.width)) carrying=\(self.isCarrying)")
     }
     let layer: CALayer
     if let placeholder {
       layer = placeholder
-      if layer.frame != slot {
-        let current = (layer.presentation() ?? layer).frame
-        layer.removeAllAnimations()
-        ribbonProxyMove(layer, from: current, to: slot)
-      }
+      if layer.frame != slot { ribbonProxyRetarget(layer, to: slot, following: shift) }
     } else {
       layer = CALayer()
       layer.cornerRadius = 12
@@ -1477,8 +1504,20 @@ final class RibbonProxyPresenter {
         green: CGFloat(($0.color >> 8) & 255) / 255, blue: CGFloat($0.color & 255) / 255, alpha: 1) }
       ?? NSColor.controlAccentColor.cgColor
     layer.borderColor = accent.copy(alpha: 1)
-    layer.backgroundColor = accent.copy(alpha: 0.4)
-    layer.borderWidth = 4
+    // While held, the mark is a plain translucent band over every window, the carried one
+    // included, which hangs from its title bar over the very place it would land.
+    switch drag {
+    case .carrying, .hosting:
+      layer.zPosition = 300_000
+      layer.borderWidth = 0
+      layer.cornerRadius = 6
+      layer.backgroundColor = accent.copy(alpha: 0.5)
+    default:
+      layer.zPosition = -1
+      layer.borderWidth = 4
+      layer.cornerRadius = 12
+      layer.backgroundColor = accent.copy(alpha: 0.4)
+    }
   }
 
   private func removePlaceholder() {
@@ -1825,12 +1864,12 @@ private func ribbonProxySpring(_ layer: CALayer, _ key: String, _ from: Any, _ t
 /// Layers are committed off the main thread, and the main run loop may commit the
 /// tree again: an animation without an explicit start would restart from its
 /// first frame, making windows jump back mid-motion.
-func ribbonProxyStartNow(_ animation: CAAnimation, on layer: CALayer) {
+func ribbonProxyStartNow(_ animation: CAAnimation, on layer: CALayer, key: String? = nil) {
   // ProMotion: without a preference the compositor may settle for 60 Hz.
   animation.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
   animation.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil)
   animation.fillMode = .backwards
-  layer.add(animation, forKey: (animation as? CAPropertyAnimation)?.keyPath)
+  layer.add(animation, forKey: key ?? (animation as? CAPropertyAnimation)?.keyPath)
 }
 
 /// Velocity of the overlay spring `from` → `to`, launched at `velocity`, after `elapsed` seconds.
@@ -1847,9 +1886,10 @@ func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoi
   // A still layer gets no spring: a sublayer animated in place under its moving window made
   // the compositor redraw the whole tree each frame, about three dropped frames per motion.
   guard from != to else {
-    layer.removeAnimation(forKey: "position"); layer.removeAnimation(forKey: "bounds.size")
+    layer.removePositionAnimations(); layer.removeAnimation(forKey: "bounds.size")
     return 0
   }
+  layer.removePositionAnimations()
   let start = CGPoint(x: from.midX, y: from.midY), end = CGPoint(x: to.midX, y: to.midY)
   let position = ribbonProxySpringAnimation("position")
   position.fromValue = NSValue(point: start); position.toValue = NSValue(point: end)
@@ -1873,6 +1913,41 @@ func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoi
   return position.initialVelocity
 }
 
+
+/// Moves `layer` to `to`, springing over the remainder on top of the motions already
+/// under way, so a retarget keeps their velocity. `shift` points of the move follow at
+/// once: the strip scrolling under the pointer.
+func ribbonProxyRetarget(_ layer: CALayer, to: CGRect, following shift: CGFloat) {
+  let presented = layer.presentation() ?? layer
+  var start = CGPoint(x: layer.position.x + shift, y: layer.position.y)
+  // A layout's own motion runs from absolute values: it continues from where it shows.
+  if layer.animation(forKey: "position") != nil {
+    start = CGPoint(x: presented.position.x + shift, y: presented.position.y)
+    layer.removePositionAnimations()
+  }
+  let size = presented.bounds.size
+  layer.removeAnimation(forKey: "bounds.size")
+  layer.frame = to
+  let offset = CGPoint(x: start.x - layer.position.x, y: start.y - layer.position.y)
+  if hypot(offset.x, offset.y) >= 0.5 {
+    let spring = ribbonProxySpringAnimation("position")
+    spring.isAdditive = true
+    spring.fromValue = NSValue(point: offset); spring.toValue = NSValue(point: .zero)
+    ribbonProxyStartNow(spring, on: layer, key: ribbonProxyRetargetKey + UUID().uuidString)
+  }
+  if size != to.size { ribbonProxySpring(layer, "bounds.size", NSValue(size: size), NSValue(size: to.size)) }
+}
+
+private let ribbonProxyRetargetKey = "retarget."
+
+extension CALayer {
+  /// The absolute motion and every retarget stacked on it.
+  func removePositionAnimations() {
+    for key in animationKeys() ?? [] where key == "position" || key.hasPrefix(ribbonProxyRetargetKey) {
+      removeAnimation(forKey: key)
+    }
+  }
+}
 
 /// The pointer's carried window: lifted while carried, then released into its slot.
 enum RibbonProxyDrag: Equatable {
@@ -2064,11 +2139,17 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
         let frame = ribbonProxyLocal(native, in: area)
         return CGPoint(x: frame.midX - local.x, y: frame.midY - local.y)
       } ?? CGPoint(x: layer.position.x - local.x, y: layer.position.y - local.y)
-      layer.removeAnimation(forKey: "position")
-      layer.position = CGPoint(x: local.x + offset.x, y: local.y + offset.y)
+      layer.removePositionAnimations()
+      var position = CGPoint(x: local.x + offset.x, y: local.y + offset.y)
+      // Like the native window it stands for, the proxy stops at the menu bar: under it,
+      // the menu bar shows the wallpaper and hid the window's top.
+      if let visibleTop = RibbonProxyStore.shared.screen(containing: area)?.visibleFrame.y {
+        position.y = min(position.y, area.y + area.height - visibleTop - layer.bounds.height / 2)
+      }
+      layer.position = position
       for guest in guests {
         let there = ribbonProxyLocal(point, in: guest.area)
-        guest.layer.removeAnimation(forKey: "position")
+        guest.layer.removePositionAnimations()
         guest.layer.position = CGPoint(x: there.x + offset.x, y: there.y + offset.y)
       }
       mode = .carry(id: id, layer: layer, area: area, grab: offset)
@@ -2097,7 +2178,7 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
             : base.x + base.width <= stretch.base.x + 1 ? left : 0
           let moved = ribbonProxyLocal(Rect(x: base.x + shift, y: base.y, width: base.width, height: base.height),
             in: stretch.area)
-          layer.removeAnimation(forKey: "position")
+          layer.removePositionAnimations()
           layer.position = CGPoint(x: moved.midX, y: moved.midY)
         }
       }
@@ -2105,7 +2186,7 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
     case .pan(let pan):
       let shift = pan.shift(travel: panTravel.flatMap { $0.id == pan.id ? $0.travel : nil } ?? 0)
       for (layer, rest) in pan.ribbon {
-        layer.removeAnimation(forKey: "position")
+        layer.removePositionAnimations()
         layer.position = pan.vertical ? CGPoint(x: rest.x, y: rest.y - shift) : CGPoint(x: rest.x + shift, y: rest.y)
       }
     }

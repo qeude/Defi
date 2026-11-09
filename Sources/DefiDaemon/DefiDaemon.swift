@@ -170,11 +170,18 @@ final class Daemon {
   var proxyWorkspaceOrders: [MonitorID: [WorkspaceID]] = [:]
   /// The window released by a proxied drop, until its drop layout is applied.
   var proxyDroppedWindowID: WindowID?
+  /// The gesture ended in a drop on the overlay: what the native window does after it,
+  /// such as macOS filling the screen on a release in the menu bar, is no resize to learn.
+  var mouseGestureDroppedOnOverlay = false
   /// The held window moved or resized, so a button-up ends the gesture even before
   /// its release event lands.
   var mouseGestureChangedWindowFrame = false
   /// The drop the overlay is previewing during a drag; applied for real on release.
   var proxyPreviewTarget: MouseDropTarget?
+  /// Scrolls the strip under a dragged window held at a side edge, on the overlay only.
+  var dragEdgeScroll: DragEdgeScroll?
+  /// The edge scroll offset the overlay last drew, while it draws one.
+  var presentedEdgeScrollOffset: Double?
   var mouseGestureInitialFrame: Rect?
   var mouseGestureScrollAnchor: WorkspaceScrollAnchor?
   var mouseGestureDisplayedOriginFrames: [WindowID: Rect] = [:]
@@ -447,6 +454,7 @@ final class Daemon {
       } ?? true
     if liveBorderGesture {
       setTimerFrequency(min(activeDisplayRefreshRate, 120))
+      advanceDragEdgeScroll()
     }
     if scrollAnimations.isEmpty && !liveBorderGesture {
       if frameNotificationsSuspended {

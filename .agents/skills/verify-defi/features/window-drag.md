@@ -3,17 +3,18 @@
 ## Sub-features
 
 - Dragging a tiled window by its title bar moves only that window, never its whole column.
-- While the button is held, the proxy overlay lays the other windows out as the drop would and marks the carried window's slot. Column membership does not change until release.
+- As the drag starts, the other windows close up the carried window's place once; while the button is held nothing else moves and a translucent band marks the drop. Column membership does not change until release, which moves everything once.
 - Release commits once to the previewed target: extraction from a stack (the rest of the stack keeps its order and rebalances), moving a single column across neighbors, stacking into the column under the pointer, or insertion on another monitor's active workspace.
 - Releasing over the window's own column, or dragging out and back to the origin, changes nothing; the window returns to its slot.
-- The middle half of another column stacks the window into it. Its outer quarters and the gaps target the gap between columns.
+- The closest edge to the pointer wins: a gap between columns opens a new column, a border between two windows of the column under the pointer (or its bottom) stacks there. Another column's top counts only once the pointer enters the menu bar above it or reaches the screen's top edge; in its own stack the top counts like any border.
+- The target follows the pointer every frame, with an 8 pt hysteresis on boundaries; release commits the shown one.
 - A stack the window's minimum heights cannot fit gets a red outline over the column and opens no slot; releasing there changes nothing.
 - Over its own stacked column, the preview shows the row under the pointer, among the other windows, and release commits it. Off every display, the native drop path decides as before.
-- Not in this slice: edge scrolling to offscreen columns (#97).
+- Holding the window at a side edge scrolls the strip to offscreen columns (#97).
 
 ## How to get to it (user POV)
 
-Grab the title bar of any tiled window and drag it sideways into the outer quarter of a neighboring column. The other windows slide apart on the overlay; let go to drop. Floating windows move freely as before and never show a preview.
+Grab the title bar of any tiled window and drag it toward the gap between two columns. The others close up once, a band marks the gap, and nothing else moves until you let go.
 
 ## Driving it with cliclick and fixture windows
 

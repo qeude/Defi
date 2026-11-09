@@ -49,14 +49,19 @@ public final class MacOSPlatform {
   public func windowServerFrame(_ windowID: WindowID) -> Rect? {
     ribbonProxyNativeFrames([windowID])[windowID]
   }
-  /// Shows the layout a drop at the pointer would produce, on the overlay only.
-  /// `frames` cover every display: a drop on another one closes the gap here and opens
-  /// the slot there. `rejectedFrame` marks a column the drop cannot join.
-  public func presentWindowProxyPreview(_ frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?) {
+  /// Marks where a drop at the pointer would land, on the overlay only. `frames` place every
+  /// window on every display as the strip stands without the held one, which keeps its
+  /// landing slot; `hint` marks the drop, and `rejectedFrame` a column it cannot join. `scroll` names
+  /// the windows of a strip scrolled by `shift` points since the last preview: they follow
+  /// at once instead of springing.
+  public func presentWindowProxyPreview(
+    _ frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?, hint: Rect? = nil,
+    scroll: (shift: Double, windowIDs: Set<WindowID>)? = nil
+  ) {
     guard windowProxiesEnabled else { return }
-    windowProxyPreview = (frames, heldWindowID, rejectedFrame)
+    windowProxyPreview = (frames, heldWindowID, rejectedFrame, hint)
     hostWindowProxyPreview()
-    presentPendingWindowProxyPreview()
+    presentPendingWindowProxyPreview(scroll: scroll)
   }
   /// The pointer let go: the next drag starts without a preview.
   public func endWindowProxyPreview() { windowProxyPreview = nil }
@@ -72,7 +77,7 @@ public final class MacOSPlatform {
       NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
     }
   }
-  private var windowProxyPreview: (frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?)?
+  private var windowProxyPreview: (frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?, hint: Rect?)?
   private var windowProxyHostRetryAt: TimeInterval = 0
 
   /// Puts the display the drop would land on (not the carried window's own) on its
@@ -80,7 +85,7 @@ public final class MacOSPlatform {
   @discardableResult
   private func hostWindowProxyPreview() -> Bool {
     let now = ProcessInfo.processInfo.systemUptime
-    guard RibbonProxyPresenter.isCarrying, let (frames, id, _) = windowProxyPreview, let slot = frames[id],
+    guard RibbonProxyPresenter.isCarrying, let (frames, id, _, _) = windowProxyPreview, let slot = frames[id],
       now >= windowProxyHostRetryAt,
       let monitor = windowProxyMonitors.first(where: {
         !$0.windowIDs.contains(id) && slot.ribbonIntersects($0.viewport)
@@ -207,10 +212,10 @@ public final class MacOSPlatform {
   private var pressedWindow: (id: WindowID, frame: Rect, edgePointerX: Double?)?
   private var scrollPanDisplay: CGDirectDisplayID?
 
-  private func presentPendingWindowProxyPreview() {
-    guard let (frames, id, rejectedFrame) = windowProxyPreview else { return }
+  private func presentPendingWindowProxyPreview(scroll: (shift: Double, windowIDs: Set<WindowID>)? = nil) {
+    guard let (frames, id, rejectedFrame, hint) = windowProxyPreview else { return }
     for presenter in RibbonProxyPresenter.all {
-      presenter.preview(frames, heldWindowID: id, rejectedFrame: rejectedFrame)
+      presenter.preview(frames, heldWindowID: id, rejectedFrame: rejectedFrame, hint: hint, scroll: scroll)
     }
   }
   private var windowProxyCarryRetryAt: TimeInterval = 0
