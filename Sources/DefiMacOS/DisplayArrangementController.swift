@@ -236,7 +236,7 @@ public final class DisplayArrangementController {
       // A UUID missing during wake or startup must not turn a known display into a new
       // set: keep the identity the display already has until it disconnects.
       let fallback = "#\(id.rawValue)"
-      let known = appliedIdentities[id]
+      let known = appliedIdentities[id] ?? savedState?.identities[id]
       let identity = displayIdentity(id).map { "\($0)\(fallback)" }
       return (id, known == fallback ? fallback : identity ?? known ?? fallback)
     })

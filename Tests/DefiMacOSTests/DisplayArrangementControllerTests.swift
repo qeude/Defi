@@ -620,6 +620,34 @@ struct DisplayArrangementControllerTests {
   }
 
   @Test
+  func `A restart without the hardware identity recovers the saved desk`() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let stateURL = directory.appending(path: "arrangement.json")
+    let desk = [
+      first: Rect(x: 0, y: 0, width: 1_512, height: 982),
+      second: Rect(x: 1_512, y: 0, width: 1_920, height: 1_080),
+    ]
+    var current = desk
+    var identity: String? = "office"
+    func controller() -> DisplayArrangementController {
+      DisplayArrangementController(
+        readFrames: { current },
+        applyFrames: { frames, _ in current = frames; return .success },
+        primaryDisplay: { first },
+        displayIdentity: { $0 == self.first ? "laptop" : identity },
+        stateURL: stateURL, sessionID: "s"
+      )
+    }
+    #expect(controller().reconcile())
+    identity = nil // macOS kept the staircase; the UUID is not available yet.
+    let restarted = controller()
+    #expect(!restarted.reconcile())
+    #expect(restarted.status == "isolated")
+    #expect(restarted.deskFrames == desk)
+  }
+
+  @Test
   func `A display lost during a failed apply is reconciled again when it returns`() {
     let desk = [
       first: Rect(x: 0, y: 0, width: 1_512, height: 982),
