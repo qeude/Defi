@@ -54,6 +54,7 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
   public let id: String
   public let position: Int
   public let name: String?
+  public let icon: String?
   public let kind: WorkspaceKind
   public let active: Bool
   public let windowCount: Int
@@ -69,11 +70,13 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
     active: Bool,
     windowCount: Int,
     applications: [String],
-    focusedApplication: String?
+    focusedApplication: String?,
+    icon: String? = nil
   ) {
     self.id = id
     self.position = position
     self.name = name
+    self.icon = icon
     self.kind = kind
     self.active = active
     self.windowCount = windowCount
@@ -87,7 +90,8 @@ public func makeWorkspaceStateSnapshot(
   monitors: [Monitor],
   windows: [WindowID: Window],
   displayOrder: [MonitorID],
-  focusedMonitorID: MonitorID?
+  focusedMonitorID: MonitorID?,
+  workspaceIcons: [String: String] = [:]
 ) -> WorkspaceStateSnapshot {
   WorkspaceStateSnapshot(
     focusedMonitorID: focusedMonitorID?.rawValue,
@@ -110,7 +114,8 @@ public func makeWorkspaceStateSnapshot(
             active: workspace.id == monitor.activeWorkspace,
             windowCount: workspaceWindows.count,
             applications: Array(Set(workspaceWindows.map(\.appID))).sorted(),
-            focusedApplication: focusedWindowID.flatMap { windows[$0]?.appID }
+            focusedApplication: focusedWindowID.flatMap { windows[$0]?.appID },
+            icon: workspace.name.flatMap { workspaceIcons[$0] }
           )
         }
       )
