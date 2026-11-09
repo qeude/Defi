@@ -29,7 +29,8 @@ extension Daemon {
       monitors: state.monitors,
       windows: state.windows,
       displayOrder: latestMonitors.map(\.id),
-      focusedMonitorID: activeMonitorID
+      focusedMonitorID: activeMonitorID,
+      workspaceIcons: config.workspaces.icons
     )
   }
 
@@ -64,13 +65,15 @@ extension Daemon {
     if lastPublishedWorkspaceState != nil,
       lastWorkspacePublishState == state,
       lastWorkspacePublishDisplayOrder == displayOrder,
-      lastWorkspacePublishFocusedMonitorID == activeMonitorID
+      lastWorkspacePublishFocusedMonitorID == activeMonitorID,
+      lastWorkspacePublishIcons == config.workspaces.icons
     {
       return
     }
     lastWorkspacePublishState = state
     lastWorkspacePublishDisplayOrder = displayOrder
     lastWorkspacePublishFocusedMonitorID = activeMonitorID
+    lastWorkspacePublishIcons = config.workspaces.icons
     let snapshot = currentWorkspaceState()
     eventStreamHub.publish(
       EventStreamState(workspaces: snapshot, windows: currentWindowList().windows)

@@ -132,6 +132,7 @@ final class Daemon {
   var lastWorkspacePublishState: RuntimeState?
   var lastWorkspacePublishDisplayOrder: [MonitorID] = []
   var lastWorkspacePublishFocusedMonitorID: MonitorID?
+  var lastWorkspacePublishIcons: [String: String] = [:]
   var timer: DispatchSourceTimer?
   var timerFrequencyHz = 2.0
   var tickScheduled = false

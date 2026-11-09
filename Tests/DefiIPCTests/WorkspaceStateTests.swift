@@ -43,7 +43,8 @@ struct WorkspaceStateTests {
       monitors: monitors,
       windows: windows,
       displayOrder: [secondMonitor, firstMonitor],
-      focusedMonitorID: secondMonitor
+      focusedMonitorID: secondMonitor,
+      workspaceIcons: ["web": "globe"]
     )
 
     #expect(snapshot.monitors.map(\.id) == [20, 10])
@@ -71,6 +72,11 @@ struct WorkspaceStateTests {
       encodedWorkspaces.first(where: { $0["name"] as? String == "web" })
     )
     #expect(encodedWeb["occupied"] as? Bool == true)
+    #expect(encodedWeb["icon"] as? String == "globe")
+    let encodedDev = try #require(
+      encodedWorkspaces.first(where: { $0["name"] as? String == "dev" })
+    )
+    #expect(encodedDev["icon"] == nil)
   }
 
 }
