@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import DefiCore
 import DefiModel
@@ -13,6 +14,9 @@ public final class DisplayArrangementController {
   private var appliedFrames: [MonitorID: Rect] = [:]
   private var savedArrangements: [Set<MonitorID>: [MonitorID: Rect]] = [:]
   private var pending = true
+  private var suspended = false
+  private var suspensionChanged = false
+  private var activationObserver: NSObjectProtocol?
   private let readFrames: () -> [MonitorID: Rect]
   private let applyFrames: ([MonitorID: Rect], CGConfigureOption) -> CGError
   private let primaryDisplay: () -> MonitorID
@@ -65,6 +69,33 @@ public final class DisplayArrangementController {
 
   public var needsReconciliation: Bool { pending }
 
+  /// System Settings shows and edits the technical arrangement: show the desk there so
+  /// the user sees and rearranges their real displays, and restore the staircase after.
+  public func suspendWhileSystemSettingsIsActive(_ changed: @escaping @MainActor () -> Void) {
+    let systemSettings = "com.apple.systempreferences"
+    activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+      forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+    ) { [weak self] notification in
+      let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+      let active = application?.bundleIdentifier == systemSettings
+      MainActor.assumeIsolated {
+        if self?.setSuspended(active) == true { changed() }
+      }
+    }
+    // Defi usually starts right after the Accessibility grant, inside System Settings.
+    let frontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    if setSuspended(frontmost == systemSettings) { changed() }
+  }
+
+  /// Returns true when the caller must reconcile.
+  func setSuspended(_ suspended: Bool) -> Bool {
+    guard suspended != self.suspended else { return false }
+    self.suspended = suspended
+    suspensionChanged = true
+    pending = true
+    return true
+  }
+
   public func invalidate() {
     pointerRouter.update(technical: [:], desk: [:])
     pending = true
@@ -91,7 +122,7 @@ public final class DisplayArrangementController {
       savedArrangements[Set(current.keys)] = deskFrames
       status = current == deskFrames ? "native" : "isolated"
     }
-    if current == appliedFrames {
+    if current == appliedFrames, !suspensionChanged {
       pointerRouter.update(technical: current, desk: status == "native" ? current : deskFrames)
       return false
     }
@@ -100,6 +131,7 @@ public final class DisplayArrangementController {
       pending = true
       return false
     }
+    suspensionChanged = false
     defer { saveArrangement() }
     let sameDisplays = ids == Set(appliedFrames.keys)
     let sizesChanged = sameDisplays && current.contains {
@@ -139,11 +171,12 @@ public final class DisplayArrangementController {
       status = "native"
       return false
     }
-    let desired = isolatedDisplayArrangement(current, primary: primary)
+    let desired = suspended ? deskFrames : isolatedDisplayArrangement(current, primary: primary)
+    let applied = suspended ? "suspended" : "isolated"
     guard desired != current else {
       appliedFrames = current
       pointerRouter.update(technical: current, desk: deskFrames)
-      status = "isolated"
+      status = applied
       return false
     }
     pointerRouter.update(technical: [:], desk: [:])
@@ -161,7 +194,7 @@ public final class DisplayArrangementController {
     }
     appliedFrames = observed
     pointerRouter.update(technical: observed, desk: deskFrames)
-    status = "isolated"
+    status = applied
     return true
   }
 

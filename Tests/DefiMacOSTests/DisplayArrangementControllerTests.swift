@@ -465,4 +465,41 @@ struct DisplayArrangementControllerTests {
     #expect(restarted.status == "ambiguous")
     #expect(restarted.deskFrames.isEmpty)
   }
+
+  @Test
+  func `System Settings shows the desk, accepts a rearrangement, and the staircase returns after`() {
+    let desk = [
+      first: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      second: Rect(x: 1_000, y: 0, width: 1_500, height: 900),
+    ]
+    var current = desk
+    let controller = DisplayArrangementController(
+      readFrames: { current },
+      applyFrames: { frames, _ in current = frames; return .success },
+      primaryDisplay: { first }
+    )
+    #expect(controller.reconcile())
+    #expect(controller.status == "isolated")
+    #expect(controller.setSuspended(true))
+    #expect(!controller.setSuspended(true))
+    #expect(controller.reconcile())
+    #expect(current == desk)
+    #expect(controller.status == "suspended")
+    #expect(!controller.reconcile()) // Pending was consumed: no write without a change.
+    // The user moves the external display to the left while System Settings is open.
+    let rearranged = [
+      first: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      second: Rect(x: -1_500, y: 0, width: 1_500, height: 900),
+    ]
+    current = rearranged
+    controller.invalidate()
+    #expect(!controller.reconcile())
+    #expect(current == rearranged)
+    #expect(controller.deskFrames == rearranged)
+    #expect(controller.setSuspended(false))
+    #expect(controller.reconcile())
+    #expect(controller.status == "isolated")
+    #expect(isDisplayStaircase(current, primary: first))
+    #expect(controller.deskFrames == rearranged)
+  }
 }
