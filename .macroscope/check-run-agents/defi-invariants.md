@@ -19,8 +19,8 @@ maxBudgetPerPR: 3
 
 # Defi invariants review
 
-Defi's project rules follow. Use the sections from "Private platform API policy"
-through "Configuration"; ignore the verification and Git sections.
+Defi's project rules follow. Ignore the Verification, Git, and Agent skills
+sections.
 
 @/AGENTS.md
 
