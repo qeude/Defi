@@ -15,7 +15,7 @@ not because it replaces the compositor. Priorities, in order, are:
 
 Real windows move through public Accessibility, under a captured overlay that
 draws the motion, and private APIs never move third-party windows
-([ADR 0001](docs/adr/0001-keep-macos-authoritative.md)).
+([macOS authority](docs/internals/macos-authority.md)).
 
 ## Performance contract
 

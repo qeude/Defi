@@ -5,9 +5,9 @@ How the engineering skills should consume this repo's domain documentation when 
 ## Before exploring, read these
 
 - **`CONTEXT.md`** at the repo root.
-- **`docs/adr/`** — read ADRs that touch the area you're about to work in.
+- **`docs/internals/`** — read the pages that touch the area you're about to work in.
 
-If any of these files don't exist, proceed silently. The `/domain-modeling` skill creates them lazily when terms or decisions are resolved.
+If any of these files don't exist, proceed silently. The `/domain-modeling` skill creates them lazily when terms or decisions are resolved; record decisions in `docs/internals/`, not as numbered ADRs.
 
 ## File structure
 
@@ -15,13 +15,13 @@ Single-context repo:
 
 /
 ├── CONTEXT.md
-├── docs/adr/
+├── docs/internals/
 └── Sources/
 
 ## Use the glossary's vocabulary
 
 When output names a domain concept, use the term as defined in `CONTEXT.md`. If the concept is not in the glossary yet, reconsider the terminology or note the gap for `/domain-modeling`.
 
-## Flag ADR conflicts
+## Flag internal-doc conflicts
 
-If output contradicts an existing ADR, surface it explicitly rather than silently overriding it.
+If output contradicts a page in `docs/internals/`, surface it explicitly rather than silently overriding it. When the change is intended, rewrite that page in the same change.
