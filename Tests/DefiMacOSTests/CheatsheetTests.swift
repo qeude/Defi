@@ -151,7 +151,11 @@ struct CheatsheetHotKeyTests {
 private func turnMainRunLoop() { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
 
 // Serialized: both tests find their panel by title, and a closing panel stays visible while it fades.
-@MainActor @Suite(.serialized)
+// These order a real panel on screen, so they run in CI and with DEFI_E2E=1, never on a developer's desktop.
+@MainActor @Suite(.serialized, .enabled(
+  if: ProcessInfo.processInfo.environment["CI"] != nil
+    || ProcessInfo.processInfo.environment["DEFI_E2E"] == "1",
+  "Shows the real cheat sheet panel on screen"))
 struct CheatsheetPanelTests {
   @Test
   func `Panel fits its content and never restores a closed panel or takes focus`() async throws {

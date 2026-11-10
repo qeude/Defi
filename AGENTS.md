@@ -1,6 +1,43 @@
 # Defi Agent Notes
 
-Defi remains macOS-native, Niri-inspired, and scrolling-columns only.
+Defi remains macOS-native, Niri-inspired, and scrolling-columns only. Before
+inventing a behavior Niri already has, check how Niri does it.
+
+Prefer the smallest model that makes the correct behavior unsurprising. Remove
+complexity that no longer earns its place instead of preserving it. If a rule
+here fights the task in front of you, say so plainly and get the maintainer's
+sign-off before breaking it.
+
+## Vocabulary
+
+- **maintainer** means the developer you are talking to. Their Mac is also a
+  test bench: its desktop, installed Defi, and `config.toml` are in daily use.
+- **user** means anyone running Defi. Speak of the maintainer's desktop when you
+  mean the real machine you work on.
+- **installed build** means `~/Applications/Defi.app` and its single
+  `defi-daemon`. Several agents share it; whoever installs last replaces the
+  others' builds.
+- Domain terms (monitor, desk, workspace, column, parking) follow `CONTEXT.md`.
+
+## Ways to hurt the maintainer's session
+
+1. **Showing things on their desktop.** `make verify` must stay invisible: a
+   test that orders a real window or panel on screen runs only in CI or with
+   `DEFI_E2E=1`. Run repros in the `defi-e2e` VM, or under the desktop
+   reservation described under Verification.
+2. **Typing into the frontmost app.** Synthetic key events posted to the global
+   HID tap reach whatever app is frontmost, with any modifier still held: a
+   stray Command once closed windows and quit T3 Code. Post keys to the target
+   process, and load URLs with `open`.
+3. **Replacing someone else's build.** Before installing, state which commit you
+   install; afterwards report it and confirm exactly one `defi-daemon`. Install
+   with the identity the installed app already uses (see Runtime rules), or
+   macOS prompts again for Accessibility and Screen Recording.
+4. **Filling the disk.** Every `xctrace record` leaves a 3-7 GB
+   `instruments*.ktrace` in `$TMPDIR`, even after the `.trace` is deleted. Delete
+   traces, recordings, and VM artifacts as soon as you have read them.
+5. **Editing their configuration.** Never change the maintainer's
+   `~/.config/defi/config.toml`; point the daemon at a scratch config instead.
 
 ## Golden rule
 
@@ -43,8 +80,8 @@ their position and size change only through public Accessibility.
 - in shipped builds, Defi works with System Integrity Protection enabled and
   injects no code into another process
 - prototypes may try any other private API within those two limits; one ships
-  only with a gain measured beyond noise, a complete public fallback, and an ADR
-  ([ADR 0001](docs/adr/0001-keep-macos-authoritative.md))
+  only with a gain measured beyond noise, a complete public fallback, and a
+  reason recorded in [macOS authority](docs/internals/macos-authority.md)
 
 ## Screen Recording
 
@@ -76,6 +113,33 @@ Out of scope:
 - compositor replacement
 - mouse-first shell
 
+## Hit every surface
+
+The most common defect in Defi is a change that works on the path you tested
+and is missing everywhere else. Before calling a behavior change done, walk
+this list and say which entries applied:
+
+- **Entry points.** Hotkey, `defi` CLI and IPC, event stream, menu bar,
+  Settings, cheatsheet, Overview, mouse, drag, and trackpad gestures. A command
+  that works in the strip must also be handled, or deliberately refused, while
+  the Overview is open.
+- **Settings and docs.** Every user-facing option is reachable in Settings, not
+  only in TOML, with its default in code and in `CONFIGURATION.md`. The README
+  explains why each permission is needed.
+- **Displays.** One and two displays, the display staircase, disconnection and
+  reconnection, and moves across monitors. When the two-display lane did not
+  run, say so.
+- **Permissions.** Accessibility and Screen Recording granted, denied, and
+  revoked. Never prompt for a permission that is already granted.
+- **Defaults and modifiers.** A changed default, binding, or `mod` combination
+  reaches the cheatsheet, Settings, tests, and existing configs. A config valid
+  for this build may reach an older installed build; fail with a clear error.
+- **Reverse states.** A way in needs a way out: stack and unstack, enter and
+  leave, show and hide.
+- **Restart.** State must survive `defi service restart` within a session, and
+  caches must not need a restart to clear.
+- **Docs.** Check whether `docs/internals/` or `CONFIGURATION.md` became wrong.
+
 ## Runtime rules
 
 All state mutation passes through `DefiRuntime`.
@@ -85,11 +149,13 @@ competing event taps, socket ownership, AX writes, and visible layout glitches.
 
 - acquire the per-user instance lock before creating the IPC socket
 - use `defi service restart` for an installed build; never also use `open -n`
-- before replacing an installed bundle, preserve its code-signing identity; set
-  `DEFI_CODESIGN_IDENTITY` in the ignored `.env.local` when needed and verify
-  the replacement has the same designated requirement, because macOS treats a
-  changed requirement as different code and prompts for Accessibility and
-  Screen Recording again
+- before replacing an installed bundle, preserve its code-signing identity and
+  verify the replacement has the same designated requirement, because macOS
+  treats a changed requirement as different code and prompts for Accessibility
+  and Screen Recording again. The scripts reuse the installed app's certificate
+  unless `DEFI_DEVELOPMENT_TEAM` is set; when `.env.local` sets it, set
+  `DEFI_CODESIGN_IDENTITY` to the installed app's identity (`'Defi Release'` on
+  the maintainer's Mac)
 - stop the current instance before replacing the installed app bundle
 - after build/run verification, confirm exactly one `defi-daemon` process remains
 
@@ -178,6 +244,22 @@ persistent names only; ordinary workspaces come from the dynamic lifecycle.
 
 No compatibility aliases before first stable release. Ask before preserving obsolete config.
 
+## Documentation
+
+Most code changes need no documentation change; agents can read the code.
+
+- `docs/internals/` holds architectural decisions and their reasons,
+  constraints that span modules, and traps the source does not reveal. Before
+  adding a paragraph, ask what a maintainer would get wrong without it.
+- Keep a local reason in a short code comment; link to source instead of
+  copying it. Leave feature catalogs, field lists, and PR summaries to the code
+  and git history.
+- When a documented decision or constraint changes, rewrite or remove the
+  affected text in place, so each page describes Defi as it is now.
+- Track plans and active work in GitHub issues. A merged PR is the
+  implementation record. Keep temporary research outside the repository.
+- List every internal page in `docs/README.md`.
+
 ## Verification
 
 Choose verification by the changed behavior:
@@ -203,6 +285,22 @@ Choose verification by the changed behavior:
   reports the two-display lane under `desktop.not_run`; that lane is not
   covered, so name it in the handoff. The render budget is an opt-in perf
   lane (`DEFI_E2E_PERF=1`), outside pass/fail.
+
+### Tests
+
+- Fix a logic, state, or protocol bug with a test that fails on `main` first,
+  then the fix. A purely visual bug is proven by before and after recordings of
+  the installed build instead of a test.
+- Proof is observed behavior: a passing test that fails without the change, or
+  a recording of the installed build. "Verify passes" or "seen in the code" does
+  not show that a reported bug is fixed; reproduce it first.
+- Extend before you add: when an existing test or table covers the behavior,
+  add a case there. Test at the lowest layer that fails, once.
+- Drive time with a virtual clock, such as `VirtualObservationClock`, and await
+  the event or state that marks the milestone. Sleeps, polling loops, and
+  wall-clock deltas make tests slow and flaky; keep them to desktop E2E and
+  performance lanes.
+- Leave out tests for what types already guarantee, trivial logic, and copy.
 
 Complete the applicable checks and fix failures caused by the requested change
 before handoff. Report any check that could not run and why.
@@ -253,6 +351,15 @@ Use conventional branch names in `type/short-kebab-description` form. Prefer
 Write repository documentation, comments, commit messages, and PR text in English.
 Preserve user changes. Never revert unrelated work.
 
+## Style
+
+Take ideas from other window managers, but name only Niri in the repository and
+adapt ideas rather than copying code.
+
+Default to no comment. Write one only for a constraint, a platform quirk, or an
+invariant the code cannot show, in one line where you can. Leave history and
+the fix you just made to the commit message.
+
 ## Agent skills
 
 ### Issue tracker
@@ -265,4 +372,4 @@ Use the default canonical triage labels. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-This is a single-context repo using root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+This is a single-context repo using root `CONTEXT.md` and `docs/internals/`. See `docs/agents/domain.md`.
