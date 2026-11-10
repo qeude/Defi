@@ -201,7 +201,7 @@ files, so collect the following:
   Since v0.9.1, each `open-hold` also gives `oldestPicture` and `lastInput`: a picture
   older than the last input can show content from before a scroll. The matching
   `open-created` line describes what the app created (role, subrole, frame, window
-  layer, alpha) and the `verdict` that ended the hold. Quote both in the report.
+  layer, alpha) and the `verdict` of the hold's own check; a later window can supersede it. Quote both in the report.
   Read the lines within two seconds of the marker. A glitch with no `present` or
   `open-hold` near it did not come from a picture shown during a motion or a hold.
 - **Video.** Screen recordings show the overlay as the user sees it. Builds up to

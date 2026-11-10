@@ -888,9 +888,9 @@ final class RibbonProxyPresenter {
     let aged = windows.filter { window in
       WindowCaptureStore.shared.picture(window.id).map { now - $0.capturedAt > ribbonProxyPictureFreshness } == true
     }
-    aged.forEach(ribbonProxyCaptureNow)
     // A picture older than the last input may show content the user has since scrolled.
     let oldest = windows.compactMap { WindowCaptureStore.shared.picture($0.id).map { now - $0.capturedAt } }.max() ?? 0
+    aged.forEach(ribbonProxyCaptureNow)
     let input = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
     ribbonProxyLogger.notice("open-hold pid=\(processID) recaptured=\(aged.count) oldestPicture=\(oldest, format: .fixed(precision: 2))s lastInput=\(input, format: .fixed(precision: 2))s")
   }

@@ -104,14 +104,14 @@ extension MacOSPlatform {
         let created = UncheckedSendable(value: element), checksOwnWindow = (previousWindowCount ?? 0) > 0
         let createdNumber = self?.windowIDProvider.windowID(for: element)
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+          if typesWithInputMethod {
+            if isTextInputAccessory(created.value) { return }
+            hold()
+          }
           // Read last, once the hold is decided, so the log never delays it.
           var verdict = "new-window-timeout"
           defer {
             ribbonProxyLogger.notice("open-created pid=\(processID) windows=\(previousWindowCount ?? 0) verdict=\(verdict, privacy: .public) \(createdWindowSummary(created.value, number: createdNumber), privacy: .public)")
-          }
-          if typesWithInputMethod {
-            if isTextInputAccessory(created.value) { verdict = "input-method"; return }
-            hold()
           }
           // Picture in picture floats above the overlay and never opens a column: holding
           // the screen for its layout froze every window behind it.
