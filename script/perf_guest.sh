@@ -22,12 +22,13 @@ wait_for() { # wait_for SECONDS COMMAND...
     sleep 0.2
   done
 }
+# The guest may manage windows of its own, such as a Finder window it opens at login.
 settled() {
   local status
   status="$("$CLI" status 2>/dev/null)" || return 1
-  [[ "$status" == running* && "$status" == *" windows=$WINDOWS "* && "$status" == *axPending=false* &&
+  [[ "$status" == running* && "$status" == *axPending=false* &&
     "$status" == *focusPending=false* && "$status" == *animating=false* && "$status" == *"drift=0["* &&
-    "$status" == *"settling=0 "* ]]
+    "$status" == *"settling=0 "* ]] && (($(sed -E 's/.* windows=([0-9]+) .*/\1/' <<<"$status") >= WINDOWS))
 }
 cpu_seconds() { # ps TIME is [[DD-]HH:]MM:SS.ss
   ps -o time= -p "$1" | awk -F: '{ s = 0; for (i = 1; i <= NF; i++) s = s * 60 + $i; print s }'
