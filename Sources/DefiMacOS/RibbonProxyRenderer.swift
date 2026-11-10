@@ -892,7 +892,7 @@ final class RibbonProxyPresenter {
     // A picture older than the last input may show content the user has since scrolled.
     let oldest = windows.compactMap { WindowCaptureStore.shared.picture($0.id).map { now - $0.capturedAt } }.max() ?? 0
     let input = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
-    ribbonProxyLogger.notice("open-hold pid=\(processID) recaptured=\(aged.count) oldestPicture=\(String(format: "%.2f", oldest))s lastInput=\(String(format: "%.2f", input))s")
+    ribbonProxyLogger.notice("open-hold pid=\(processID) recaptured=\(aged.count) oldestPicture=\(oldest, format: .fixed(precision: 2))s lastInput=\(input, format: .fixed(precision: 2))s")
   }
 
   /// The held window is not one the ribbon opens (a dialog, a native tab): the screen
