@@ -184,8 +184,13 @@ files, so collect the following:
   `[animation]` in the config, which Defi reloads on save. Ask whether the glitch still
   happens. If it stops, the overlay or its window captures are involved. Restore the
   previous value afterwards unless the user keeps it as a workaround.
-- **Overlay log.** The overlay logs at debug level, which macOS does not keep for a
-  later `log show`. Before the user reproduces, start:
+- **Overlay log.** macOS keeps the overlay log, so a glitch from the last hours can be
+  read afterwards. Ask the user roughly when it happened, then read around that time:
+
+      log show --last 2h --style compact --predicate 'subsystem == "com.qeude.defi" AND category == "ribbon-proxy"' > ~/Desktop/defi-overlay.txt
+
+  If the time is unknown, or to see the `capture-fast` lines, which macOS does not keep,
+  stream instead while the user reproduces:
 
       log stream --level debug --style compact --predicate 'subsystem == "com.qeude.defi" AND category == "ribbon-proxy"' > ~/Desktop/defi-overlay.txt
 
@@ -193,6 +198,10 @@ files, so collect the following:
   the stream with Control-C. The marker's `timestamp`, in UTC, dates the glitch in the
   log. `present` and `fade` mark a motion drawn from pictures, `open-hold` a screen
   frozen while an app opens a window, and `capture-fast` a new picture of a window.
+  Since v0.9.1, each `open-hold` also gives `oldestPicture` and `lastInput`: a picture
+  older than the last input can show content from before a scroll. The matching
+  `open-created` line describes what the app created (role, subrole, frame, window
+  layer, alpha) and the `verdict` that ended the hold. Quote both in the report.
   Read the lines within two seconds of the marker. A glitch with no `present` or
   `open-hold` near it did not come from a picture shown during a motion or a hold.
 - **Video.** Screen recordings show the overlay as the user sees it. Builds up to

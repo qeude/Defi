@@ -104,19 +104,26 @@ extension MacOSPlatform {
         let created = UncheckedSendable(value: element), checksOwnWindow = (previousWindowCount ?? 0) > 0
         let createdNumber = self?.windowIDProvider.windowID(for: element)
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
+          // Read last, once the hold is decided, so the log never delays it.
+          var verdict = "new-window-timeout"
+          defer {
+            ribbonProxyLogger.notice("open-created pid=\(processID) windows=\(previousWindowCount ?? 0) verdict=\(verdict, privacy: .public) \(createdWindowSummary(created.value, number: createdNumber), privacy: .public)")
+          }
           if typesWithInputMethod {
-            if isTextInputAccessory(created.value) { return }
+            if isTextInputAccessory(created.value) { verdict = "input-method"; return }
             hold()
           }
           // Picture in picture floats above the overlay and never opens a column: holding
           // the screen for its layout froze every window behind it.
           if let createdNumber, windowFloatsAboveRibbon(createdNumber) {
+            verdict = "floats"
             return NavigationActor.enqueue { [weak self] in
               if self?.latestOpening == opening { RibbonProxyPresenter.releaseHolds() }
             }
           }
           let shown = applicationShownWindowIDs(processID)
           if checksOwnWindow, let frame = ownWindowFrame(created.value) {
+            verdict = frame == nil ? "dialog-or-tab" : "own-window"
             NavigationActor.enqueue { [weak self] in
               guard let self, latestOpening == opening else { return }
               releaseOpeningHoldUnlessOwnWindow(processID, at: frame)
@@ -130,6 +137,7 @@ extension MacOSPlatform {
           let deadline = ProcessInfo.processInfo.systemUptime + 0.8
           while ProcessInfo.processInfo.systemUptime < deadline {
             if !applicationShownWindowIDs(processID).isSubset(of: shown) {
+              verdict = "new-window"
               return NavigationActor.enqueue { RibbonProxyPresenter.extendHolds() }
             }
             usleep(20_000)
@@ -852,6 +860,26 @@ func applicationSingleWindow(_ processID: pid_t) -> AXUIElement? {
   guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
     let windows = value as? [AXUIElement], windows.count == 1 else { return nil }
   return windows[0]
+}
+
+/// What an app created, for the overlay log: no title, only what tells such windows apart.
+func createdWindowSummary(_ element: AXUIElement, number: CGWindowID?) -> String {
+  let ax = AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [element]) {
+    var values: CFArray?
+    AXUIElementCopyMultipleAttributeValues(element,
+      [kAXRoleAttribute, kAXSubroleAttribute, kAXPositionAttribute, kAXSizeAttribute] as CFArray, [], &values)
+    let read = values as? [AnyObject] ?? []
+    guard read.count == 4 else { return "role=unread" }
+    let frame = frameFromAXValues(positionValue: read[2], sizeValue: read[3])
+      .map { "\(Int($0.x)),\(Int($0.y)),\(Int($0.width))x\(Int($0.height))" } ?? "none"
+    return "role=\(read[0] as? String ?? "none") subrole=\(read[1] as? String ?? "none") frame=\(frame)"
+  }
+  guard let number, let server = ribbonProxyWindowDescriptions([number]).first else {
+    return "\(ax) window=\(number.map(String.init) ?? "none")"
+  }
+  return "\(ax) window=\(number) layer=\(server[kCGWindowLayer as String] as? Int ?? -1) "
+    + "alpha=\(server[kCGWindowAlpha as String] as? Double ?? -1) "
+    + "onscreen=\(server[kCGWindowIsOnscreen as String] as? Bool ?? false)"
 }
 
 private func isStandardWindow(_ element: AXUIElement) -> Bool {

@@ -786,6 +786,7 @@ extension MacOSPlatform {
           && frameDistance(latestObservedFrames[window.id] ?? window.frame, frame) <= 2
       }
     } ?? false
+    ribbonProxyLogger.notice("open-hold-own-window pid=\(processID) opensColumn=\(opensColumn)")
     if opensColumn { RibbonProxyPresenter.extendHolds() } else { RibbonProxyPresenter.releaseHolds() }
   }
 
