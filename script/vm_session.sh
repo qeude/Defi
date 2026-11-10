@@ -26,6 +26,15 @@ vm_start() {
   tart exec "$VM" /bin/sh -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && grep -qsF '$(cat "$KEY.pub")' ~/.ssh/authorized_keys || echo '$(cat "$KEY.pub")' >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys"
   vm 'sudo -n mdutil -a -i off >/dev/null 2>&1; defaults write com.apple.WindowManager StandardHideWidgets -int 1; mkdir -p ~/defi-e2e'
 
+  # Earlier sessions' traces and recordings fill the guest's 41 GB disk until a run fails mid-way.
+  vm 'sudo -n sh -s' <<'GUEST' || { echo "The VM guest disk is full even after cleaning; free space in it first" >&2; exit 1; }
+free_kb() { df -k /System/Volumes/Data | awk 'NR == 2 { print $4 }'; }
+find /Users/admin -xdev \( -name '*.trace' -o -name '*.ktrace' -o -name '*.mov' \) -mtime +0 -prune -exec rm -rf {} + 2>/dev/null
+rm -rf /private/var/folders/*/*/C/com.apple.dt.InstrumentsCLI/path_manager
+[ "$(free_kb)" -gt 3145728 ] || log erase --all >/dev/null
+[ "$(free_kb)" -gt 1572864 ]
+GUEST
+
   # Trim services Defi never touches; launchd keeps this across reboots, so it applies from the next boot.
   vm 'sudo -n sh -s' <<'GUEST'
 [ ! -e /var/db/defi-e2e-tuned ] || exit 0
