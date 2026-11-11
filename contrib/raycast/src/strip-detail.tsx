@@ -1,5 +1,6 @@
 import { Color, Image, List } from "@raycast/api";
 import type { DefiWindow } from "./parse";
+import type { Preview } from "./preview";
 import { stripColumns, stripImage } from "./strip";
 
 type Props = {
@@ -9,8 +10,8 @@ type Props = {
   dark: boolean;
   appIcon: (bundleID?: string) => Image.ImageLike | undefined;
   empty: string;
-  // A picture of the highlighted window above its strip; null when macOS refused to take it.
-  preview?: string | null;
+  // Defi's picture of the highlighted window above its strip, or why there is none.
+  preview?: Preview;
   children?: React.ReactNode;
 };
 
@@ -39,9 +40,7 @@ export function StripDetail({ windows, workspaceID, highlightID, dark, appIcon, 
   return (
     <List.Item.Detail
       markdown={[
-        preview === null
-          ? "_No picture of this window: allow Screen Recording for this launcher in System Settings, then reopen it._"
-          : preview && `![Window](${preview})`,
+        preview && ("picture" in preview ? `![Window](${preview.picture})` : `_${preview.problem}_`),
         stripImage(windows, workspaceID, highlightID, dark) || empty,
       ]
         .filter(Boolean)
