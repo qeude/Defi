@@ -9,13 +9,15 @@ type Props = {
   dark: boolean;
   appIcon: (bundleID?: string) => Image.ImageLike | undefined;
   empty: string;
+  // A picture of the highlighted window, shown above its strip.
+  preview?: string;
   children?: React.ReactNode;
 };
 
 const maxTagLength = 24;
 
 // The workspace's strip, then the caller's rows, then its columns named in order.
-export function StripDetail({ windows, workspaceID, highlightID, dark, appIcon, empty, children }: Props) {
+export function StripDetail({ windows, workspaceID, highlightID, dark, appIcon, empty, preview, children }: Props) {
   const columns = stripColumns(windows, workspaceID);
   const floating = windows.filter((window) => window.workspace?.id === workspaceID && window.floating);
   const onWorkspace = [...columns.flat(), ...floating];
@@ -36,7 +38,9 @@ export function StripDetail({ windows, workspaceID, highlightID, dark, appIcon, 
     ));
   return (
     <List.Item.Detail
-      markdown={stripImage(windows, workspaceID, highlightID, dark) || empty}
+      markdown={[preview && `![Window](${preview})`, stripImage(windows, workspaceID, highlightID, dark) || empty]
+        .filter(Boolean)
+        .join("\n\n")}
       metadata={
         <List.Item.Detail.Metadata>
           {children}

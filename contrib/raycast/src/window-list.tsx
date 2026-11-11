@@ -1,11 +1,12 @@
 import { Action, ActionPanel, Color, environment, Icon, Keyboard, List } from "@raycast/api";
 import { showFailureToast, useCachedState, useFrecencySorting } from "@raycast/utils";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { runAndClose } from "./defi";
 import { useDesktop } from "./desktop";
 import { ErrorView } from "./error-view";
 import { workspaceLabel, type DefiWindow, type DefiWorkspace } from "./parse";
 import { StripDetail } from "./strip-detail";
+import { capturePreview } from "./preview";
 import { stripColumns } from "./strip";
 import { workspaceAccessories, workspaceIcon } from "./workspace-icon";
 
@@ -86,6 +87,14 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
   // The focused window goes last: Enter on it would change nothing.
   const sorted = [...inScope.filter((window) => !window.focused), ...inScope.filter((window) => window.focused)];
   const dark = environment.appearance === "dark";
+  // Pictures of windows, taken one at a time for the selected row while the side pane is open.
+  const [selectedID, setSelectedID] = useState<string | null>(null);
+  const [previews, setPreviews] = useState<Record<string, string | undefined>>({});
+  useEffect(() => {
+    if (!showDetail || !selectedID || selectedID in previews) return;
+    setPreviews((taken) => ({ ...taken, [selectedID]: undefined }));
+    capturePreview(Number(selectedID)).then((preview) => setPreviews((taken) => ({ ...taken, [selectedID]: preview })));
+  }, [showDetail, selectedID]);
 
   const position = (window: DefiWindow) => {
     if (!window.workspace || !window.column) return "Floating";
@@ -166,6 +175,7 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
       searchBarAccessory={scopeMenu}
       searchText={searchText}
       onSearchTextChange={setSearchText}
+      onSelectionChange={setSelectedID}
       filtering
     >
       {emptyView()}
@@ -176,6 +186,7 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
         return (
           <List.Item
             key={window.id}
+            id={String(window.id)}
             icon={appIcon(window.appID) ?? Icon.Window}
             title={window.title || window.appName}
             subtitle={window.title ? window.appName : undefined}
@@ -212,6 +223,7 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                 dark={dark}
                 appIcon={appIcon}
                 empty=""
+                preview={previews[String(window.id)]}
               >
                 {window.title ? <List.Item.Detail.Metadata.Label title="Title" text={window.title} /> : null}
                 <List.Item.Detail.Metadata.Label title="App" text={window.appName} icon={appIcon(window.appID)} />
