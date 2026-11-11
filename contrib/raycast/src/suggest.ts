@@ -1,6 +1,11 @@
 import type { DefiWorkspace } from "./parse";
 
-export type Suggestion = { title: string; args: string[]; hud?: string };
+export type Suggestion = {
+  title: string;
+  args: string[];
+  kind: "width" | "workspace" | "column" | "window";
+  hud?: string;
+};
 
 // Commands whose argument is the search text: "60" sets a width, "+10" widens, "web" targets a workspace.
 export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggestion[] {
@@ -13,7 +18,11 @@ export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggest
     const [, sign, digits, unit] = width;
     const amount = Number(digits);
     if (!sign && !unit && amount >= 1 && amount <= 9) {
-      result.push({ title: `Go to Workspace ${amount}`, args: ["focus-workspace-position", digits] });
+      result.push({
+        title: `Go to Workspace ${amount}`,
+        args: ["focus-workspace-position", digits],
+        kind: "workspace",
+      });
     }
     const points = unit ? unit !== "%" : amount > 100;
     const shown = points ? `${amount} pt` : `${amount}%`;
@@ -21,7 +30,7 @@ export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggest
     if (sign ? amount > 0 : points || amount >= 5) {
       const value = `${sign ?? ""}${amount}${points ? "" : "%"}`;
       const title = !sign ? `Set Column Width to ${shown}` : `${sign === "+" ? "Widen" : "Narrow"} Column by ${shown}`;
-      result.push({ title, args: ["set-column-width", value], hud: title });
+      result.push({ title, args: ["set-column-width", value], kind: "width", hud: title });
     }
   }
 
@@ -30,15 +39,21 @@ export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggest
     const label = workspace.name;
     if (!label?.toLowerCase().startsWith(lowered)) continue;
     result.push(
-      { title: `Go to ${label}`, args: ["--monitor", String(workspace.display), "workspace", workspace.id] },
+      {
+        title: `Go to ${label}`,
+        args: ["--monitor", String(workspace.display), "workspace", workspace.id],
+        kind: "workspace",
+      },
       {
         title: `Move Column to ${label}`,
         args: ["move-column-to-workspace-name", workspace.id],
+        kind: "column",
         hud: `Column → ${label}`,
       },
       {
         title: `Move Window to ${label}`,
         args: ["move-window-to-workspace-name", workspace.id],
+        kind: "window",
         hud: `Window → ${label}`,
       },
     );

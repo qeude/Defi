@@ -8,7 +8,13 @@ export function ErrorView({ title, error }: { title: string; error: Error }) {
       icon={Icon.Warning}
       title={title}
       description={error.message}
-      actions={app && <ActionPanel>{<Action.Open title="Launch Defi" target={app} />}</ActionPanel>}
+      actions={
+        app && (
+          <ActionPanel>
+            <Action.Open title="Launch Defi" target={app} />
+          </ActionPanel>
+        )
+      }
     />
   );
 }

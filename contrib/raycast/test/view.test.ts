@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { parseWindows, parseWorkspaces } from "../src/parse.ts";
-import { stripColumns, stripMarkdown } from "../src/strip.ts";
+import { stripColumns, stripImage } from "../src/strip.ts";
 import { suggestions } from "../src/suggest.ts";
 
 const fixture = (name: string) => readFileSync(new URL(`fixtures/${name}`, import.meta.url), "utf8");
@@ -20,17 +20,14 @@ test("strip columns follow column and row, skipping floating windows", () => {
     stripColumns(stacked, "w").map((column) => column.map((window) => window.id)),
     [[3], [2, 1]],
   );
-  const markdown = stripMarkdown(stacked, "w", 1, false);
-  assert.match(markdown, /^!\[Strip\]\(data:image\/svg\+xml;base64,/);
-  assert.match(markdown, /1 C · \*\*2 B \+ A\*\*/);
-  assert.match(markdown, /Floating: D/);
 });
 
-test("the strip of a real workspace highlights the chosen window", () => {
-  const svg = Buffer.from(stripMarkdown(windows, "dev", 2613, true).match(/base64,([^)]+)/)![1], "base64").toString();
-  assert.equal(svg.match(/<rect/g)?.length, 4);
-  assert.equal(svg.match(/#0A84FF/g)?.length, 1);
-  assert.equal(stripMarkdown(windows, "tools", undefined, true), "_No windows._");
+test("the strip image draws one tile per tiled window and highlights one", () => {
+  const image = stripImage(windows, "dev", 2613, true);
+  const svg = Buffer.from(image.match(/^!\[Strip\]\(data:image\/svg\+xml;base64,([^)]+)\)$/)![1], "base64").toString();
+  assert.equal(svg.match(/<rect /g)?.length, 5); // the desk and four windows
+  assert.equal(svg.match(/fill="#0A84FF"/g)?.length, 1);
+  assert.equal(stripImage(windows, "tools", undefined, true), "");
 });
 
 test("search text becomes a command argument", () => {

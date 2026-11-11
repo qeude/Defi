@@ -19,6 +19,7 @@ export type DefiWorkspace = {
   display: number;
   active: boolean;
   windowCount: number;
+  applications: string[];
 };
 
 // Fields within a version may grow; a new version may break, so it is refused.
@@ -64,6 +65,7 @@ export function parseWorkspaces(text: string): DefiWorkspace[] {
         display: monitor.display,
         active: workspace.active === true,
         windowCount: Number(workspace.windowCount ?? 0),
+        applications: Array.isArray(workspace.applications) ? workspace.applications.map(String) : [],
       })),
   );
 }

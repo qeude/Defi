@@ -30,18 +30,19 @@ update, run `npm run tinycast` again; there is nothing to reinstall.
 
 ## Commands
 
-- **Search Windows** lists Defi's managed windows. Search by title, app, or
-  workspace. The side pane shows where the window sits in its workspace's strip.
-  Enter focuses it; **Previous Window**, at the top, goes back to the window
-  focused before. ⌘M moves the window to another workspace and follows it.
-- **Search Workspaces** lists the workspaces of every display, each with its
-  strip. Enter shows the workspace. Other actions move the focused window or
-  column there.
+- **Search Windows** lists Defi's managed windows by workspace. Search by
+  title, app, or workspace. Enter focuses the window; ⌘M moves it to another
+  workspace and follows it.
+- **Search Workspaces** lists the workspaces of every display with the apps on
+  each. Enter shows the workspace, ⌘↵ moves the focused window there, and ⌥↵
+  moves the focused column.
 - **Run Command** runs a Defi command, most used first. The search text also
   works as an argument: `60` sets the column width to 60%, `+10` or `-10` widens
   or narrows it, `960` sets it in points, `3` goes to workspace 3, and a
   workspace name offers to go there or move the focused column or window there.
   See [Commands](../../CONFIGURATION.md#commands).
+
+In both searches, ⌘D shows the workspace's strip beside the list.
 
 ## Finding Defi
 
