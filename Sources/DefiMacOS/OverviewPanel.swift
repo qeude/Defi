@@ -108,6 +108,11 @@ final class OverviewPanel {
     if #available(macOS 26, *) {
       let glass = NSGlassEffectView(frame: glassFrame)
       glass.style = .regular
+      // The cheat sheet's core colour as an even tint: its opaque top band would veil the top row.
+      glass.tintColor = NSColor(name: nil) {
+        $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+          ? .black.withAlphaComponent(0.3) : .white.withAlphaComponent(0.3)
+      }
       glass.contentView = view
       glassView = glass
     } else {
@@ -118,7 +123,6 @@ final class OverviewPanel {
       material.addSubview(view)
       glassView = material
     }
-    glassView.appearance = NSAppearance(named: .darkAqua)
     glassView.autoresizingMask = [.width, .height]
     rootView.addSubview(desktopView)
     rootView.addSubview(glassView)
