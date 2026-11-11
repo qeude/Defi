@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { descriptions, prompts, sections } from "../src/commands.ts";
+import { describeCommand, prompts, sections } from "../src/commands.ts";
 
 // The catalog teaches commands and default shortcuts, so it must match the reference it copies.
 const reference = readFileSync(new URL("../../../CONFIGURATION.md", import.meta.url), "utf8");
@@ -15,9 +15,12 @@ test("every catalog command is a documented command with a description", () => {
       rows.some((row) => row.startsWith(`| \`${verb} `) || row.startsWith(`| \`${verb}\``)),
       `${verb} is not in CONFIGURATION.md`,
     );
-    assert.ok(descriptions[verb], `${verb} has no description`);
+    assert.match(describeCommand(command), /^[A-Z].+\.$/, `${command} has no description`);
   }
   assert.ok(prompts.every((prompt) => sections.some(([section]) => section === prompt.section)));
+  // Each row says what it does itself, not what its whole command family does.
+  const texts = entries.map((entry) => describeCommand(entry.command));
+  assert.equal(new Set(texts).size, texts.length, "two rows share a description");
 });
 
 test("every default shortcut matches the documented one", () => {

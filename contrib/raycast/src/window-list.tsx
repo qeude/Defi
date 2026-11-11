@@ -1,15 +1,56 @@
 import { Action, ActionPanel, Color, environment, Icon, Keyboard, List } from "@raycast/api";
-import { useCachedState, useFrecencySorting } from "@raycast/utils";
+import { showFailureToast, useCachedState, useFrecencySorting } from "@raycast/utils";
 import { useState } from "react";
 import { runAndClose } from "./defi";
 import { useDesktop } from "./desktop";
 import { ErrorView } from "./error-view";
-import { workspaceLabel, type DefiWindow } from "./parse";
+import { workspaceLabel, type DefiWindow, type DefiWorkspace } from "./parse";
 import { StripDetail } from "./strip-detail";
 import { stripColumns } from "./strip";
 import { workspaceIcon } from "./workspace-icon";
 
 const current = "current";
+
+// Reads Defi before acting, reporting a failure where the user still sees it.
+async function readOrReport<T>(read: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await read();
+  } catch (error) {
+    await showFailureToast(error, { title: "Cannot Reach Defi" });
+    return undefined;
+  }
+}
+
+function MoveTargets(props: {
+  workspaces: DefiWorkspace[];
+  displayCount: number;
+  subject: string;
+  onMove: (workspace: DefiWorkspace) => void;
+}) {
+  const displays = [...new Set(props.workspaces.map((workspace) => workspace.display))];
+  return (
+    <List navigationTitle={`Move ${props.subject}`} searchBarPlaceholder="Search workspaces">
+      {displays.map((display) => (
+        <List.Section key={display} title={props.displayCount > 1 ? `Display ${display}` : undefined}>
+          {props.workspaces
+            .filter((workspace) => workspace.display === display)
+            .map((workspace) => (
+              <List.Item
+                key={workspace.id}
+                icon={workspaceIcon(workspace)}
+                title={workspaceLabel(workspace)}
+                actions={
+                  <ActionPanel>
+                    <Action title="Move Here" icon={Icon.ArrowRight} onAction={() => props.onMove(workspace)} />
+                  </ActionPanel>
+                }
+              />
+            ))}
+        </List.Section>
+      ))}
+    </List>
+  );
+}
 
 // The window switcher; with workspaceID it lists that workspace only, as Search Workspaces opens it.
 export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?: string; workspaceID?: string }) {
@@ -91,7 +132,13 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
       <List.EmptyView
         icon={Icon.Window}
         title={windows?.length ? "No Matching Windows" : "No Windows Yet"}
-        description={windows?.length ? "Try an app or a workspace name." : "Open an app window and Defi will tile it."}
+        description={
+          !windows?.length
+            ? "Open an app window and Defi will tile it."
+            : scopeID
+              ? "Try an app or a window title."
+              : "Try an app or a workspace name."
+        }
       />
     );
   };
@@ -131,7 +178,8 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                 : [
                     ...(window.focused ? [{ tag: { value: "Focused", color: Color.Blue } }] : []),
                     ...(window.floating ? [{ tag: "Floating" }] : []),
-                    ...(fullWorkspace && label
+                    // A list scoped to one workspace would repeat its name on every row.
+                    ...(fullWorkspace && label && !scopeID
                       ? [
                           {
                             icon: workspaceIcon(fullWorkspace),
@@ -152,18 +200,16 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                   appIcon={appIcon}
                   empty=""
                 >
+                  {window.title ? <List.Item.Detail.Metadata.Label title="Title" text={window.title} /> : null}
                   <List.Item.Detail.Metadata.Label title="App" text={window.appName} icon={appIcon(window.appID)} />
                   <List.Item.Detail.Metadata.Label title="Workspace" text={label} />
                   {displayCount > 1 ? (
                     <List.Item.Detail.Metadata.Label title="Display" text={String(window.display)} />
                   ) : null}
                   <List.Item.Detail.Metadata.Label title="Position" text={position(window)} />
-                  {window.focused || window.floating ? (
+                  {window.focused ? (
                     <List.Item.Detail.Metadata.TagList title="Status">
-                      {window.focused ? (
-                        <List.Item.Detail.Metadata.TagList.Item text="Focused" color={Color.Blue} />
-                      ) : null}
-                      {window.floating ? <List.Item.Detail.Metadata.TagList.Item text="Floating" /> : null}
+                      <List.Item.Detail.Metadata.TagList.Item text="Focused" color={Color.Blue} />
                     </List.Item.Detail.Metadata.TagList>
                   ) : null}
                 </StripDetail>
@@ -173,27 +219,25 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
               <ActionPanel>
                 <ActionPanel.Section>
                   <Action title="Focus Window" icon={Icon.Window} onAction={() => act(window)} />
-                  <ActionPanel.Submenu title="Move to Workspace" icon={Icon.ArrowRight}>
-                    {workspaces
-                      ?.filter((target) => target.id !== workspace?.id)
-                      .map((target) => {
-                        const name = workspaceLabel(target);
-                        return (
-                          <Action
-                            key={target.id}
-                            icon={workspaceIcon(target)}
-                            title={displayCount > 1 ? `${name} on Display ${target.display}` : name}
-                            onAction={() =>
-                              act(
-                                window,
-                                [["move-window-to-workspace-name", target.id]],
-                                `Moved ${window.appName} to ${name}`,
-                              )
-                            }
-                          />
-                        );
-                      })}
-                  </ActionPanel.Submenu>
+                  {/* A pushed list, not a submenu: some launchers flatten submenus, which would give ⌘↵ to its first entry. */}
+                  <Action.Push
+                    title="Move to Workspace…"
+                    icon={Icon.ArrowRight}
+                    target={
+                      <MoveTargets
+                        workspaces={(workspaces ?? []).filter((target) => target.id !== workspace?.id)}
+                        displayCount={displayCount}
+                        subject={window.appName}
+                        onMove={(target) =>
+                          act(
+                            window,
+                            [["move-window-to-workspace-name", target.id]],
+                            `Moved ${window.appName} to ${workspaceLabel(target)}`,
+                          )
+                        }
+                      />
+                    }
+                  />
                   {here && workspace && here.id !== workspace.id ? (
                     <Action
                       title={`Bring to ${workspaceLabel(here)}`}
@@ -201,7 +245,9 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                       shortcut={{ modifiers: ["shift"], key: "return" }}
                       onAction={async () => {
                         // The cached current workspace may be stale while the list reloads.
-                        const latest = (await desktop.fresh()).workspaces.find((w) => w.active && w.focusedDisplay);
+                        const state = await readOrReport(desktop.fresh);
+                        if (!state) return;
+                        const latest = state.workspaces.find((w) => w.active && w.focusedDisplay);
                         const target = latest && latest.id !== workspace.id ? latest : undefined;
                         await act(
                           window,

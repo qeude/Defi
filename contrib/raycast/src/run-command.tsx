@@ -1,7 +1,7 @@
 import { Action, ActionPanel, Icon, Keyboard, LaunchProps, List } from "@raycast/api";
 import { useCachedState } from "@raycast/utils";
 import { useState } from "react";
-import { descriptions, prompts, sections } from "./commands";
+import { describeCommand, prompts, sections } from "./commands";
 import { runAndClose } from "./defi";
 import { useDesktop } from "./desktop";
 import { describeError, RecoveryActions } from "./error-view";
@@ -59,12 +59,20 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
   };
 
   const toggleDetail = (
-    <Action
-      title={showDetail ? "Hide Details" : "Show Details"}
-      icon={Icon.AppWindowSidebarRight}
-      shortcut={Keyboard.Shortcut.Common.ToggleQuickLook}
-      onAction={() => setShowDetail(!showDetail)}
-    />
+    <ActionPanel.Section>
+      <Action
+        title={showDetail ? "Hide Details" : "Show Details"}
+        icon={Icon.AppWindowSidebarRight}
+        shortcut={Keyboard.Shortcut.Common.ToggleQuickLook}
+        onAction={() => setShowDetail(!showDetail)}
+      />
+      <Action
+        title="Refresh"
+        icon={Icon.ArrowClockwise}
+        shortcut={Keyboard.Shortcut.Common.Refresh}
+        onAction={desktop.revalidate}
+      />
+    </ActionPanel.Section>
   );
 
   const item = (entry: (typeof entries)[number], keyPrefix = "") => (
@@ -80,7 +88,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
       }
       detail={
         <CommandDetail
-          text={descriptions[entry.command.split(" ")[0]] ?? ""}
+          text={describeCommand(entry.command)}
           command={entry.command}
           shortcut={entry.shortcut ?? null}
         />
@@ -98,6 +106,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
   return (
     <List
       filtering={{ keepSectionOrder: true }}
+      isLoading={desktop.isLoading}
       isShowingDetail={showDetail}
       searchText={searchText}
       onSearchTextChange={setSearchText}

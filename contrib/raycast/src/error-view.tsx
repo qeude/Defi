@@ -33,7 +33,14 @@ const launchAttempts = 10;
 // Opens Defi and keeps the launcher open, retrying until Defi answers.
 async function launch(onRetry: () => void) {
   const toast = await showToast({ style: Toast.Style.Animated, title: "Launching Defi…" });
-  await open(defiAppPath());
+  try {
+    await open(defiAppPath());
+  } catch (error) {
+    toast.style = Toast.Style.Failure;
+    toast.title = "Cannot Launch Defi";
+    toast.message = error instanceof Error ? error.message : String(error);
+    return;
+  }
   for (let attempt = 0; attempt < launchAttempts; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     try {
@@ -48,6 +55,7 @@ async function launch(onRetry: () => void) {
   }
   toast.style = Toast.Style.Failure;
   toast.title = "Defi Did Not Start";
+  toast.primaryAction = { title: "Try Again", onAction: () => launch(onRetry) };
 }
 
 // Recovery for every read failure: install or launch Defi, try again, or pick the app in the preferences.
@@ -67,6 +75,9 @@ export function RecoveryActions({ error, onRetry }: { error: Error; onRetry: () 
     <ActionPanel>
       {error.message === notRunning ? (
         <Action title="Launch Defi" icon={Icon.Power} onAction={() => launch(onRetry)} />
+      ) : null}
+      {error instanceof VersionMismatch && error.received < error.supported ? (
+        <Action.OpenInBrowser title="Open Releases Page" url={releases} />
       ) : null}
       <Action title="Try Again" icon={Icon.ArrowClockwise} onAction={onRetry} />
       {preferences}

@@ -10,7 +10,7 @@ titles stay on your Mac.
 
 - **Search Windows** finds any window Defi manages by title, app, or
   workspace, and the dropdown narrows it to one workspace. Enter focuses the
-  window, ⌘↵ moves it to another workspace, ⇧↵ brings it to the current one,
+  window, ⌘↵ picks a workspace to move it to, ⇧↵ brings it to the current one,
   and ⌘⇧F floats or tiles it. Windows you pick often come first; the focused
   one comes last. Acting on a window from another workspace shows that
   workspace for a moment, because Defi focuses the window first.

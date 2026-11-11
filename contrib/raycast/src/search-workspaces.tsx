@@ -10,7 +10,7 @@ import {
   showToast,
   Toast,
 } from "@raycast/api";
-import { useCachedState } from "@raycast/utils";
+import { showFailureToast, useCachedState } from "@raycast/utils";
 import { useState } from "react";
 import { runAndClose } from "./defi";
 import { useDesktop } from "./desktop";
@@ -35,7 +35,14 @@ export default function Command(props: LaunchProps) {
   const actions = (workspace: DefiWorkspace, label: string) => {
     // The cached focus may be stale while the list reloads, so moves check a fresh read.
     const move = (command: string, describe: (app: string) => string) => async () => {
-      const latest = (await desktop.fresh()).windows.find((window) => window.focused);
+      let state;
+      try {
+        state = await desktop.fresh();
+      } catch (error) {
+        await showFailureToast(error, { title: "Cannot Reach Defi" });
+        return;
+      }
+      const latest = state.windows.find((window) => window.focused);
       if (!latest || latest.workspace?.id === workspace.id) {
         await showToast({ style: Toast.Style.Failure, title: latest ? `Already on ${label}` : "No Focused Window" });
         return;
@@ -153,7 +160,11 @@ export default function Command(props: LaunchProps) {
                       highlightID={focused?.id}
                       dark={dark}
                       appIcon={appIcon}
-                      empty="No windows yet. Go here, or move the focused window here with ⌘↵."
+                      empty={
+                        workspace.windowCount
+                          ? "Only floating windows."
+                          : "No windows yet. Go here, or move the focused window here with ⌘↵."
+                      }
                     >
                       <List.Item.Detail.Metadata.Label
                         title="Windows"

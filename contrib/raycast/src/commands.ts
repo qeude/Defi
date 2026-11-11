@@ -44,43 +44,82 @@ export const prompts: {
   },
 ];
 
-// What each command does, from CONFIGURATION.md "Commands".
-export const descriptions: Record<string, string> = {
-  "focus-column": "Focus the previous, next, first, or last column.",
-  "focus-window": "Focus another window in the focused column's stack.",
+const place: Record<string, string> = { left: "on the left", right: "on the right", up: "above", down: "below" };
+const end: Record<string, string> = { first: "start", last: "end" };
+
+// What one row does, worded for its own argument; from CONFIGURATION.md "Commands".
+export function describeCommand(command: string): string {
+  const [verb, arg = ""] = command.split(" ");
+  const where = place[arg];
+  const display = `the display ${where}`;
+  const workspace = `the workspace ${where}`;
+  switch (verb) {
+    case "focus-column":
+      return where ? `Focus the column ${where}.` : `Focus the ${arg} column of the strip.`;
+    case "focus-window":
+      return where
+        ? `Focus the window ${where} in the stack.`
+        : `Focus the ${arg === "first" ? "top" : "bottom"} window of the stack.`;
+    case "focus-window-or-workspace":
+      return `Focus the window ${where}, or past the ${arg === "up" ? "top" : "bottom"} of the stack, ${workspace}.`;
+    case "focus-column-or-monitor":
+      return `Focus the column ${where}, or past the ${arg === "left" ? "first" : "last"} column, ${display}.`;
+    case "focus-floating":
+      return `Focus the ${arg} floating window${arg === "previous" || arg === "next" ? ", wrapping around" : ""}.`;
+    case "focus-monitor":
+      return `Focus ${display}.`;
+    case "focus-workspace":
+      return `Go to ${workspace} on this display, without wrapping.`;
+    case "reorder-workspace":
+      return `Move the active workspace ${arg} its display's stack.`;
+    case "move-workspace-to-monitor":
+      return `Move the active workspace to ${display} and remember it there.`;
+    case "move-column":
+      return where
+        ? `Move the focused column one place ${where}.`
+        : `Move the focused column to the ${end[arg]} of the strip.`;
+    case "move-window":
+      return `Move the focused window ${arg} its stack.`;
+    case "move-column-to-workspace":
+      return `Move the focused column to ${workspace} and follow it.`;
+    case "move-window-to-workspace":
+      return `Move only the focused window to ${workspace} and follow it.`;
+    case "send-column-to-workspace":
+      return `Move the focused column to ${workspace} without following it.`;
+    case "send-window-to-workspace":
+      return `Move only the focused window to ${workspace} without following it.`;
+    case "move-column-to-monitor":
+      return `Move the focused column to ${display}.`;
+    case "move-column-or-to-monitor":
+      return `Move the focused column ${arg}, or past the ${arg === "left" ? "first" : "last"} column, to ${display}.`;
+    case "move-window-to-monitor":
+      return `Move only the focused window to ${display}.`;
+    case "cycle-width":
+      return `Step to the ${arg} preset column width, wrapping around.`;
+    case "join-window":
+      return `Add the focused window to the stack ${where}.`;
+    case "consume-or-expel-window":
+      return `Alone in its column, the window joins the stack ${where}; in a stack, it leaves as a new column ${where}.`;
+    case "swap-window":
+      return `Swap the focused window with the one at the same row of the column ${where}.`;
+    default:
+      return descriptions[verb] ?? "";
+  }
+}
+
+// Commands that take no argument, or whose argument changes nothing in the wording.
+const descriptions: Record<string, string> = {
   "focus-window-previous": "Go back to the window focused before this one, on any workspace or display.",
-  "focus-window-or-workspace":
-    "Like Focus Window, but past the top or bottom of the stack, focus the adjacent workspace.",
-  "focus-column-or-monitor": "Like Focus Column, but past the first or last column, focus the next display.",
-  "focus-floating": "Focus another floating window, wrapping around.",
   "activate-floating": "Select the floating layer and bring its selected window forward.",
-  "focus-monitor": "Focus the nearest display in that direction.",
-  "focus-workspace": "Focus the adjacent workspace on this display, without wrapping.",
   "focus-workspace-previous": "Go back to the workspace this display showed before.",
-  "reorder-workspace": "Move the active workspace up or down its display's stack.",
-  "move-workspace-to-monitor": "Move the active workspace to another display and remember it there.",
-  "move-column": "Move the focused column within the strip.",
-  "move-window": "Move the focused window within its stack.",
-  "move-column-to-workspace": "Move the focused column to the adjacent workspace and follow it.",
-  "move-window-to-workspace": "Move only the focused window to the adjacent workspace and follow it.",
-  "send-column-to-workspace": "Move the focused column to the adjacent workspace without following it.",
-  "send-window-to-workspace": "Move only the focused window to the adjacent workspace without following it.",
-  "move-column-to-monitor": "Move the focused column to the nearest display in that direction.",
-  "move-column-or-to-monitor": "Like Move Column, but past the first or last column, move it to the next display.",
-  "move-window-to-monitor": "Move only the focused window to the nearest display in that direction.",
-  "cycle-width": "Step through the preset column widths, wrapping.",
   "maximize-column": "Toggle the focused column between full width and its previous width.",
   "expand-column-to-available-width":
     "Grow the focused column into the free space beside the other fully visible columns.",
   "center-column": "Center the focused column until you select another one.",
   "center-visible-columns": "Center the fully visible columns as one group.",
-  "switch-preset-window-height": "Give the focused stacked window the next preset height, wrapping.",
+  "switch-preset-window-height": "Give the focused stacked window the next preset height, wrapping around.",
   "reset-window-height": "Split the focused stack evenly again.",
-  "join-window": "Add the focused window to the stack on the left or right.",
   "unjoin-windows": "Split the focused window out of its stack into a new column.",
-  "consume-or-expel-window":
-    "Alone in its column, the window joins the stack on that side; in a stack, it leaves as a new column.",
-  "swap-window": "Swap the focused window with the one at the same row of the adjacent column.",
   "toggle-floating": "Switch the focused window between tiled and floating.",
   "toggle-overview": "Open or close the Overview of every workspace.",
   "toggle-cheatsheet": "Open or close the shortcut help.",
