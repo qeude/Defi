@@ -165,7 +165,7 @@ struct LosslessTOMLDocument {
     }
     let matches = lines.indices.filter { index in
       guard let header = tableHeader(in: lines[index]) else { return false }
-      return header.name == table && header.isArray == (table == "rules")
+      return header.name == canonicalName(table) && header.isArray == (table == "rules")
     }
     guard matches.indices.contains(occurrence) else { return (nil, nil) }
     let header = matches[occurrence]
@@ -178,7 +178,7 @@ struct LosslessTOMLDocument {
   private func ranges(of table: String) -> [Range<Int>] {
     let starts = lines.indices.filter { index in
       guard let header = tableHeader(in: lines[index]) else { return false }
-      return header.name == table && header.isArray
+      return header.name == canonicalName(table) && header.isArray
     }
     return starts.enumerated().map { offset, start in
       let nextHeader = lines[(start + 1)...].firstIndex(where: isTableHeader)
@@ -201,19 +201,41 @@ struct LosslessTOMLDocument {
     let isArray = value.hasPrefix("[[") && value.hasSuffix("]]") && value.count > 4
     guard isArray || !value.hasPrefix("[[") else { return nil }
     let rawName = String(value.dropFirst(isArray ? 2 : 1).dropLast(isArray ? 2 : 1))
-    let name = rawName.trimmingCharacters(in: .whitespaces)
-    if name.first == "\"", name.last == "\"", name.count >= 2 {
-      return (
-        String(name.dropFirst().dropLast())
-          .replacingOccurrences(of: "\\\"", with: "\"")
-          .replacingOccurrences(of: "\\\\", with: "\\"),
-        isArray
-      )
+    return (canonicalName(rawName), isArray)
+  }
+
+  private func canonicalName(_ table: String) -> String {
+    dottedKey(table).map(Self.quotedKey).joined(separator: ".")
+  }
+
+  /// Splits a TOML dotted key into its unquoted parts, so `a."b"` and `a . 'b'` both name `a.b`.
+  private func dottedKey(_ raw: String) -> [String] {
+    var parts: [String] = []
+    var part = ""
+    var quote: Character?
+    var escaped = false
+    for character in raw {
+      if let open = quote {
+        if escaped {
+          part.append(character)
+          escaped = false
+        } else if open == "\"", character == "\\" {
+          escaped = true
+        } else if character == open {
+          quote = nil
+        } else {
+          part.append(character)
+        }
+      } else if character == "\"" || character == "'" {
+        quote = character
+      } else if character == "." {
+        parts.append(part)
+        part = ""
+      } else if !character.isWhitespace {
+        part.append(character)
+      }
     }
-    if name.first == "'", name.last == "'", name.count >= 2 {
-      return (String(name.dropFirst().dropLast()), isArray)
-    }
-    return (name, isArray)
+    return parts + [part]
   }
 
   private func assignmentKey(in line: String) -> String? {

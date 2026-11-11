@@ -33,11 +33,11 @@ struct DefiSettingsModelTests {
     #expect(model.message == nil)
   }
 
-  @Test
-  func displayOverrideEditsTheTableTheFileAlreadyNames() throws {
+  @Test(arguments: ["layout.monitors.LG", "layout.monitors.\"LG\"", " layout . monitors . 'LG' "])
+  func displayOverrideEditsTheTableTheFileAlreadyNames(header: String) throws {
     let url = try configFile()
     defer { removeConfig(url) }
-    try Data("[layout]\ndefault_column_width = 0.7\n\n[layout.monitors.LG]\ndefault_column_width = 0.6\n".utf8)
+    try Data("[layout]\ndefault_column_width = 0.7\n\n[\(header)]\ndefault_column_width = 0.6\n".utf8)
       .write(to: url)
     let model = DefiSettingsModel(configURL: url)
 
