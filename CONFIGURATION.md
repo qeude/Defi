@@ -316,9 +316,14 @@ include_initial_width_in_cycle = true
 ```
 
 Prefer `app_id` alone when it is enough. Titles follow the system language,
-some apps set them shortly after opening a window, and rules apply only when Defi
-first discovers a window, so a title set later never matches. `title` has no
-wildcards; use `title_regex` for anchors or alternatives, such as
+and some apps set them just after opening a window. Defi checks the rules again
+once, on the first new title within a second of opening, and places the window
+as if it had opened with that title: `workspace`, `monitor`, `window`,
+`initial_column_width`, and `intrinsic_size` apply, while the window keeps the
+focus it already has, so `open_focused` and `follow_focus` do not. It skips this
+if you moved, resized, or floated the window first. A title that changes later,
+such as a browser tab's, never moves a window. `title` has no wildcards; use
+`title_regex` for anchors or alternatives, such as
 `title_regex = "^(Settings|Preferences)$"`.
 
 <details>

@@ -368,6 +368,7 @@ extension Daemon {
     }) == true {
       invalidateSubmittedCommandFocus()
     }
+    let lateTitleRuleCandidateIDs = Set(state.lateTitleRuleCandidates.keys)
     let relocatedTransientIDs = reconcileWindows(
       snapshot.windows,
       config: config,
@@ -380,6 +381,7 @@ extension Daemon {
       frontmostProcessID: snapshot.frontmostProcessID,
       displays: latestMonitors.map { ($0.id, $0.name) },
       appliesOpenFocus: hasSynchronizedDesktop,
+      now: snapshotCompletedAt,
       state: &state
     )
     var forcedOpeningFocusWindowID: WindowID?
@@ -389,7 +391,10 @@ extension Daemon {
       state.windows[$0.key] != nil && snapshotCompletedAt - $0.value <= unfocusedOpeningGrace
     }
     // Discovery order, as `reconcileWindows` selects: the last forced window it kept selected wins.
-    for windowID in snapshot.windows.map(\.id) where !previouslyManagedWindowIDs.contains(windowID) {
+    // A late title rule places a window as an opening would, but its focus was settled when it opened.
+    let lateTitleRuledWindowIDs = lateTitleRuleCandidateIDs.intersection(relocatedTransientIDs)
+    for windowID in snapshot.windows.map(\.id)
+    where !previouslyManagedWindowIDs.contains(windowID) || lateTitleRuledWindowIDs.contains(windowID) {
       guard let window = state.windows[windowID] else { continue }
       let decision = config.decision(for: window)
       if decision.monitor != nil, window.floating, let observedMonitorID = window.monitorID,
@@ -397,7 +402,9 @@ extension Daemon {
       {
         ruleRelocatedFloatingMonitorIDs[windowID] = observedMonitorID
       }
-      guard hasSynchronizedDesktop, let openFocused = decision.openFocused else { continue }
+      guard hasSynchronizedDesktop, !lateTitleRuledWindowIDs.contains(windowID),
+        let openFocused = decision.openFocused
+      else { continue }
       if !openFocused {
         unfocusedOpenings[windowID] = snapshotCompletedAt
       } else if snapshot.focusedWindowID != windowID,
@@ -421,6 +428,8 @@ extension Daemon {
         ),
         windows: state.windows
       ).intersection(relocatedTransientIDs)
+      // A rule that sent the window to another display rebases it once, below.
+      .subtracting(ruleRelocatedFloatingMonitorIDs.keys)
     if let previousSelectedWindowID,
       let reboundMonitorID = state.reboundFocusMonitorID(for: previousSelectedWindowID),
       reboundMonitorID != previousActiveMonitorID

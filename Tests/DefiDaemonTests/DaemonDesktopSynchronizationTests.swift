@@ -108,4 +108,85 @@ struct DaemonDesktopSynchronizationTests {
     let releasedLock = try DaemonInstanceLock(url: lockURL)
     withExtendedLifetime(releasedLock) {}
   }
+
+  /// A window whose title arrives just after it opens ends where it would have opened with that title.
+  @Test(arguments: [
+    "[[rules]]\ntitle = \"Web Inspector\"\nworkspace = \"web\"",
+    "[[rules]]\ntitle = \"Web Inspector\"\nwindow = \"force-floating\"\nmonitor = \"Second\"",
+    // Already floating when it opens.
+    "[[rules]]\napp_id = \"dialog\"\nwindow = \"force-floating\"\n[[rules]]\ntitle = \"Web Inspector\"\nmonitor = \"Second\"",
+  ])
+  @NavigationActor
+  func lateTitleRuleMovesTheWindowAsAnOpeningWould(rules: String) async throws {
+    struct Outcome: Equatable {
+      var monitorID: MonitorID?
+      var workspaceID: WorkspaceID?
+      var activeWorkspaceID: WorkspaceID?
+      var selected: Bool
+      var activeMonitorID: MonitorID?
+      var floatingFrame: Rect?
+    }
+    let menuBar = await MainActor.run { MenuBarState(accessibilityTrusted: { false }) }
+    func open(late: Bool) throws -> Outcome {
+      let directory = URL(filePath: "/tmp/defi-late-title-\(UUID().uuidString)")
+      try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+      defer { try? FileManager.default.removeItem(at: directory) }
+      let configURL = directory.appending(path: "config.toml")
+      try """
+        [workspaces]
+        names = ["web"]
+        [animation]
+        enabled = false
+        \(rules)
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+      let daemon = try Daemon(
+        options: DaemonOptions(arguments: [
+          "--config", configURL.path, "--socket", directory.appending(path: "daemon.sock").path,
+        ]),
+        menuBar: menuBar,
+        instanceLockURL: directory.appending(path: "daemon.lock"),
+        topologyStore: WorkspaceTopologyStore(url: directory.appending(path: "topology.json")),
+        workspaceStatePublisher: { _ in },
+        desktopSnapshotOverviewUpdater: { _ in }
+      )
+      defer { daemon.flushPendingTopologyWrite() }
+      daemon.restorationInFlight = true
+      let first = MonitorSnapshot(
+        id: MonitorID(rawValue: 1), frame: Rect(x: 0, y: 0, width: 1_000, height: 700), name: "First")
+      let second = MonitorSnapshot(
+        id: MonitorID(rawValue: 2), frame: Rect(x: 1_000, y: 0, width: 1_000, height: 700), name: "Second")
+      let editor = Window(id: WindowID(rawValue: 1), appID: "app", title: "Editor",
+        frame: Rect(x: 0, y: 0, width: 800, height: 700), monitorID: first.id)
+      var opened = Window(id: WindowID(rawValue: 2), appID: "dialog", title: late ? "" : "Web Inspector",
+        frame: Rect(x: 100, y: 100, width: 400, height: 300), monitorID: first.id)
+      func apply(_ windows: [Window]) {
+        daemon.applyDesktopSnapshot(
+          DesktopSnapshot(monitors: [first, second], windows: windows, focusedWindowID: windows.last?.id,
+            nativeFocusChanged: true),
+          nativeFocusWasPending: false, forceFullWindowRefresh: false, forceWindowListRefresh: false,
+          forceApplicationInventoryRefresh: false, targetedWindowRetryRefresh: false,
+          consumePeriodicWindowRefresh: false
+        )
+      }
+      apply([editor])
+      apply([editor, opened])
+      if late {
+        opened.title = "Web Inspector"
+        apply([editor, opened])
+      }
+      let location = daemon.state.location(containing: opened.id)
+      return Outcome(
+        monitorID: location?.monitorID,
+        workspaceID: location?.workspaceID,
+        activeWorkspaceID: daemon.state.monitors.first { $0.id == location?.monitorID }?.activeWorkspace,
+        selected: location.map { daemon.state.selectedWindowID(on: $0.monitorID) == opened.id } ?? false,
+        activeMonitorID: daemon.activeMonitorID,
+        floatingFrame: daemon.floatingWindowFrames[opened.id]
+      )
+    }
+    let immediate = try open(late: false)
+    #expect(immediate.workspaceID == WorkspaceID(rawValue: "web") || immediate.monitorID == MonitorID(rawValue: 2))
+    let late = try open(late: true)
+    #expect(late == immediate)
+  }
 }

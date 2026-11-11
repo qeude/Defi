@@ -1,7 +1,7 @@
 import DefiConfig
 import DefiCore
 import DefiModel
-import Darwin
+import Foundation
 
 public func discoverWindow(
   _ original: Window,
@@ -170,9 +170,11 @@ public func reconcileWindows(
   frontmostProcessID: pid_t? = nil,
   displays: [(id: MonitorID, name: String?)] = [],
   appliesOpenFocus: Bool = true,
+  now: TimeInterval = 0,
   state: inout RuntimeState
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
+  var openedWindowIDs: [WindowID] = []
   let discoveredIDs = Set(discovered.map(\.id))
   let fullscreenWindowIDs = nativeFullscreenWindowIDs.subtracting(
     explicitlyRemovedWindowIDs
@@ -201,11 +203,20 @@ public func reconcileWindows(
     state.pendingNativeFullscreenWidthResetWindowIDs.remove(existingID)
     state.suspendedTiledPlacements[existingID] = nil
   }
+  // Native fullscreen saves a placement that a late rule would not update, so it ends the candidate.
+  state.lateTitleRuleCandidates = state.lateTitleRuleCandidates.filter {
+    state.windows[$0.key] != nil && now <= $0.value.expiresAt && !fullscreenWindowIDs.contains($0.key)
+  }
 
   for window in discovered {
     if state.windows[window.id] == nil {
       var decision = config.decision(for: window)
-      if !appliesOpenFocus { decision.openFocused = nil }
+      // Windows already open when Defi starts carry their final titles.
+      if appliesOpenFocus {
+        openedWindowIDs.append(window.id)
+      } else {
+        decision.openFocused = nil
+      }
       try? discoverWindow(
         window,
         decision: decision,
@@ -277,6 +288,11 @@ public func reconcileWindows(
         }
       }
       state.windows[window.id] = updated
+      if applyLateTitleRules(
+        observed: window, config: config, displays: displays, state: &state
+      ) {
+        relocatedTransientIDs.insert(window.id)
+      }
     }
   }
   // ponytail: bounded convergence scan; owner-ordering can replace it if deep chains become common.
@@ -297,7 +313,115 @@ public func reconcileWindows(
   reconcileNativeFullscreenWindows(fullscreenWindowIDs, state: &state)
   state.pendingNativeFullscreenWidthResetWindowIDs.subtract(explicitlyRemovedWindowIDs)
   state.maintainWorkspaceLifecycle()
+  for windowID in openedWindowIDs {
+    guard let window = state.windows[windowID],
+      let placement = lateTitleRulePlacement(of: windowID, state: state)
+    else { continue }
+    state.lateTitleRuleCandidates[windowID] = LateTitleRuleCandidate(
+      title: window.title,
+      decision: config.decision(for: window),
+      placement: placement,
+      expiresAt: now + lateTitleRuleGrace
+    )
+  }
   return relocatedTransientIDs
+}
+
+/// How long after opening a window's first new title may still apply its rules,
+/// so a title that changes during use, such as a browser tab's, never moves it.
+public let lateTitleRuleGrace: TimeInterval = 1
+
+public struct LateTitleRuleCandidate: Equatable, Sendable {
+  var title: String
+  var decision: RuleDecision
+  var placement: LateTitleRulePlacement
+  var expiresAt: TimeInterval
+}
+
+struct LateTitleRulePlacement: Equatable, Sendable {
+  var workspaceID: WorkspaceID
+  var floating: Bool
+  var columnIndex: Int?
+  var column: Column?
+  /// A floating window's frame, so a move or resize by the user counts as a change.
+  var floatingFrame: Rect?
+}
+
+private func lateTitleRulePlacement(
+  of windowID: WindowID, state: RuntimeState
+) -> LateTitleRulePlacement? {
+  guard let location = state.location(containing: windowID),
+    let workspace = state.monitors.first(where: { $0.id == location.monitorID })?
+      .workspaces.first(where: { $0.id == location.workspaceID })
+  else { return nil }
+  let columnIndex = workspace.columns.firstIndex { $0.windows.contains(windowID) }
+  return LateTitleRulePlacement(
+    workspaceID: location.workspaceID,
+    floating: workspace.floatingWindows.contains(windowID),
+    columnIndex: columnIndex,
+    column: columnIndex.map { workspace.columns[$0] },
+    floatingFrame: workspace.floatingWindows.contains(windowID) ? state.windows[windowID]?.frame : nil
+  )
+}
+
+/// Places a window again as if it had opened with its first new title, once, unless
+/// the user moved, resized, or toggled it since it opened.
+private func applyLateTitleRules(
+  observed window: Window,
+  config: Config,
+  displays: [(id: MonitorID, name: String?)],
+  state: inout RuntimeState
+) -> Bool {
+  guard let candidate = state.lateTitleRuleCandidates[window.id],
+    !window.title.isEmpty, window.title != candidate.title
+  else { return false }
+  state.lateTitleRuleCandidates[window.id] = nil
+  var decision = config.decision(for: window)
+  func placementRules(_ decision: RuleDecision) -> RuleDecision {
+    var rules = decision
+    rules.openFocused = nil
+    rules.followFocus = false
+    rules.includeInitialWidthInCycle = false
+    return rules
+  }
+  guard placementRules(decision) != placementRules(candidate.decision),
+    lateTitleRulePlacement(of: window.id, state: state) == candidate.placement,
+    let monitorID = state.monitorID(containing: window.id)
+  else { return false }
+  // Focus was settled at opening: a focused window follows, any other moves quietly.
+  decision.openFocused = state.selectedWindowID(on: monitorID) == window.id
+  if decision.workspace == nil, decision.monitor == nil {
+    decision.workspace = candidate.placement.workspaceID
+  }
+  removeWindowFromEveryWorkspace(window.id, state: &state)
+  state.windows[window.id] = nil
+  try? discoverWindow(
+    window,
+    decision: decision,
+    ruleMonitorID: decision.monitor.flatMap { ruleMonitorID($0, displays: displays) },
+    state: &state
+  )
+  // A rule that keeps the window on its workspace leaves its column where it was.
+  if let oldIndex = candidate.placement.columnIndex,
+    let location = state.location(containing: window.id),
+    location.workspaceID == candidate.placement.workspaceID,
+    let monitorIndex = state.monitors.firstIndex(where: { $0.id == location.monitorID }),
+    let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
+      where: { $0.id == location.workspaceID }
+    )
+  {
+    var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+    if let newIndex = workspace.columns.firstIndex(where: { $0.windows.contains(window.id) }),
+      newIndex != oldIndex, oldIndex < workspace.columns.count
+    {
+      let focusedWindow = workspace.columns[workspace.focusedColumn].windows
+      workspace.columns.insert(workspace.columns.remove(at: newIndex), at: oldIndex)
+      workspace.focusedColumn = workspace.columns.firstIndex { $0.windows == focusedWindow } ?? oldIndex
+      repairWorkspaceScroll(&workspace, settings: state.layout)
+      state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
+    }
+  }
+  return true
 }
 
 private func adjustNativeFullscreenPlacements(

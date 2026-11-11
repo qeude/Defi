@@ -34,6 +34,153 @@ struct WindowLifecycleTests {
     #expect(state.monitors[0].workspaces[1].columns[0].windows == [window.id])
   }
 
+  private func lateTitleFixture() -> (Config, RuntimeState, (String) -> Window) {
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["dev", "web"]),
+      rules: [Rule(title: "Inspector", workspace: "web", window: .forceFloating)]
+    )
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    reconcileWindows([], config: config, appliesOpenFocus: false, state: &state)
+    let window = { (title: String) in
+      Window(
+        id: WindowID(rawValue: 1), appID: "browser", title: title,
+        frame: Rect(x: 0, y: 0, width: 600, height: 800), processID: 7, monitorID: self.monitorID
+      )
+    }
+    return (config, state, window)
+  }
+
+  @Test
+  func `A title set right after opening applies its rules`() throws {
+    var (config, state, window) = lateTitleFixture()
+    reconcileWindows([window("")], config: config, frontmostProcessID: 7, state: &state)
+    #expect(state.location(containing: window("").id)?.workspaceID == WorkspaceID(rawValue: "dev"))
+
+    reconcileWindows([window("Web Inspector")], config: config, frontmostProcessID: 7, state: &state)
+
+    let web = WorkspaceID(rawValue: "web")
+    #expect(state.location(containing: window("").id)?.workspaceID == web)
+    #expect(state.windows[window("").id]?.floating == true)
+    #expect(state.monitors[0].activeWorkspace == web)
+  }
+
+  @Test(arguments: [
+    // Too late: the title arrives after the grace.
+    (lateTitleRuleGrace + 0.1, nil, false),
+    // The user floated or moved the window before its title arrived.
+    (0.1, Command.toggleFloating, false),
+    (0.1, Command.moveColumn(.left), false),
+    (0.1, nil, true),
+  ] as [(Double, Command?, Bool)])
+  func `A late title never overrides the user or a window in use`(
+    titleAt: Double, userCommand: Command?, titleChangedTwice: Bool
+  ) throws {
+    var (config, state, window) = lateTitleFixture()
+    let editor = Window(
+      id: WindowID(rawValue: 2), appID: "editor", title: "Code",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800), monitorID: monitorID
+    )
+    reconcileWindows([editor], config: config, appliesOpenFocus: false, state: &state)
+    reconcileWindows([editor, window("")], config: config, frontmostProcessID: 7, now: 10, state: &state)
+    if let userCommand {
+      try reduce(userCommand, on: monitorID, state: &state)
+    }
+    if titleChangedTwice {
+      // A first title that matches nothing uses up the one re-evaluation.
+      reconcileWindows([editor, window("New Tab")], config: config, now: 10.05, state: &state)
+    }
+    let placement = state.monitors[0].workspaces.first { $0.id == WorkspaceID(rawValue: "dev") }
+
+    reconcileWindows([editor, window("Web Inspector")], config: config, now: 10 + titleAt, state: &state)
+
+    #expect(state.location(containing: window("").id)?.workspaceID == WorkspaceID(rawValue: "dev"))
+    #expect(state.monitors[0].workspaces.first { $0.id == WorkspaceID(rawValue: "dev") } == placement)
+  }
+
+  @Test
+  func `A late rule without a destination keeps the window on its workspace`() throws {
+    let config = Config(rules: [Rule(title: "Inspector", initialColumnWidth: 0.5)])
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = { (title: String) in
+      Window(
+        id: WindowID(rawValue: 1), appID: "browser", title: title,
+        frame: Rect(x: 0, y: 0, width: 600, height: 800), processID: 7, monitorID: self.monitorID
+      )
+    }
+    reconcileWindows([], config: config, appliesOpenFocus: false, state: &state)
+    reconcileWindows([window("")], config: config, frontmostProcessID: 7, state: &state)
+    let opened = try #require(state.location(containing: window("").id)?.workspaceID)
+    try reduce(.focusWorkspace(.relative(.down)), on: monitorID, state: &state)
+    #expect(state.monitors[0].activeWorkspace != opened)
+
+    reconcileWindows([window("Web Inspector")], config: config, state: &state)
+
+    #expect(state.location(containing: window("").id)?.workspaceID == opened)
+    #expect(state.monitors[0].workspaces.flatMap(\.columns).first { $0.windows == [window("").id] }?.width == .fraction(0.5))
+  }
+
+  @Test
+  func `A late title never moves a floating window the user moved`() {
+    var (config, state, window) = lateTitleFixture()
+    var dialog = window("")
+    dialog.floating = true
+    reconcileWindows([dialog], config: config, frontmostProcessID: 7, now: 10, state: &state)
+    #expect(state.location(containing: dialog.id)?.workspaceID == WorkspaceID(rawValue: "dev"))
+    dialog.frame.x += 200
+    reconcileWindows(
+      [dialog], config: config, externallyChangedWindowIDs: [dialog.id], now: 10.1, state: &state
+    )
+    dialog.title = "Web Inspector"
+
+    reconcileWindows([dialog], config: config, now: 10.2, state: &state)
+
+    #expect(state.location(containing: dialog.id)?.workspaceID == WorkspaceID(rawValue: "dev"))
+  }
+
+  @Test
+  func `A late title leaves a native fullscreen window where it is`() {
+    var (config, state, window) = lateTitleFixture()
+    reconcileWindows([window("")], config: config, frontmostProcessID: 7, state: &state)
+    reconcileWindows([window("")], config: config, nativeFullscreenWindowIDs: [window("").id], state: &state)
+
+    reconcileWindows(
+      [window("Web Inspector")], config: config, nativeFullscreenWindowIDs: [window("").id], state: &state
+    )
+    reconcileWindows([window("Web Inspector")], config: config, state: &state)
+
+    let workspaces = state.monitors[0].workspaces.filter {
+      $0.columns.contains { $0.windows.contains(window("").id) } || $0.floatingWindows.contains(window("").id)
+    }
+    #expect(workspaces.map(\.id) == [WorkspaceID(rawValue: "dev")])
+  }
+
+  @Test
+  func `A late title rule on the same workspace keeps the window's column`() throws {
+    let config = Config(rules: [Rule(title: "Inspector", initialColumnWidth: 0.5)])
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = { (id: UInt64, title: String) in
+      Window(
+        id: WindowID(rawValue: id), appID: "browser", title: title,
+        frame: Rect(x: 0, y: 0, width: 600, height: 800), processID: 7, monitorID: self.monitorID
+      )
+    }
+    let left = window(1, "Left"), right = window(2, "Right")
+    reconcileWindows([left, right], config: config, appliesOpenFocus: false, state: &state)
+    focusWindow(left.id, state: &state)
+    reconcileWindows([left, right, window(3, "")], config: config, frontmostProcessID: 7, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == [[left.id], [WindowID(rawValue: 3)], [right.id]])
+
+    reconcileWindows([left, right, window(3, "Web Inspector")], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    #expect(workspace.columns.map(\.windows) == [[left.id], [WindowID(rawValue: 3)], [right.id]])
+    #expect(workspace.columns[1].width == .fraction(0.5))
+    #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
+  }
+
   @Test
   func `Rule monitor and open focus place a new window`() throws {
     let second = MonitorID(rawValue: 2)

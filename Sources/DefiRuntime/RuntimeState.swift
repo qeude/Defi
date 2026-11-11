@@ -71,6 +71,8 @@ public struct RuntimeState: Equatable, Sendable {
   public var reservedEdgesByMonitor: [MonitorID: ReservedEdges]
   /// Managed windows by latest committed focus, the current one first.
   public var recentWindowIDs: [WindowID] = []
+  /// Windows opened moments ago whose rules may still match a title the app sets late.
+  public var lateTitleRuleCandidates: [WindowID: LateTitleRuleCandidate] = [:]
 
   public init(config: Config) {
     let names = config.workspaces.names.map(WorkspaceID.init(rawValue:))
