@@ -90,6 +90,6 @@
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
     "tinycast": "ray build -e dist -o \"$HOME/Library/Application Support/com.tinycast.app/extensions/defi\"",
-    "test": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test 'test/*.test.mts'"
+    "test": "node --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=ExperimentalWarning --test 'test/*.test.mts'"
   }
 }

@@ -41,14 +41,12 @@ function CommandDetail({ text, command, shortcut }: { text: string; command?: st
     <List.Item.Detail
       markdown={text + binding}
       metadata={
-        command ? (
+        shortcut !== undefined ? (
           <List.Item.Detail.Metadata>
-            {shortcut !== undefined ? (
-              <List.Item.Detail.Metadata.Label
-                title="Default Shortcut"
-                text={shortcut ? formatShortcut(shortcut) : "None"}
-              />
-            ) : null}
+            <List.Item.Detail.Metadata.Label
+              title="Default Shortcut"
+              text={shortcut ? formatShortcut(shortcut) : "None"}
+            />
           </List.Item.Detail.Metadata>
         ) : undefined
       }
