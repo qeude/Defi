@@ -114,6 +114,11 @@ const minNameQuery = 2;
 
 // Commands whose argument is the search text: "60" sets a width, "h50" a stacked window's height,
 // "+10" widens, "2" or "web" targets a workspace.
+// Go to and the four moves for one workspace, worded from the live state.
+export function forWorkspace(workspace: DefiWorkspace, workspaces: DefiWorkspace[]): Suggestion[] {
+  return workspaceSuggestions(workspace, workspaces.filter((other) => other.kind === "named").length);
+}
+
 export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggestion[] {
   const text = query.trim();
   if (!text) return [];

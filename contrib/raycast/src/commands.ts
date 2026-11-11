@@ -12,6 +12,7 @@ export const prompts: {
   example: string;
   // The command in [keys] syntax, with a placeholder for the value.
   syntax: string;
+  examples: string;
   hint: string;
   keywords: string[];
 }[] = [
@@ -21,6 +22,7 @@ export const prompts: {
     icon: "ArrowRight",
     example: "1",
     syntax: "workspace <name>",
+    examples: "2, web",
     hint: "Type a workspace's number or the start of its name, such as 2 or web.",
     keywords: ["workspace", "go", "switch", "number", "name"],
   },
@@ -30,6 +32,7 @@ export const prompts: {
     icon: "ArrowsExpand",
     example: "60",
     syntax: "set-column-width <width>",
+    examples: "60, +10, 960",
     hint: "Type a width: 60 for 60%, +10 or -10 to change it, or 960 for points.",
     keywords: ["width", "resize", "size", "column"],
   },
@@ -39,6 +42,7 @@ export const prompts: {
     icon: "ChevronUpDown",
     example: "h50",
     syntax: "set-window-height <height>",
+    examples: "h50, h+10",
     hint: "Type h and a height for the focused stacked window: h50, h+10, or h-10.",
     keywords: ["height", "stack", "resize", "size"],
   },

@@ -8,33 +8,49 @@ titles stay on your Mac.
 
 ## Commands
 
-- **Search Windows** finds any window Defi manages by title, app, or
-  workspace, and the dropdown narrows it to one workspace. Enter focuses the
-  window, ⌘↵ picks a workspace to move it to, ⇧↵ brings it to the current one,
-  and ⌘⇧F floats or tiles it. Windows you pick often come first; the focused
-  one comes last. Acting on a window from another workspace shows that
-  workspace for a moment, because Defi focuses the window first.
-- **Search Workspaces** lists the workspaces of every display with their apps
-  and strip; search by name, number, or app. Enter goes to the workspace. ⌘↵
-  moves the focused window there, ⌘⇧↵ sends it without following, and ⌥↵ and
-  ⌥⇧↵ do the same with its column. ⌘O lists the workspace's windows.
-- **Search Commands** runs any Defi command, with the ones you ran last on top.
-  The side pane says what each one does, and the row shows its default
-  shortcut. The search text also works as an argument: `60` sets the column
-  width to 60%, `+10` or `-10` changes it, `960` sets it in points, `h50` sets a
-  stacked window's height, `2` goes to the second workspace, and a workspace
-  name offers to go there or move the focused window or column there. Type the
-  same text after the command in the root search, as in `Search Commands 60`.
-  ⌘↵ copies a command in the form `[keys]` accepts. See
-  [Commands](https://github.com/qeude/Defi/blob/main/CONFIGURATION.md#commands).
+**Search Windows** finds any window Defi manages by title, app, or workspace;
+the dropdown narrows it to one workspace. Windows you pick often come first,
+and the focused one comes last. Acting on a window from another workspace shows
+that workspace for a moment, because Defi focuses the window first.
 
-⌘Y shows or hides the side pane, and ⌘R reloads a list.
-Shortcuts shown are Defi's defaults, with `mod` as ⌃⌥; your own `[keys]` may
-differ.
+| Key | Action |
+| --- | --- |
+| ↵ | Focus the window |
+| ⌘↵ | Pick a workspace to move it to |
+| ⇧↵ | Bring it to the current workspace |
+| ⌘⇧F | Float or tile it |
+| ⌘⇧C / ⌘⇧I | Copy its title or ID |
+
+**Search Workspaces** lists the workspaces of every display with their apps and
+strip; search by name, number, or app.
+
+| Key | Action |
+| --- | --- |
+| ↵ | Go to the workspace |
+| ⌘↵ / ⌘⇧↵ | Move the focused window there, or send it without following |
+| ⌥↵ / ⌥⇧↵ | Move or send the focused column |
+| ⌘O | List the workspace's windows |
+
+**Search Commands** runs any Defi command, with the ones you ran last on top.
+The side pane says what each one does, its default shortcut, and the line to
+paste into `[keys]`. The search text also works as an argument:
+
+| Type | To |
+| --- | --- |
+| `60`, `+10`, `-10`, `960` | Set or change the column width, in percent or points |
+| `h50`, `h+10` | Set or change a stacked window's height |
+| `2`, `web` | Go to a workspace, or move the focused window or column there |
+
+Type the same text after the command in the root search, as in
+`Search Commands 60`. ⌘↵ copies a command in the form `[keys]` accepts. See
+[Commands](https://github.com/qeude/Defi/blob/main/CONFIGURATION.md#commands).
+
+In every list, ⌘Y shows or hides the side pane and ⌘R reloads. Shortcuts shown
+are Defi's defaults, with `mod` as ⌃⌥; your own `[keys]` may differ.
 
 ## Install
 
-You need Node.js 22 or later and Defi.app. From the Defi repository root:
+You need Node.js 22.6 or later and Defi.app. From the Defi repository root:
 
 ```sh
 cd contrib/raycast
@@ -43,9 +59,11 @@ npm install && npm run dev
 
 `npm run dev` adds the extension to Raycast in development mode. Give Search
 Windows a hotkey or an alias such as `w` in its command settings (⌘K, then
-Configure Command) to reach it in one keystroke. For Tinycast,
-run `npm run tinycast` instead: it builds straight into Tinycast's extensions
-folder, and Tinycast picks up a new build the next time a command starts.
+Configure Command) to reach it in one keystroke.
+
+For Tinycast, run `npm run tinycast` instead: it builds straight into Tinycast's
+extensions folder, and Tinycast picks up a new build the next time a command
+starts.
 
 ## Troubleshooting
 

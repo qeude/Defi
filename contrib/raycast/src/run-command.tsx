@@ -6,12 +6,21 @@ import { runAndClose } from "./defi";
 import { useDesktop } from "./desktop";
 import { describeError, RecoveryActions } from "./error-view";
 import { formatShortcut } from "./shortcut";
-import { suggestions, type Suggestion } from "./suggest";
+import { forWorkspace, suggestions, type Suggestion } from "./suggest";
 
 const entries = sections.flatMap(([section, list]) => list.map((entry) => ({ ...entry, section })));
 const recentLimit = 5;
 
-type Recent = { command: string } | { suggestion: Suggestion };
+// A workspace suggestion is kept as its workspace and action, and worded again from the live state,
+// so a reordered or moved workspace never shows a stale label or display.
+type Recent = { command: string } | { suggestion: Suggestion } | { workspaceID: string; action: string };
+
+const recentKey = (run: Recent) =>
+  "command" in run
+    ? run.command
+    : "suggestion" in run
+      ? run.suggestion.args.join(" ")
+      : `${run.action} ${run.workspaceID}`;
 
 const suggestionIcons: Record<Suggestion["kind"], Icon> = {
   width: Icon.ArrowsExpand,
@@ -21,11 +30,13 @@ const suggestionIcons: Record<Suggestion["kind"], Icon> = {
   window: Icon.Window,
 };
 
-// What a row does; Default Shortcut appears where Defi binds one or for a command that has none.
+// What a row does, then the line to paste into [keys]; Default Shortcut appears where Defi binds
+// one, or as None for a command that has none.
 function CommandDetail({ text, command, shortcut }: { text: string; command?: string; shortcut?: string | null }) {
+  const binding = command ? `\n\n\`\`\`toml\n"${shortcut ?? "mod-x"}" = "${command}"\n\`\`\`` : "";
   return (
     <List.Item.Detail
-      markdown={text}
+      markdown={text + binding}
       metadata={
         command ? (
           <List.Item.Detail.Metadata>
@@ -51,19 +62,20 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
   const desktop = useDesktop();
   const problem = desktop.error;
   const suggested = suggestions(searchText, problem ? [] : (desktop.workspaces ?? []));
-  const workspaceIDs = new Set(desktop.workspaces?.map((workspace) => workspace.id));
-  // A remembered move to a workspace that has since gone is dropped rather than offered.
+  const live = desktop.workspaces ?? [];
   const recentRows = searchText
     ? []
-    : recent.filter(
-        (run) =>
-          "command" in run ||
-          !run.suggestion.args.some((arg) => arg.startsWith("__defi_dynamic_") && !workspaceIDs.has(arg)),
-      );
+    : recent.flatMap((run): (Suggestion | string)[] => {
+        if ("command" in run) return [run.command];
+        if ("suggestion" in run) return [run.suggestion];
+        // A remembered move to a workspace that has since gone is dropped rather than offered.
+        const workspace = live.find((candidate) => candidate.id === run.workspaceID);
+        const suggestion = workspace && forWorkspace(workspace, live).find((s) => s.args[0] === run.action);
+        return suggestion ? [suggestion] : [];
+      });
 
   const remember = (run: Recent) => {
-    const key = (other: Recent) => ("command" in other ? other.command : other.suggestion.args.join(" "));
-    setRecent([run, ...recent.filter((other) => key(other) !== key(run))].slice(0, recentLimit));
+    setRecent([run, ...recent.filter((other) => recentKey(other) !== recentKey(run))].slice(0, recentLimit));
   };
 
   const run = (entry: (typeof entries)[number]) => {
@@ -73,7 +85,9 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
 
   // Runs a suggestion, naming the window it moves from a fresh read.
   const runSuggestion = async (suggestion: Suggestion) => {
-    remember({ suggestion });
+    const workspaceID =
+      suggestion.kind === "width" || suggestion.kind === "height" ? undefined : suggestion.args.at(-1);
+    remember(workspaceID ? { workspaceID, action: suggestion.args[0] } : { suggestion });
     const app = suggestion.hud?.includes("{window}")
       ? (await desktop.fresh().catch(() => undefined))?.windows.find((window) => window.focused)?.appName
       : undefined;
@@ -176,8 +190,8 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
       {recentRows.length > 0 ? (
         <List.Section title="Recent">
           {recentRows.map((run) => {
-            if (!("command" in run)) return suggestionItem(run.suggestion, "recent-");
-            const entry = entries.find((candidate) => candidate.command === run.command);
+            if (typeof run !== "string") return suggestionItem(run, "recent-");
+            const entry = entries.find((candidate) => candidate.command === run);
             return entry ? item(entry, "recent-") : null;
           })}
         </List.Section>
@@ -194,6 +208,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
                     key={prompt.title}
                     icon={Icon[prompt.icon]}
                     title={prompt.title}
+                    subtitle={showDetail ? undefined : prompt.examples}
                     keywords={prompt.keywords}
                     detail={<CommandDetail text={prompt.hint} />}
                     actions={

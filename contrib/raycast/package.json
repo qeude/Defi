@@ -90,6 +90,6 @@
     "fix-lint": "ray lint --fix",
     "lint": "ray lint",
     "tinycast": "ray build -e dist -o \"$HOME/Library/Application Support/com.tinycast.app/extensions/defi\"",
-    "test": "node --test test/"
+    "test": "node --experimental-strip-types --test test/"
   }
 }

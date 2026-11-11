@@ -42,7 +42,12 @@ export default function Command(props: LaunchProps) {
       }
       const latest = state.windows.find((window) => window.focused);
       if (!latest || latest.workspace?.id === workspace.id) {
-        await showToast({ style: Toast.Style.Failure, title: latest ? `Already on ${label}` : "No Focused Window" });
+        // Already there is not a failure; no focused window is.
+        await showToast(
+          latest
+            ? { style: Toast.Style.Success, title: `Already on ${label}` }
+            : { style: Toast.Style.Failure, title: "No Focused Window" },
+        );
         return;
       }
       await runAndClose([[command, workspace.id]], describe(latest.appName));
@@ -53,11 +58,7 @@ export default function Command(props: LaunchProps) {
           <Action
             title={`Go to ${label}`}
             icon={Icon.ArrowRight}
-            onAction={() =>
-              workspace.active && workspace.focusedDisplay
-                ? showToast({ style: Toast.Style.Failure, title: `Already on ${label}` })
-                : runAndClose([["--monitor", String(workspace.display), "workspace", workspace.id]])
-            }
+            onAction={() => runAndClose([["--monitor", String(workspace.display), "workspace", workspace.id]])}
           />
           {/* The secondary action keeps ⌘↵ on every row, so it stays even where it has nothing to move. */}
           <Action
@@ -65,8 +66,6 @@ export default function Command(props: LaunchProps) {
             icon={Icon.Window}
             onAction={move("move-window-to-workspace-name", (app) => `Moved ${app} to ${label}`)}
           />
-        </ActionPanel.Section>
-        <ActionPanel.Section title="Focused Window">
           <Action
             title="Send Focused Window Here"
             icon={Icon.ArrowNe}
@@ -74,7 +73,7 @@ export default function Command(props: LaunchProps) {
             onAction={move("send-window-to-workspace-name", (app) => `Sent ${app} to ${label}`)}
           />
         </ActionPanel.Section>
-        <ActionPanel.Section title="Focused Column">
+        <ActionPanel.Section>
           <Action
             title="Move Focused Column Here"
             icon={Icon.AppWindowSidebarLeft}

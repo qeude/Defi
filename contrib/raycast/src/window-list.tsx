@@ -21,7 +21,8 @@ async function readOrReport<T>(read: () => Promise<T>): Promise<T | undefined> {
   }
 }
 
-// Where to move a window, read afresh so a workspace that has gone is never offered.
+// Where to move a window: cached workspaces at once, then a fresh read; a target that has gone
+// in between fails with Defi's own message.
 function MoveTargets({
   from,
   subject,
@@ -31,11 +32,16 @@ function MoveTargets({
   subject: string;
   onMove: (workspace: DefiWorkspace) => void;
 }) {
-  const { workspaces, isLoading, displayCount, appIcon, appName } = useDesktop();
-  const targets = (workspaces ?? []).filter((workspace) => workspace.id !== from);
+  const { workspaces, isLoading, error, revalidate, displayCount, appIcon, appName } = useDesktop();
+  const targets = error ? [] : (workspaces ?? []).filter((workspace) => workspace.id !== from);
   const displays = [...new Set(targets.map((workspace) => workspace.display))];
   return (
-    <List isLoading={isLoading} navigationTitle={`Move “${subject}”`} searchBarPlaceholder="Search workspaces">
+    <List
+      isLoading={isLoading}
+      navigationTitle={`Move “${subject}”`}
+      searchBarPlaceholder="Search workspaces by name, number, or app"
+    >
+      {error ? <ErrorView error={error} onRetry={revalidate} /> : null}
       {displays.map((display) => (
         <List.Section key={display} title={displayCount > 1 ? `Display ${display}` : undefined}>
           {targets
