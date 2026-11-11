@@ -329,6 +329,9 @@ extension Daemon {
       nextViewports: viewportsByMonitor,
       stableIDs: Dictionary(uniqueKeysWithValues: snapshot.monitors.compactMap { monitor in
         monitor.stableID.map { (monitor.id, $0) }
+      }),
+      names: Dictionary(uniqueKeysWithValues: snapshot.monitors.compactMap { monitor in
+        monitor.name.map { (monitor.id, $0) }
       })
     )
     if displayGeometryChanged {

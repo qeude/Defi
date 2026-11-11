@@ -41,6 +41,7 @@ private enum SettingsTOMLOperation {
   case appendRule(Rule)
   case removeRule(Int)
   case moveRule(from: Int, to: Int)
+  case removeTable(String)
 }
 
 @MainActor
@@ -86,6 +87,7 @@ public final class DefiSettingsModel {
   /// Cached: every shortcut row in Settings reads it on each render.
   public private(set) var shortcutRows: [SettingsShortcutRow] = []
   public private(set) var displays: [SettingsDisplayOption] = []
+  public private(set) var displayNames: [String] = []
   public private(set) var message: String?
   public private(set) var accessibilityGranted = false
   public private(set) var launchAtLoginEnabled = false
@@ -245,6 +247,7 @@ public final class DefiSettingsModel {
   }
 
   public func refreshDisplays() {
+    displayNames = NSScreen.screens.map(\.localizedName)
     displays = NSScreen.screens.enumerated().compactMap { index, screen in
       guard
         let number = screen.deviceDescription[
@@ -332,6 +335,32 @@ public final class DefiSettingsModel {
   /// `nil` makes the edges inherit `gaps` again.
   public func setScreenMargin(_ value: Double?, edges: [ScreenEdge]) {
     save(edges.map { .set(table: "layout", key: $0.key, value: value.map { String($0) }) })
+  }
+
+  /// Connected displays, then overridden ones that are not connected.
+  public var monitorLayoutNames: [String] {
+    displayNames + config.layout.monitors.keys.sorted().filter { configured in
+      !displayNames.contains { $0.caseInsensitiveCompare(configured) == .orderedSame }
+    }
+  }
+
+  public func monitorLayout(_ name: String) -> MonitorLayoutConfig? {
+    config.layout.monitors.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+  }
+
+  /// The override's table, keyed as the file already spells the display name.
+  private func monitorLayoutTable(_ name: String) -> String {
+    let key = config.layout.monitors.keys.first { $0.caseInsensitiveCompare(name) == .orderedSame } ?? name
+    return "layout.monitors.\(LosslessTOMLDocument.quotedKey(key))"
+  }
+
+  /// Sets one override key; clearing the last one removes the display's table.
+  public func setMonitorLayout(_ name: String, key: String, value: String?) {
+    let table = monitorLayoutTable(name)
+    let override = monitorLayout(name) ?? MonitorLayoutConfig()
+    let othersSet = key == "default_column_width"
+      ? override.presetColumnWidths != nil : override.defaultColumnWidth != nil
+    save([value == nil && !othersSet ? .removeTable(table) : .set(table: table, key: key, value: value)])
   }
 
   public func ruleName(_ rule: Rule, index: Int) -> String {
@@ -848,6 +877,8 @@ public final class DefiSettingsModel {
       document.removeArrayTable("rules", occurrence: index)
     case .moveRule(let from, let to):
       document.moveArrayTable("rules", from: from, to: to)
+    case .removeTable(let table):
+      document.removeTable(table)
     }
   }
 

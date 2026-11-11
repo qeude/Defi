@@ -65,7 +65,7 @@ private func suspendNativeFullscreenWindow(
     workspace.columns.append(
       Column(
         window: windowID,
-        width: savedColumn?.width ?? .fraction(state.layout.defaultColumnWidth),
+        width: savedColumn?.width ?? .fraction(state.layout(on: location.monitorID).defaultColumnWidth),
         preMaximizedWidth: savedColumn?.preMaximizedWidth
       )
     )

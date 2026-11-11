@@ -130,7 +130,7 @@ public func reduce(
     requestedMonitorID.flatMap { requestedID in
       state.monitors.firstIndex(where: { $0.id == requestedID })
     } ?? 0
-  let layout = state.layout
+  let layout = state.layout(on: state.monitors[monitorIndex].id)
   let command = resolvedCommand(
     command, on: state.monitors[monitorIndex].id, state: state, monitorFrames: monitorFrames)
 
@@ -738,7 +738,8 @@ private func toggleFocusedFloating(
   if let windowID = effectiveSelectedFloatingWindowID(in: workspace) {
     state.suspendedTiledPlacements[windowID] = nil
     removeWindow(windowID, from: &workspace, settings: state.layout)
-    insertNewWindow(windowID, into: &workspace, settings: state.layout)
+    insertNewWindow(
+      windowID, into: &workspace, settings: state.layout(on: state.monitors[monitorIndex].id))
     state.windows[windowID]?.floating = false
     state.windows[windowID]?.floatingOrigin = .user
     workspace.focusedLayer = .tiled

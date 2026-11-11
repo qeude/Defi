@@ -28,6 +28,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case focusedColumn
   case centerLoneColumn
   case widthPresets
+  case displayLayouts
   case screenMargins
   case animations
   case reservedTop
@@ -77,6 +78,10 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .focusedColumn: (.layout, "Focused column", "layout.center_focused_column reveal as needed always center on overflow")
     case .centerLoneColumn: (.layout, "Center a lone column", "layout.always_center_single_column single only one column middle")
     case .widthPresets: (.layout, "Width presets", "layout.preset_column_widths cycle width preset add remove")
+    case .displayLayouts: (
+      .layout, "Per-display column widths",
+      "layout.monitors display monitor screen ultrawide laptop override default_column_width preset_column_widths"
+    )
     case .screenMargins: (
       .layout, "Spacing",
       "layout.gaps default gap outer_top_gap outer_right_gap outer_bottom_gap outer_left_gap between windows screen margins edges"
