@@ -1,5 +1,6 @@
 import { Action, ActionPanel, Icon, Keyboard, List, openExtensionPreferences } from "@raycast/api";
 import { defiAppPath, notInstalled, notRunning } from "./defi";
+import { VersionMismatch } from "./parse";
 
 const releases = "https://github.com/qeude/Defi/releases/latest";
 
@@ -12,6 +13,16 @@ export function describeError(error: Error) {
       icon: Icon.Download,
       title: "Defi Is Not Installed",
       description: "Download Defi, or pick Defi.app in the extension preferences.",
+    };
+  }
+  if (error instanceof VersionMismatch) {
+    return {
+      icon: Icon.ArrowClockwise,
+      title: error.received > error.supported ? "Update This Extension" : "Update Defi",
+      description:
+        error.received > error.supported
+          ? "Defi is newer than this extension. Rebuild the extension from the Defi repository."
+          : "This extension needs a newer Defi. Update Defi from its menu bar item or the releases page.",
     };
   }
   return { icon: Icon.Warning, title: "Cannot Reach Defi", description: error.message };

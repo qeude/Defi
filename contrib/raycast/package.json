@@ -42,7 +42,7 @@
     },
     {
       "name": "run-command",
-      "title": "Run Command",
+      "title": "Search Commands",
       "description": "Run any Defi command; type 60 for a width or a workspace name to go there",
       "mode": "view",
       "keywords": [
@@ -57,7 +57,7 @@
         {
           "name": "query",
           "type": "text",
-          "placeholder": "60, +10, web",
+          "placeholder": "Width or workspace",
           "required": false
         }
       ]

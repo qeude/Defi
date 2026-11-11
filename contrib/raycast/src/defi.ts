@@ -1,4 +1,4 @@
-import { closeMainWindow, getPreferenceValues, showHUD } from "@raycast/api";
+import { closeMainWindow, getPreferenceValues, PopToRootType, showHUD } from "@raycast/api";
 import { execFile, spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
@@ -48,14 +48,25 @@ export function defi(...args: string[]): Promise<string> {
   });
 }
 
-// Calls onChange whenever Defi reports a change; returns the function that stops listening.
-export function subscribe(onChange: () => void): () => void {
+// Streams `defi subscribe --json`: onEvent gets each event name, onExit runs when the stream ends.
+// Returns the function that stops it.
+export function subscribe(onEvent: (event: string) => void, onExit: () => void): () => void {
   try {
     const child = spawn(join(defiAppPath(), cliInApp), ["subscribe", "--json"]);
+    let pending = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      const lines = (pending + chunk.toString()).split("\n");
+      pending = lines.pop() ?? "";
+      for (const line of lines) onEvent(line.match(/"event"\s*:\s*"([^"]+)"/)?.[1] ?? "");
+    });
     child.on("error", () => undefined);
-    child.stdout?.on("data", onChange);
-    return () => child.kill();
+    child.on("close", onExit);
+    return () => {
+      child.removeAllListeners("close");
+      child.kill();
+    };
   } catch {
+    onExit();
     return () => undefined;
   }
 }
@@ -63,7 +74,7 @@ export function subscribe(onChange: () => void): () => void {
 // Close Raycast first so the command acts on the window that was focused before it.
 // Feedback is a HUD because the launcher window is already gone.
 export async function runAndClose(commands: string[][], hud?: string): Promise<void> {
-  await closeMainWindow({ clearRootSearch: true });
+  await closeMainWindow({ clearRootSearch: true, popToRootType: PopToRootType.Immediate });
   try {
     for (const args of commands) await defi(...args);
     if (hud) await showHUD(hud);

@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Color, environment, Icon, Keyboard, List, showHUD } from "@raycast/api";
+import { Action, ActionPanel, Color, environment, Icon, Keyboard, List, showToast, Toast } from "@raycast/api";
 import { useCachedState } from "@raycast/utils";
 import { runAndClose } from "./defi";
 import { useDesktop } from "./desktop";
@@ -12,18 +12,22 @@ const maxAppIcons = 5;
 export default function Command() {
   const desktop = useDesktop();
   const { windows, workspaces, focused, displayCount, appIcon, appName } = desktop;
-  const [showStrip, setShowStrip] = useCachedState("show-strip", false);
+  const [showStrip, setShowStrip] = useCachedState("workspaces-strip", true);
   const dark = environment.appearance === "dark";
-  const displays = [...new Set(workspaces?.map((workspace) => workspace.display))];
-  const moving = focused?.appName ?? "Focused Window";
+  // Cached rows would look live while Defi is unreachable, so an error hides them.
+  const shown = desktop.error ? [] : (workspaces ?? []);
+  const displays = [...new Set(shown.map((workspace) => workspace.display))];
+  const moving = focused?.appName ?? "window";
 
   const actions = (workspace: DefiWorkspace, label: string) => {
     const elsewhere = focused !== undefined && focused.workspace?.id !== workspace.id;
-    // The secondary action keeps ⌘↵ on every row, so it stays even where it has nothing to move.
-    const moveHere = () =>
+    const move = (command: string, hud: string) => () =>
       elsewhere
-        ? runAndClose([["move-window-to-workspace-name", workspace.id]], `Moved ${moving} to ${label}`)
-        : showHUD(focused ? `${moving} is already on ${label}` : "No window is focused");
+        ? runAndClose([[command, workspace.id]], hud)
+        : showToast({
+            style: Toast.Style.Failure,
+            title: focused ? `${moving} is already on ${label}` : "No window is focused",
+          });
     return (
       <ActionPanel>
         <ActionPanel.Section>
@@ -32,27 +36,30 @@ export default function Command() {
             icon={Icon.ArrowRight}
             onAction={() => runAndClose([["--monitor", String(workspace.display), "workspace", workspace.id]])}
           />
-          <Action title={`Move ${moving} Here`} icon={Icon.Window} onAction={moveHere} />
-          {elsewhere ? (
-            <>
-              <Action
-                title={`Send ${moving} Here`}
-                icon={Icon.ArrowNe}
-                shortcut={{ modifiers: ["cmd", "shift"], key: "return" }}
-                onAction={() =>
-                  runAndClose([["send-window-to-workspace-name", workspace.id]], `Sent ${moving} to ${label}`)
-                }
-              />
-              <Action
-                title="Move Column Here"
-                icon={Icon.AppWindowSidebarLeft}
-                shortcut={{ modifiers: ["opt"], key: "return" }}
-                onAction={() =>
-                  runAndClose([["move-column-to-workspace-name", workspace.id]], `Moved column to ${label}`)
-                }
-              />
-            </>
-          ) : null}
+          {/* The secondary action keeps ⌘↵ on every row, so it stays even where it has nothing to move. */}
+          <Action
+            title="Move Focused Window Here"
+            icon={Icon.Window}
+            onAction={move("move-window-to-workspace-name", `Moved ${moving} to ${label}`)}
+          />
+          <Action
+            title="Send Focused Window Here"
+            icon={Icon.ArrowNe}
+            shortcut={{ modifiers: ["cmd", "shift"], key: "return" }}
+            onAction={move("send-window-to-workspace-name", `Sent ${moving} to ${label}`)}
+          />
+          <Action
+            title="Move Focused Column Here"
+            icon={Icon.AppWindowSidebarLeft}
+            shortcut={{ modifiers: ["opt"], key: "return" }}
+            onAction={move("move-column-to-workspace-name", `Moved column to ${label}`)}
+          />
+          <Action
+            title="Send Focused Column Here"
+            icon={Icon.ArrowNe}
+            shortcut={{ modifiers: ["opt", "shift"], key: "return" }}
+            onAction={move("send-column-to-workspace-name", `Sent column to ${label}`)}
+          />
         </ActionPanel.Section>
         <ActionPanel.Section>
           <Action
@@ -75,7 +82,7 @@ export default function Command() {
   return (
     <List
       isLoading={desktop.isLoading}
-      isShowingDetail={showStrip && Boolean(workspaces?.length)}
+      isShowingDetail={showStrip && shown.length > 0}
       searchBarPlaceholder="Search workspaces by name, number, or app"
     >
       {desktop.error ? (
@@ -84,7 +91,7 @@ export default function Command() {
         <List.EmptyView icon={Icon.AppWindowGrid3x3} title="No Matching Workspaces" description="Try an app name." />
       )}
       {displays.map((display) => {
-        const onDisplay = workspaces?.filter((workspace) => workspace.display === display) ?? [];
+        const onDisplay = shown.filter((workspace) => workspace.display === display);
         return (
           <List.Section
             key={display}

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { parseWindows, parseWorkspaces } from "../src/parse.ts";
 import { stripColumns, stripImage } from "../src/strip.ts";
+import { formatShortcut } from "../src/shortcut.ts";
 import { suggestions } from "../src/suggest.ts";
 
 const fixture = (name: string) => readFileSync(new URL(`fixtures/${name}`, import.meta.url), "utf8");
@@ -38,12 +39,33 @@ test("search text becomes a command argument", () => {
   assert.deepEqual(titles("+10"), [["Widen Column by 10%", "set-column-width +10%"]]);
   assert.deepEqual(titles("-40pt"), [["Narrow Column by 40 pt", "set-column-width -40"]]);
   assert.deepEqual(titles("960"), [["Set Column Width to 960 pt", "set-column-width 960"]]);
+  assert.deepEqual(titles("h50"), [["Set Window Height to 50%", "set-window-height 50%"]]);
+  assert.deepEqual(titles("h-10"), [["Shrink Window by 10%", "set-window-height -10%"]]);
   assert.deepEqual(titles("We"), [
     ["Go to web", "--monitor 1 workspace web"],
-    ["Move Column to web", "move-column-to-workspace-name web"],
     ["Move Window to web", "move-window-to-workspace-name web"],
     ["Send Window to web", "send-window-to-workspace-name web"],
+    ["Move Column to web", "move-column-to-workspace-name web"],
+    ["Send Column to web", "send-column-to-workspace-name web"],
   ]);
   assert.deepEqual(titles("zzz"), []);
   assert.deepEqual(titles("  "), []);
+});
+
+test("copied commands use the form [keys] accepts", () => {
+  const bindings = (query: string) => suggestions(query, workspaces).map((s) => s.binding);
+  assert.deepEqual(bindings("web").slice(0, 2), ["workspace web", "move-window-to-workspace-name web"]);
+  assert.deepEqual(bindings("5"), ["focus-workspace-position 5", "set-column-width 5%"]);
+  const unnamed = { ...workspaces[4], kind: "ordinary" };
+  assert.deepEqual(
+    suggestions("5", [unnamed]).map((s) => s.binding),
+    ["focus-workspace-position 5", "set-column-width 5%"],
+  );
+});
+
+test("shortcuts read as macOS glyphs with the default mod", () => {
+  assert.equal(formatShortcut("mod-left"), "⌃⌥←");
+  assert.equal(formatShortcut("mod-shift-comma"), "⌃⌥⇧,");
+  assert.equal(formatShortcut("mod-shift-cmd-up"), "⌃⌥⇧⌘↑");
+  assert.equal(formatShortcut("mod-f"), "⌃⌥F");
 });

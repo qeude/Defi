@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Color, environment, Icon, Keyboard, List } from "@raycast/api";
+import { Action, ActionPanel, Color, environment, Icon, Keyboard, LaunchProps, List } from "@raycast/api";
 import { useCachedState, useFrecencySorting } from "@raycast/utils";
 import { useState } from "react";
 import { runAndClose } from "./defi";
@@ -11,20 +11,23 @@ import { workspaceIcon } from "./workspace-icon";
 
 const current = "current";
 
-export default function Command() {
+export default function Command(props: LaunchProps) {
   const desktop = useDesktop();
-  const { windows, workspaces, focused, displayCount, appIcon } = desktop;
-  const [showStrip, setShowStrip] = useCachedState("show-strip", false);
-  const [scope, setScope] = useState("");
-  // shortcut: ranks windows by picks made here, not by Defi's focus history; use that order once
-  // list-windows exposes it (feat/recent-windows-switcher keeps one).
+  const { windows, workspaces, displayCount, appIcon, current: here } = desktop;
+  const [searchText, setSearchText] = useState(props.fallbackText ?? "");
+  const [showStrip, setShowStrip] = useCachedState("windows-strip", false);
+  const [storedScope, setScope] = useCachedState("window-scope", "");
+  // A remembered workspace that has since gone falls back to all workspaces.
+  const scope = storedScope === current || workspaces?.some((w) => w.id === storedScope) ? storedScope : "";
+  // shortcut: ranks windows by picks made here, not by Defi's focus history, and keeps the ranks of
+  // closed windows; use Defi's order once list-windows exposes it (feat/recent-windows-switcher keeps one).
   const { data: ranked, visitItem } = useFrecencySorting(windows, { key: (window) => String(window.id) });
-  const scopeID = scope === current ? focused?.workspace?.id : scope;
-  const inScope = ranked.filter((window) => !scopeID || window.workspace?.id === scopeID);
+  const scopeID = scope === current ? here?.id : scope;
+  // Cached rows would look live while Defi is unreachable, so an error hides them.
+  const inScope = desktop.error ? [] : ranked.filter((window) => !scopeID || window.workspace?.id === scopeID);
   // The focused window goes last: Enter on it would change nothing.
   const sorted = [...inScope.filter((window) => !window.focused), ...inScope.filter((window) => window.focused)];
   const dark = environment.appearance === "dark";
-  const here = focused?.workspace;
 
   const position = (window: DefiWindow) => {
     if (!window.workspace || !window.column) return "Floating";
@@ -70,6 +73,9 @@ export default function Command() {
       isShowingDetail={showStrip && sorted.length > 0}
       searchBarPlaceholder="Search windows by title, app, or workspace"
       searchBarAccessory={scopeMenu}
+      searchText={searchText}
+      onSearchTextChange={setSearchText}
+      filtering
     >
       {desktop.error ? (
         <ErrorView error={desktop.error} onRetry={desktop.revalidate} />
@@ -106,7 +112,7 @@ export default function Command() {
                     {
                       icon: workspaceIcon(fullWorkspace),
                       text: label,
-                      tooltip: displayCount > 1 ? `${label} on display ${window.display}` : label,
+                      tooltip: displayCount > 1 ? `${label} on Display ${window.display}` : label,
                     },
                   ]
                 : []),

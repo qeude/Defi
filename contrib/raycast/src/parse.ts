@@ -27,19 +27,25 @@ export type DefiWorkspace = {
   focusedDisplay: boolean;
 };
 
-// Fields within a version may grow; a new version may break, so it is refused.
-function versioned(text: string, version: number, command: string): Record<string, unknown> {
-  const json = JSON.parse(text);
-  if (json?.version !== version) {
-    throw new Error(
-      `defi ${command} returned format version ${json?.version}; this extension reads version ${version}`,
-    );
+export class VersionMismatch extends Error {
+  received: number;
+  supported: number;
+  constructor(received: number, supported: number) {
+    super(`Defi sent format version ${received}; this extension reads version ${supported}.`);
+    this.received = received;
+    this.supported = supported;
   }
+}
+
+// Fields within a version may grow; a new version may break, so it is refused.
+function versioned(text: string, version: number): Record<string, unknown> {
+  const json = JSON.parse(text);
+  if (json?.version !== version) throw new VersionMismatch(Number(json?.version), version);
   return json;
 }
 
 export function parseWindows(text: string): DefiWindow[] {
-  const { windows } = versioned(text, 1, "list-windows --json");
+  const { windows } = versioned(text, 1);
   if (!Array.isArray(windows)) return [];
   return windows
     .filter((window) => typeof window?.id === "number")
@@ -58,7 +64,7 @@ export function parseWindows(text: string): DefiWindow[] {
 }
 
 export function parseWorkspaces(text: string): DefiWorkspace[] {
-  const { monitors } = versioned(text, 2, "list-workspaces --json");
+  const { monitors } = versioned(text, 2);
   if (!Array.isArray(monitors)) return [];
   return monitors.flatMap((monitor) =>
     (Array.isArray(monitor?.workspaces) ? monitor.workspaces : [])

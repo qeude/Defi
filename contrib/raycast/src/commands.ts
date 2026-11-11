@@ -2,6 +2,31 @@ import { Icon } from "@raycast/api";
 
 export type Entry = { command: string; title: string; icon: Icon; shortcut?: string };
 
+// Commands that take a value, offered as rows that put an example in the search bar.
+export const prompts: { section: string; title: string; icon: Icon; example: string; hint: string }[] = [
+  {
+    section: "Workspaces",
+    title: "Go to Workspace…",
+    icon: Icon.ArrowRight,
+    example: "1",
+    hint: "Type a workspace's number or the start of its name.",
+  },
+  {
+    section: "Widths and Stacks",
+    title: "Set Column Width…",
+    icon: Icon.ArrowsExpand,
+    example: "60",
+    hint: "Type a width: 60 for 60%, +10 or -10 to change it, or 960 for points.",
+  },
+  {
+    section: "Widths and Stacks",
+    title: "Set Window Height…",
+    icon: Icon.ChevronUpDown,
+    example: "h50",
+    hint: "Type h and a height for the focused stacked window: h50, h+10, or h-10.",
+  },
+];
+
 // What each command does, from CONFIGURATION.md "Commands".
 export const descriptions: Record<string, string> = {
   "focus-column": "Focus the previous, next, first, or last column.",
@@ -165,7 +190,7 @@ export const sections: [string, Entry[]][] = [
     ],
   ],
   [
-    "Size and Stacks",
+    "Widths and Stacks",
     [
       { command: "cycle-width next", title: "Next Column Width", icon: Icon.ArrowsExpand, shortcut: "mod-equal" },
       {
@@ -211,7 +236,7 @@ export const sections: [string, Entry[]][] = [
     ],
   ],
   [
-    "Defi",
+    "Other",
     [
       { command: "toggle-overview", title: "Toggle Overview", icon: Icon.AppWindowGrid3x3, shortcut: "mod-o" },
       { command: "toggle-cheatsheet", title: "Toggle Cheatsheet", icon: Icon.Keyboard, shortcut: "mod-shift-slash" },

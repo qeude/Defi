@@ -25,14 +25,33 @@ export function useDesktop() {
   reload.current = desktop.revalidate;
 
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // Defi batches changes within about 30 ms; reload once per burst.
-    const stop = subscribe(() => {
-      clearTimeout(timer);
-      timer = setTimeout(() => reload.current(), 60);
-    });
+    let stopped = false;
+    let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let stop = () => undefined as void;
+    let connections = 0;
+    const start = () => {
+      connections += 1;
+      const reconnect = connections > 1;
+      stop = subscribe(
+        (event) => {
+          // The first snapshot repeats what was just read; after a reconnect it is news.
+          if (event === "snapshot" && !reconnect) return;
+          // Defi batches changes within about 30 ms; reload once per burst.
+          clearTimeout(reloadTimer);
+          reloadTimer = setTimeout(() => reload.current(), 60);
+        },
+        // Defi stopped or is not running yet: keep trying while the view is open.
+        () => {
+          if (!stopped) retryTimer = setTimeout(start, 2000);
+        },
+      );
+    };
+    start();
     return () => {
-      clearTimeout(timer);
+      stopped = true;
+      clearTimeout(reloadTimer);
+      clearTimeout(retryTimer);
       stop();
     };
   }, []);
@@ -47,6 +66,8 @@ export function useDesktop() {
     revalidate: desktop.revalidate,
     displayCount: new Set(desktop.data?.workspaces.map((workspace) => workspace.display)).size,
     focused: windows?.find((window) => window.focused),
+    // The workspace the user is on, even when it holds no window.
+    current: desktop.data?.workspaces.find((workspace) => workspace.active && workspace.focusedDisplay),
     appIcon: (bundleID?: string) => {
       const path = bundleID ? appsByID.get(bundleID)?.path : undefined;
       return path ? { fileIcon: path } : undefined;

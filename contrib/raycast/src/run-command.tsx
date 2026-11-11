@@ -1,10 +1,11 @@
 import { Action, ActionPanel, Icon, Keyboard, LaunchProps, List } from "@raycast/api";
 import { useCachedPromise, useCachedState } from "@raycast/utils";
 import { useState } from "react";
-import { descriptions, sections, type Entry } from "./commands";
+import { descriptions, prompts, sections } from "./commands";
 import { defi, runAndClose } from "./defi";
 import { describeError, RecoveryActions } from "./error-view";
 import { parseWorkspaces } from "./parse";
+import { formatShortcut } from "./shortcut";
 import { suggestions, type Suggestion } from "./suggest";
 
 const entries = sections.flatMap(([section, list]) => list.map((entry) => ({ ...entry, section })));
@@ -12,21 +13,26 @@ const recentLimit = 5;
 
 const suggestionIcons: Record<Suggestion["kind"], Icon> = {
   width: Icon.ArrowsExpand,
+  height: Icon.ChevronUpDown,
   workspace: Icon.ArrowRight,
   column: Icon.AppWindowSidebarLeft,
   window: Icon.Window,
 };
 
-function CommandDetail({ entry }: { entry: Entry }) {
-  const description = descriptions[entry.command.split(" ")[0]] ?? "";
+function CommandDetail({ text, command, shortcut }: { text: string; command?: string; shortcut?: string }) {
   return (
     <List.Item.Detail
-      markdown={`## ${entry.title}\n\n${description}`}
+      markdown={text}
       metadata={
-        <List.Item.Detail.Metadata>
-          <List.Item.Detail.Metadata.Label title="Command" text={entry.command} />
-          <List.Item.Detail.Metadata.Label title="Default Shortcut" text={entry.shortcut ?? "None"} />
-        </List.Item.Detail.Metadata>
+        command ? (
+          <List.Item.Detail.Metadata>
+            <List.Item.Detail.Metadata.Label title="Command" text={command} />
+            <List.Item.Detail.Metadata.Label
+              title="Default Shortcut"
+              text={shortcut ? formatShortcut(shortcut) : "Unset"}
+            />
+          </List.Item.Detail.Metadata>
+        ) : undefined
       }
     />
   );
@@ -40,7 +46,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
   const workspaces = useCachedPromise(async () => parseWorkspaces(await defi("list-workspaces", "--json")), [], {
     onError: () => undefined,
   });
-  const problem = workspaces.error && describeError(workspaces.error);
+  const problem = workspaces.error;
   const suggested = suggestions(searchText, workspaces.data ?? []);
   const recentEntries = searchText
     ? []
@@ -65,9 +71,16 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
       key={keyPrefix + entry.command}
       icon={entry.icon}
       title={entry.title}
-      subtitle={entry.command}
+      subtitle={showDetail ? undefined : entry.command}
       keywords={entry.command.split(/[- ]/)}
-      detail={<CommandDetail entry={entry} />}
+      accessories={entry.shortcut ? [{ text: formatShortcut(entry.shortcut), tooltip: "Default shortcut" }] : []}
+      detail={
+        <CommandDetail
+          text={descriptions[entry.command.split(" ")[0]] ?? ""}
+          command={entry.command}
+          shortcut={entry.shortcut}
+        />
+      }
       actions={
         <ActionPanel>
           <Action title="Run Command" icon={Icon.Play} onAction={() => run(entry.command)} />
@@ -88,58 +101,48 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
       isShowingDetail={showDetail}
       searchText={searchText}
       onSearchTextChange={setSearchText}
-      searchBarPlaceholder="Search commands, or type 60, +10, 2, or a workspace"
+      searchBarPlaceholder="Search commands, or type 60, +10, 2…"
     >
-      {problem && workspaces.error ? (
+      {problem ? (
         <List.Section>
           <List.Item
-            icon={problem.icon}
-            title={problem.title}
+            icon={describeError(problem).icon}
+            title={describeError(problem).title}
             keywords={[searchText]}
-            detail={<List.Item.Detail markdown={`## ${problem.title}\n\n${problem.description}`} />}
-            actions={<RecoveryActions error={workspaces.error} onRetry={workspaces.revalidate} />}
+            detail={<CommandDetail text={describeError(problem).description} />}
+            actions={<RecoveryActions error={problem} onRetry={workspaces.revalidate} />}
           />
         </List.Section>
       ) : null}
       {suggested.length > 0 ? (
         <List.Section title="Suggestions">
-          {suggested.map((suggestion) => {
-            const command = suggestion.args.join(" ");
-            return (
-              <List.Item
-                key={command}
-                icon={suggestionIcons[suggestion.kind]}
-                title={suggestion.title}
-                // Built-in filtering would drop "+10" from "Widen Column by 10%"; the query always matches.
-                keywords={[searchText]}
-                detail={
-                  <List.Item.Detail
-                    markdown={`## ${suggestion.title}`}
-                    metadata={
-                      <List.Item.Detail.Metadata>
-                        <List.Item.Detail.Metadata.Label title="Command" text={command} />
-                      </List.Item.Detail.Metadata>
-                    }
+          {suggested.map((suggestion) => (
+            <List.Item
+              key={suggestion.args.join(" ")}
+              icon={suggestionIcons[suggestion.kind]}
+              title={suggestion.title}
+              // Built-in filtering would drop "+10" from "Widen Column by 10%"; the query always matches.
+              keywords={[searchText]}
+              detail={<CommandDetail text={suggestion.title} command={suggestion.binding} />}
+              actions={
+                <ActionPanel>
+                  <Action
+                    title="Run Command"
+                    icon={Icon.Play}
+                    onAction={() => runAndClose([suggestion.args], suggestion.hud)}
                   />
-                }
-                actions={
-                  <ActionPanel>
-                    <Action
-                      title="Run Command"
-                      icon={Icon.Play}
-                      onAction={() => runAndClose([suggestion.args], suggestion.hud)}
-                    />
+                  {suggestion.binding ? (
                     <Action.CopyToClipboard
                       title="Copy Command"
-                      content={command}
+                      content={suggestion.binding}
                       shortcut={Keyboard.Shortcut.Common.Copy}
                     />
-                    {toggleDetail}
-                  </ActionPanel>
-                }
-              />
-            );
-          })}
+                  ) : null}
+                  {toggleDetail}
+                </ActionPanel>
+              }
+            />
+          ))}
         </List.Section>
       ) : null}
       {recentEntries.length > 0 ? (
@@ -147,6 +150,28 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
       ) : null}
       {sections.map(([section]) => (
         <List.Section key={section} title={section}>
+          {searchText
+            ? null
+            : prompts
+                .filter((prompt) => prompt.section === section)
+                .map((prompt) => (
+                  <List.Item
+                    key={prompt.title}
+                    icon={prompt.icon}
+                    title={prompt.title}
+                    detail={<CommandDetail text={prompt.hint} />}
+                    actions={
+                      <ActionPanel>
+                        <Action
+                          title="Insert Example"
+                          icon={Icon.TextCursor}
+                          onAction={() => setSearchText(prompt.example)}
+                        />
+                        {toggleDetail}
+                      </ActionPanel>
+                    }
+                  />
+                ))}
           {entries.filter((entry) => entry.section === section).map((entry) => item(entry))}
         </List.Section>
       ))}
