@@ -397,59 +397,57 @@ private struct LayoutSettingsView: View {
 
 @MainActor
 private struct WidthPresetsSettings: View {
-  var title = "Width presets"
   let widths: [Double]
   let save: ([Double]) -> Void
 
   var body: some View {
     Section {
-      ForEach(widths.indices, id: \.self) { index in
-        HStack {
-          Text("Preset \(index + 1)")
-          Slider(value: Binding(
-            get: { widths[index] * 100 },
-            set: { update(index, percentage: $0) }
-          ), in: 5...100, step: 5)
-          .accessibilityLabel("Preset \(index + 1) width")
-          TextField("Width", value: Binding(
-            get: { widths[index] * 100 },
-            set: { update(index, percentage: $0) }
-          ), format: .number.precision(.fractionLength(0...2)))
-          .labelsHidden()
-          .multilineTextAlignment(.trailing)
-          .frame(width: 65)
-          Text("%").foregroundStyle(.secondary)
-          Button {
-            var widths = widths
-            widths.remove(at: index)
-            save(widths)
-          } label: {
-            Image(systemName: "minus.circle")
-          }
-          .buttonStyle(.borderless)
-          .disabled(widths.count == 1)
-          .accessibilityLabel("Remove preset \(index + 1)")
-        }
-      }
+      WidthPresetRows(widths: widths, save: save)
     } header: {
       HStack {
-        Text(title)
+        Text("Width presets")
         Spacer()
-        Menu {
-          ForEach([25, 33, 50, 67, 75, 100], id: \.self) { percentage in
-            Button("\(percentage)%") {
-              save(widths + [Double(percentage) / 100])
-            }
-          }
-        } label: {
-          Image(systemName: "plus")
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .accessibilityLabel("Add width preset")
+        AddWidthPresetMenu(widths: widths, save: save)
       }
     } footer: {
       Text("Cycle Width switches between these sizes in list order.")
+    }
+  }
+}
+
+@MainActor
+private struct WidthPresetRows: View {
+  let widths: [Double]
+  let save: ([Double]) -> Void
+
+  var body: some View {
+    ForEach(widths.indices, id: \.self) { index in
+      HStack {
+        Text("Preset \(index + 1)")
+        Slider(value: Binding(
+          get: { widths[index] * 100 },
+          set: { update(index, percentage: $0) }
+        ), in: 5...100, step: 5)
+        .accessibilityLabel("Preset \(index + 1) width")
+        TextField("Width", value: Binding(
+          get: { widths[index] * 100 },
+          set: { update(index, percentage: $0) }
+        ), format: .number.precision(.fractionLength(0...2)))
+        .labelsHidden()
+        .multilineTextAlignment(.trailing)
+        .frame(width: 65)
+        Text("%").foregroundStyle(.secondary)
+        Button {
+          var widths = widths
+          widths.remove(at: index)
+          save(widths)
+        } label: {
+          Image(systemName: "minus.circle")
+        }
+        .buttonStyle(.borderless)
+        .disabled(widths.count == 1)
+        .accessibilityLabel("Remove preset \(index + 1)")
+      }
     }
   }
 
@@ -460,11 +458,32 @@ private struct WidthPresetsSettings: View {
   }
 }
 
+@MainActor
+private struct AddWidthPresetMenu: View {
+  let widths: [Double]
+  let save: ([Double]) -> Void
+
+  var body: some View {
+    Menu {
+      ForEach([25, 33, 50, 67, 75, 100], id: \.self) { percentage in
+        Button("\(percentage)%") {
+          save(widths + [Double(percentage) / 100])
+        }
+      }
+    } label: {
+      Image(systemName: "plus")
+    }
+    .menuStyle(.borderlessButton)
+    .fixedSize()
+    .accessibilityLabel("Add width preset")
+  }
+}
+
 private func tomlArray(_ widths: [Double]) -> String {
   "[\(widths.map { String($0) }.joined(separator: ", "))]"
 }
 
-/// One display's column widths; a display without an override uses the values above.
+/// One display's column widths in a single section; a grouped Form misplaces rows when one view yields several.
 @MainActor
 private struct DisplayLayoutSettings: View {
   let model: DefiSettingsModel
@@ -492,16 +511,14 @@ private struct DisplayLayoutSettings: View {
               name, key: "preset_column_widths", value: $0 ? tomlArray(layout.presetColumnWidths) : nil)
           }
         ))
+        if let presets = override.presetColumnWidths {
+          let save = { model.setMonitorLayout(name, key: "preset_column_widths", value: tomlArray($0)) }
+          WidthPresetRows(widths: presets, save: save)
+          LabeledContent("Add preset") { AddWidthPresetMenu(widths: presets, save: save) }
+        }
       }
     } header: {
-      Text(name)
-    } footer: {
-      Text(model.displayNames.contains(name) ? "" : "Not connected.")
-    }
-    if let presets = override?.presetColumnWidths {
-      WidthPresetsSettings(title: "\(name) width presets", widths: presets) {
-        model.setMonitorLayout(name, key: "preset_column_widths", value: tomlArray($0))
-      }
+      Text(model.displayNames.contains(name) ? name : "\(name) (not connected)")
     }
   }
 }
