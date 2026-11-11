@@ -41,7 +41,9 @@ cd contrib/raycast
 npm install && npm run dev
 ```
 
-`npm run dev` adds the extension to Raycast in development mode. For Tinycast,
+`npm run dev` adds the extension to Raycast in development mode. Give Search
+Windows a hotkey or an alias such as `w` in its command settings (⌘K, then
+Configure Command) to reach it in one keystroke. For Tinycast,
 run `npm run tinycast` instead: it builds straight into Tinycast's extensions
 folder, and Tinycast picks up a new build the next time a command starts.
 

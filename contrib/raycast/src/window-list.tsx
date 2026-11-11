@@ -7,7 +7,7 @@ import { ErrorView } from "./error-view";
 import { workspaceLabel, type DefiWindow, type DefiWorkspace } from "./parse";
 import { StripDetail } from "./strip-detail";
 import { stripColumns } from "./strip";
-import { workspaceIcon } from "./workspace-icon";
+import { workspaceAccessories, workspaceIcon } from "./workspace-icon";
 
 const current = "current";
 
@@ -21,27 +21,35 @@ async function readOrReport<T>(read: () => Promise<T>): Promise<T | undefined> {
   }
 }
 
-function MoveTargets(props: {
-  workspaces: DefiWorkspace[];
-  displayCount: number;
+// Where to move a window, read afresh so a workspace that has gone is never offered.
+function MoveTargets({
+  from,
+  subject,
+  onMove,
+}: {
+  from?: string;
   subject: string;
   onMove: (workspace: DefiWorkspace) => void;
 }) {
-  const displays = [...new Set(props.workspaces.map((workspace) => workspace.display))];
+  const { workspaces, isLoading, displayCount, appIcon, appName } = useDesktop();
+  const targets = (workspaces ?? []).filter((workspace) => workspace.id !== from);
+  const displays = [...new Set(targets.map((workspace) => workspace.display))];
   return (
-    <List navigationTitle={`Move ${props.subject}`} searchBarPlaceholder="Search workspaces">
+    <List isLoading={isLoading} navigationTitle={`Move “${subject}”`} searchBarPlaceholder="Search workspaces">
       {displays.map((display) => (
-        <List.Section key={display} title={props.displayCount > 1 ? `Display ${display}` : undefined}>
-          {props.workspaces
+        <List.Section key={display} title={displayCount > 1 ? `Display ${display}` : undefined}>
+          {targets
             .filter((workspace) => workspace.display === display)
             .map((workspace) => (
               <List.Item
                 key={workspace.id}
-                icon={workspaceIcon(workspace)}
+                icon={workspaceIcon(workspace, workspace.active)}
                 title={workspaceLabel(workspace)}
+                keywords={[String(workspace.position), ...workspace.applications.map(appName)]}
+                accessories={workspaceAccessories(workspace, appIcon, appName)}
                 actions={
                   <ActionPanel>
-                    <Action title="Move Here" icon={Icon.ArrowRight} onAction={() => props.onMove(workspace)} />
+                    <Action title="Move Window Here" icon={Icon.ArrowRight} onAction={() => onMove(workspace)} />
                   </ActionPanel>
                 }
               />
@@ -191,33 +199,31 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                   ]
             }
             detail={
-              workspace ? (
-                <StripDetail
-                  windows={windows ?? []}
-                  workspaceID={workspace.id}
-                  highlightID={window.id}
-                  dark={dark}
-                  appIcon={appIcon}
-                  empty=""
-                >
-                  {window.title ? <List.Item.Detail.Metadata.Label title="Title" text={window.title} /> : null}
-                  <List.Item.Detail.Metadata.Label title="App" text={window.appName} icon={appIcon(window.appID)} />
-                  <List.Item.Detail.Metadata.Label title="Workspace" text={label} />
-                  {displayCount > 1 ? (
-                    <List.Item.Detail.Metadata.Label title="Display" text={String(window.display)} />
-                  ) : null}
-                  <List.Item.Detail.Metadata.Label title="Position" text={position(window)} />
-                  {window.focused ? (
-                    <List.Item.Detail.Metadata.TagList title="Status">
-                      <List.Item.Detail.Metadata.TagList.Item text="Focused" color={Color.Blue} />
-                    </List.Item.Detail.Metadata.TagList>
-                  ) : null}
-                </StripDetail>
-              ) : undefined
+              <StripDetail
+                windows={windows ?? []}
+                workspaceID={workspace?.id ?? ""}
+                highlightID={window.id}
+                dark={dark}
+                appIcon={appIcon}
+                empty=""
+              >
+                {window.title ? <List.Item.Detail.Metadata.Label title="Title" text={window.title} /> : null}
+                <List.Item.Detail.Metadata.Label title="App" text={window.appName} icon={appIcon(window.appID)} />
+                {label ? <List.Item.Detail.Metadata.Label title="Workspace" text={label} /> : null}
+                {displayCount > 1 ? (
+                  <List.Item.Detail.Metadata.Label title="Display" text={String(window.display)} />
+                ) : null}
+                <List.Item.Detail.Metadata.Label title="Position" text={position(window)} />
+                {window.focused ? (
+                  <List.Item.Detail.Metadata.TagList title="Status">
+                    <List.Item.Detail.Metadata.TagList.Item text="Focused" color={Color.Blue} />
+                  </List.Item.Detail.Metadata.TagList>
+                ) : null}
+              </StripDetail>
             }
             actions={
               <ActionPanel>
-                <ActionPanel.Section>
+                <ActionPanel.Section title="Window">
                   <Action title="Focus Window" icon={Icon.Window} onAction={() => act(window)} />
                   {/* A pushed list, not a submenu: some launchers flatten submenus, which would give ⌘↵ to its first entry. */}
                   <Action.Push
@@ -225,9 +231,8 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                     icon={Icon.ArrowRight}
                     target={
                       <MoveTargets
-                        workspaces={(workspaces ?? []).filter((target) => target.id !== workspace?.id)}
-                        displayCount={displayCount}
-                        subject={window.appName}
+                        from={workspace?.id}
+                        subject={window.title || window.appName}
                         onMove={(target) =>
                           act(
                             window,
@@ -266,7 +271,7 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                     }
                   />
                 </ActionPanel.Section>
-                <ActionPanel.Section>
+                <ActionPanel.Section title="Copy">
                   <Action.CopyToClipboard
                     title="Copy Window Title"
                     content={window.title || window.appName}

@@ -11,6 +11,8 @@ import { suggestions, type Suggestion } from "./suggest";
 const entries = sections.flatMap(([section, list]) => list.map((entry) => ({ ...entry, section })));
 const recentLimit = 5;
 
+type Recent = { command: string } | { suggestion: Suggestion };
+
 const suggestionIcons: Record<Suggestion["kind"], Icon> = {
   width: Icon.ArrowsExpand,
   height: Icon.ChevronUpDown,
@@ -44,19 +46,63 @@ function CommandDetail({ text, command, shortcut }: { text: string; command?: st
 export default function Command(props: LaunchProps<{ arguments: Arguments.RunCommand }>) {
   // An empty optional argument arrives as "", so fall through to the root-search text.
   const [searchText, setSearchText] = useState(props.arguments?.query || props.fallbackText || "");
-  const [recent, setRecent] = useCachedState<string[]>("recent-commands", []);
+  const [recent, setRecent] = useCachedState<Recent[]>("recent-runs", []);
   const [showDetail, setShowDetail] = useCachedState("show-command-detail", true);
   const desktop = useDesktop();
   const problem = desktop.error;
   const suggested = suggestions(searchText, problem ? [] : (desktop.workspaces ?? []));
-  const recentEntries = searchText
+  const workspaceIDs = new Set(desktop.workspaces?.map((workspace) => workspace.id));
+  // A remembered move to a workspace that has since gone is dropped rather than offered.
+  const recentRows = searchText
     ? []
-    : recent.flatMap((command) => entries.filter((entry) => entry.command === command));
+    : recent.filter(
+        (run) =>
+          "command" in run ||
+          !run.suggestion.args.some((arg) => arg.startsWith("__defi_dynamic_") && !workspaceIDs.has(arg)),
+      );
+
+  const remember = (run: Recent) => {
+    const key = (other: Recent) => ("command" in other ? other.command : other.suggestion.args.join(" "));
+    setRecent([run, ...recent.filter((other) => key(other) !== key(run))].slice(0, recentLimit));
+  };
 
   const run = (entry: (typeof entries)[number]) => {
-    setRecent([entry.command, ...recent.filter((other) => other !== entry.command)].slice(0, recentLimit));
+    remember({ command: entry.command });
     return runAndClose([entry.command.split(" ")], entry.hud);
   };
+
+  // Runs a suggestion, naming the window it moves from a fresh read.
+  const runSuggestion = async (suggestion: Suggestion) => {
+    remember({ suggestion });
+    const app = suggestion.hud?.includes("{window}")
+      ? (await desktop.fresh().catch(() => undefined))?.windows.find((window) => window.focused)?.appName
+      : undefined;
+    await runAndClose([suggestion.args], suggestion.hud?.replace("{window}", app ?? "window"));
+  };
+
+  const suggestionItem = (suggestion: Suggestion, keyPrefix = "") => (
+    <List.Item
+      key={keyPrefix + suggestion.args.join(" ")}
+      icon={suggestionIcons[suggestion.kind]}
+      title={suggestion.title}
+      // Built-in filtering would drop "+10" from "Widen Column by 10%"; the query always matches.
+      keywords={keyPrefix ? suggestion.title.split(" ") : [searchText]}
+      detail={
+        <CommandDetail text={suggestion.description} command={suggestion.binding} shortcut={suggestion.shortcut} />
+      }
+      actions={
+        <ActionPanel>
+          <Action title="Run Command" icon={Icon.Play} onAction={() => runSuggestion(suggestion)} />
+          {/* Copy keeps ⌘↵ on every row; without a [keys] form, it copies the CLI call. */}
+          <Action.CopyToClipboard
+            title="Copy Command"
+            content={suggestion.binding ?? `defi ${suggestion.args.join(" ")}`}
+          />
+          {toggleDetail}
+        </ActionPanel>
+      }
+    />
+  );
 
   const toggleDetail = (
     <ActionPanel.Section>
@@ -106,7 +152,8 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
   return (
     <List
       filtering={{ keepSectionOrder: true }}
-      isLoading={desktop.isLoading}
+      // The catalog is static; only suggestions wait for Defi's state.
+      isLoading={desktop.isLoading && (!desktop.workspaces || suggested.length > 0)}
       isShowingDetail={showDetail}
       searchText={searchText}
       onSearchTextChange={setSearchText}
@@ -124,42 +171,16 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
         </List.Section>
       ) : null}
       {suggested.length > 0 ? (
-        <List.Section title="Suggestions">
-          {suggested.map((suggestion) => (
-            <List.Item
-              key={suggestion.args.join(" ")}
-              icon={suggestionIcons[suggestion.kind]}
-              title={suggestion.title}
-              // Built-in filtering would drop "+10" from "Widen Column by 10%"; the query always matches.
-              keywords={[searchText]}
-              detail={
-                <CommandDetail
-                  text={suggestion.description}
-                  command={suggestion.binding}
-                  shortcut={suggestion.shortcut}
-                />
-              }
-              actions={
-                <ActionPanel>
-                  <Action
-                    title="Run Command"
-                    icon={Icon.Play}
-                    onAction={() => runAndClose([suggestion.args], suggestion.hud)}
-                  />
-                  {/* Copy keeps ⌘↵ on every row; without a [keys] form, it copies the CLI call. */}
-                  <Action.CopyToClipboard
-                    title="Copy Command"
-                    content={suggestion.binding ?? `defi ${suggestion.args.join(" ")}`}
-                  />
-                  {toggleDetail}
-                </ActionPanel>
-              }
-            />
-          ))}
-        </List.Section>
+        <List.Section title="Suggestions">{suggested.map((suggestion) => suggestionItem(suggestion))}</List.Section>
       ) : null}
-      {recentEntries.length > 0 ? (
-        <List.Section title="Recent">{recentEntries.map((entry) => item(entry, "recent-"))}</List.Section>
+      {recentRows.length > 0 ? (
+        <List.Section title="Recent">
+          {recentRows.map((run) => {
+            if (!("command" in run)) return suggestionItem(run.suggestion, "recent-");
+            const entry = entries.find((candidate) => candidate.command === run.command);
+            return entry ? item(entry, "recent-") : null;
+          })}
+        </List.Section>
       ) : null}
       {sections.map(([section]) => (
         <List.Section key={section} title={section}>

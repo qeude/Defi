@@ -36,7 +36,7 @@ test("search text becomes a command argument", () => {
   assert.deepEqual(titles("60"), [["Set Column Width to 60%", "set-column-width 60%"]]);
   assert.deepEqual(titles("3"), [
     ["Go to dev-secondary", "--monitor 1 workspace dev-secondary"],
-    ["Move Window to dev-secondary", "move-window-to-workspace-name dev-secondary"],
+    ["Move Focused Window to dev-secondary", "move-window-to-workspace-name dev-secondary"],
   ]);
   assert.deepEqual(titles("7"), [["Set Column Width to 7%", "set-column-width 7%"]]);
   assert.deepEqual(titles("+10"), [["Widen Column by 10%", "set-column-width +10%"]]);
@@ -47,13 +47,19 @@ test("search text becomes a command argument", () => {
   // A partial name offers the two common actions, a word inside the name counts, one letter offers none.
   assert.deepEqual(titles("we"), [
     ["Go to web", "--monitor 1 workspace web"],
-    ["Move Window to web", "move-window-to-workspace-name web"],
+    ["Move Focused Window to web", "move-window-to-workspace-name web"],
   ]);
   assert.equal(titles("sec")[0][0], "Go to dev-secondary");
   assert.deepEqual(titles("w"), []);
   assert.deepEqual(
     titles("web").map(([title]) => title),
-    ["Go to web", "Move Window to web", "Send Window to web", "Move Column to web", "Send Column to web"],
+    [
+      "Go to web",
+      "Move Focused Window to web",
+      "Send Focused Window to web",
+      "Move Focused Column to web",
+      "Send Focused Column to web",
+    ],
   );
   assert.deepEqual(titles("zzz"), []);
   assert.deepEqual(titles("  "), []);

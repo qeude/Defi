@@ -38,9 +38,15 @@ export class VersionMismatch extends Error {
 }
 
 // Fields within a version may grow; a new version may break, so it is refused.
+// Output that is not versioned JSON comes from a Defi older than the format, so it reads as version 0.
 function versioned(text: string, version: number): Record<string, unknown> {
-  const json = JSON.parse(text);
-  if (json?.version !== version) throw new VersionMismatch(Number(json?.version), version);
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new VersionMismatch(0, version);
+  }
+  if (json?.version !== version) throw new VersionMismatch(Number(json?.version) || 0, version);
   return json;
 }
 

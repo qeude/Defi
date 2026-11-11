@@ -252,10 +252,10 @@ export const sections: [string, Entry[]][] = [
   [
     "Widths and Stacks",
     [
-      { command: "cycle-width next", title: "Next Column Width", icon: "ArrowsExpand", shortcut: "mod-equal" },
+      { command: "cycle-width next", title: "Cycle to Next Column Width", icon: "ArrowsExpand", shortcut: "mod-equal" },
       {
         command: "cycle-width previous",
-        title: "Previous Column Width",
+        title: "Cycle to Previous Column Width",
         icon: "ArrowsContract",
         shortcut: "mod-minus",
       },
@@ -263,7 +263,7 @@ export const sections: [string, Entry[]][] = [
       { command: "expand-column-to-available-width", title: "Fill Available Width", icon: "ArrowsExpand" },
       { command: "center-column", title: "Center Column", icon: "Center", shortcut: "mod-c" },
       { command: "center-visible-columns", title: "Center Visible Columns", icon: "AlignCentre" },
-      { command: "switch-preset-window-height", title: "Next Window Height", icon: "ChevronUpDown" },
+      { command: "switch-preset-window-height", title: "Cycle to Next Window Height", icon: "ChevronUpDown" },
       { command: "reset-window-height", title: "Reset Window Heights", icon: "RotateAntiClockwise" },
       {
         command: "join-window left",

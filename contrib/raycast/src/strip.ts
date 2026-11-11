@@ -3,8 +3,9 @@ import type { DefiWindow } from "./parse";
 const column = { width: 44, height: 64, gap: 6, inset: 8 };
 const minWidth = 240;
 const palette = {
-  light: { desk: "#00000010", window: "#FFFFFF", stroke: "#0000001F", highlight: "#007AFF" },
-  dark: { desk: "#FFFFFF12", window: "#FFFFFF24", stroke: "#FFFFFF1F", highlight: "#0A84FF" },
+  // Six-digit colors with separate opacities: some native SVG renderers ignore eight-digit hex.
+  light: { desk: ["#000000", 0.06], window: ["#FFFFFF", 1], stroke: ["#000000", 0.12], highlight: "#007AFF" },
+  dark: { desk: ["#FFFFFF", 0.07], window: ["#FFFFFF", 0.14], stroke: ["#FFFFFF", 0.12], highlight: "#0A84FF" },
 };
 
 // Tiled windows of one workspace, as columns of stacked windows in strip order.
@@ -29,12 +30,13 @@ export function stripSVG(columns: DefiWindow[][], highlightID: number | undefine
       const highlighted = window.id === highlightID;
       const x = left + index * (column.width + column.gap);
       const y = column.inset + row * (rowHeight + column.gap);
-      const fill = highlighted ? colors.highlight : colors.window;
-      return `<rect x="${x}" y="${y}" width="${column.width}" height="${rowHeight}" rx="6" fill="${fill}" stroke="${highlighted ? fill : colors.stroke}"/>`;
+      const [fill, fillOpacity] = highlighted ? [colors.highlight, 1] : colors.window;
+      const [stroke, strokeOpacity] = highlighted ? [colors.highlight, 1] : colors.stroke;
+      return `<rect x="${x}" y="${y}" width="${column.width}" height="${rowHeight}" rx="6" fill="${fill}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-opacity="${strokeOpacity}"/>`;
     });
   });
   const height = column.inset * 2 + column.height;
-  const desk = `<rect width="${width}" height="${height}" rx="12" fill="${colors.desk}"/>`;
+  const desk = `<rect width="${width}" height="${height}" rx="12" fill="${colors.desk[0]}" fill-opacity="${colors.desk[1]}"/>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${desk}${tiles.join("")}</svg>`;
 }
 

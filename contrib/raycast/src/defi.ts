@@ -42,6 +42,7 @@ export function defi(...args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(cli, args, { timeout: 5000 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
+      if (error.killed) return reject(new Error("Defi did not answer in time."));
       const message = stderr.trim() || error.message;
       reject(new Error(message.includes("connect failed") ? notRunning : message));
     });

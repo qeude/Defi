@@ -1,4 +1,4 @@
-import { Color, Icon, type Image } from "@raycast/api";
+import { Color, Icon, type Image, type List } from "@raycast/api";
 
 // Raycast icons for the SF Symbols most often set in [workspaces] icons.
 const symbols: Record<string, Icon> = {
@@ -52,4 +52,21 @@ export function workspaceIcon(workspace: Workspace, active = false): Image.Image
   const number = Icon[`Number${String(workspace.position).padStart(2, "0")}` as keyof typeof Icon];
   const source = (symbol && (symbols[symbol] ?? symbols[symbol.split(".")[0]])) || number || Icon.AppWindowGrid3x3;
   return active ? { source, tintColor: Color.Blue } : source;
+}
+
+const maxAppIcons = 5;
+
+// A workspace row's accessories: up to five app icons, a count of the rest, and the Active tag.
+export function workspaceAccessories(
+  workspace: { applications: string[]; active: boolean },
+  appIcon: (bundleID?: string) => Image.ImageLike | undefined,
+  appName: (bundleID: string) => string,
+): List.Item.Accessory[] {
+  const icons = workspace.applications.map((app) => ({ icon: appIcon(app) ?? Icon.AppWindow, tooltip: appName(app) }));
+  const extra = icons.length - maxAppIcons;
+  return [
+    ...icons.slice(0, maxAppIcons),
+    ...(extra > 0 ? [{ text: `+${extra}` }] : []),
+    ...(workspace.active ? [{ tag: { value: "Active", color: Color.Blue } }] : []),
+  ];
 }

@@ -18,9 +18,7 @@ import { ErrorView } from "./error-view";
 import { workspaceLabel, type DefiWorkspace } from "./parse";
 import { StripDetail } from "./strip-detail";
 import { WindowList } from "./window-list";
-import { workspaceIcon } from "./workspace-icon";
-
-const maxAppIcons = 5;
+import { workspaceAccessories, workspaceIcon } from "./workspace-icon";
 
 export default function Command(props: LaunchProps) {
   const desktop = useDesktop();
@@ -55,7 +53,11 @@ export default function Command(props: LaunchProps) {
           <Action
             title={`Go to ${label}`}
             icon={Icon.ArrowRight}
-            onAction={() => runAndClose([["--monitor", String(workspace.display), "workspace", workspace.id]])}
+            onAction={() =>
+              workspace.active && workspace.focusedDisplay
+                ? showToast({ style: Toast.Style.Failure, title: `Already on ${label}` })
+                : runAndClose([["--monitor", String(workspace.display), "workspace", workspace.id]])
+            }
           />
           {/* The secondary action keeps ⌘↵ on every row, so it stays even where it has nothing to move. */}
           <Action
@@ -63,12 +65,16 @@ export default function Command(props: LaunchProps) {
             icon={Icon.Window}
             onAction={move("move-window-to-workspace-name", (app) => `Moved ${app} to ${label}`)}
           />
+        </ActionPanel.Section>
+        <ActionPanel.Section title="Focused Window">
           <Action
             title="Send Focused Window Here"
             icon={Icon.ArrowNe}
             shortcut={{ modifiers: ["cmd", "shift"], key: "return" }}
             onAction={move("send-window-to-workspace-name", (app) => `Sent ${app} to ${label}`)}
           />
+        </ActionPanel.Section>
+        <ActionPanel.Section title="Focused Column">
           <Action
             title="Move Focused Column Here"
             icon={Icon.AppWindowSidebarLeft}
@@ -132,11 +138,6 @@ export default function Command(props: LaunchProps) {
           >
             {onDisplay.map((workspace) => {
               const label = workspaceLabel(workspace);
-              const icons = workspace.applications.map((app) => ({
-                icon: appIcon(app) ?? Icon.AppWindow,
-                tooltip: appName(app),
-              }));
-              const extra = icons.length - maxAppIcons;
               return (
                 <List.Item
                   key={workspace.id}
@@ -144,15 +145,7 @@ export default function Command(props: LaunchProps) {
                   title={label}
                   keywords={[String(workspace.position), ...workspace.applications.map(appName)]}
                   // Rows next to the side pane stay bare; the pane names every app.
-                  accessories={
-                    showDetail
-                      ? undefined
-                      : [
-                          ...icons.slice(0, maxAppIcons),
-                          ...(extra > 0 ? [{ text: `+${extra}` }] : []),
-                          ...(workspace.active ? [{ tag: { value: "Active", color: Color.Blue } }] : []),
-                        ]
-                  }
+                  accessories={showDetail ? undefined : workspaceAccessories(workspace, appIcon, appName)}
                   detail={
                     <StripDetail
                       windows={windows ?? []}

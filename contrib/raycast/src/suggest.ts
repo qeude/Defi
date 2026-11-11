@@ -9,6 +9,7 @@ export type Suggestion = {
   // Defi's built-in shortcut for it, in [keys] syntax, when it has one.
   shortcut?: string;
   kind: "width" | "height" | "workspace" | "column" | "window";
+  // `{window}` stands for the focused window's app, filled in when the command runs.
   hud?: string;
 };
 
@@ -34,23 +35,23 @@ function workspaceSuggestions(workspace: DefiWorkspace, namedCount: number): Sug
       kind: "workspace",
     },
     {
-      title: `Move Window to ${label}`,
+      title: `Move Focused Window to ${label}`,
       description: `Moves the focused window to ${label} and follows it.`,
       args: ["move-window-to-workspace-name", workspace.id],
       binding: target("move-window-to-workspace-name", "move-window-to-workspace-position"),
       kind: "window",
-      hud: `Moved window to ${label}`,
+      hud: `Moved {window} to ${label}`,
     },
     {
-      title: `Send Window to ${label}`,
+      title: `Send Focused Window to ${label}`,
       description: `Moves the focused window to ${label} and stays here.`,
       args: ["send-window-to-workspace-name", workspace.id],
       binding: target("send-window-to-workspace-name", "send-window-to-workspace-position"),
       kind: "window",
-      hud: `Sent window to ${label}`,
+      hud: `Sent {window} to ${label}`,
     },
     {
-      title: `Move Column to ${label}`,
+      title: `Move Focused Column to ${label}`,
       description: `Moves the focused column to ${label} and follows it.`,
       args: ["move-column-to-workspace-name", workspace.id],
       binding: target("move-column-to-workspace-name", "move-column-to-workspace-position"),
@@ -59,7 +60,7 @@ function workspaceSuggestions(workspace: DefiWorkspace, namedCount: number): Sug
       hud: `Moved column to ${label}`,
     },
     {
-      title: `Send Column to ${label}`,
+      title: `Send Focused Column to ${label}`,
       description: `Moves the focused column to ${label} and stays here.`,
       args: ["send-column-to-workspace-name", workspace.id],
       binding: target("send-column-to-workspace-name"),
