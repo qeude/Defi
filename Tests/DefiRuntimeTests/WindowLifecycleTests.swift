@@ -67,29 +67,35 @@ struct WindowLifecycleTests {
 
   @Test(arguments: [
     // Too late: the title arrives after the grace.
-    (lateTitleRuleGrace + 0.1, false, false),
-    // The user floated the window before its title arrived.
-    (0.1, true, false),
-    (0.1, false, true),
-  ])
+    (lateTitleRuleGrace + 0.1, nil, false),
+    // The user floated or moved the window before its title arrived.
+    (0.1, Command.toggleFloating, false),
+    (0.1, Command.moveColumn(.left), false),
+    (0.1, nil, true),
+  ] as [(Double, Command?, Bool)])
   func `A late title never overrides the user or a window in use`(
-    titleAt: Double, userToggledFloating: Bool, titleChangedTwice: Bool
+    titleAt: Double, userCommand: Command?, titleChangedTwice: Bool
   ) throws {
     var (config, state, window) = lateTitleFixture()
-    reconcileWindows([window("")], config: config, frontmostProcessID: 7, now: 10, state: &state)
-    if userToggledFloating {
-      try reduce(.toggleFloating, on: monitorID, state: &state)
+    let editor = Window(
+      id: WindowID(rawValue: 2), appID: "editor", title: "Code",
+      frame: Rect(x: 0, y: 0, width: 600, height: 800), monitorID: monitorID
+    )
+    reconcileWindows([editor], config: config, appliesOpenFocus: false, state: &state)
+    reconcileWindows([editor, window("")], config: config, frontmostProcessID: 7, now: 10, state: &state)
+    if let userCommand {
+      try reduce(userCommand, on: monitorID, state: &state)
     }
     if titleChangedTwice {
       // A first title that matches nothing uses up the one re-evaluation.
-      reconcileWindows([window("New Tab")], config: config, now: 10.05, state: &state)
+      reconcileWindows([editor, window("New Tab")], config: config, now: 10.05, state: &state)
     }
-    let floating = state.windows[window("").id]?.floating
+    let placement = state.monitors[0].workspaces.first { $0.id == WorkspaceID(rawValue: "dev") }
 
-    reconcileWindows([window("Web Inspector")], config: config, now: 10 + titleAt, state: &state)
+    reconcileWindows([editor, window("Web Inspector")], config: config, now: 10 + titleAt, state: &state)
 
     #expect(state.location(containing: window("").id)?.workspaceID == WorkspaceID(rawValue: "dev"))
-    #expect(state.windows[window("").id]?.floating == floating)
+    #expect(state.monitors[0].workspaces.first { $0.id == WorkspaceID(rawValue: "dev") } == placement)
   }
 
   @Test

@@ -340,6 +340,7 @@ public struct LateTitleRuleCandidate: Equatable, Sendable {
 struct LateTitleRulePlacement: Equatable, Sendable {
   var workspaceID: WorkspaceID
   var floating: Bool
+  var columnIndex: Int?
   var column: Column?
 }
 
@@ -350,10 +351,12 @@ private func lateTitleRulePlacement(
     let workspace = state.monitors.first(where: { $0.id == location.monitorID })?
       .workspaces.first(where: { $0.id == location.workspaceID })
   else { return nil }
+  let columnIndex = workspace.columns.firstIndex { $0.windows.contains(windowID) }
   return LateTitleRulePlacement(
     workspaceID: location.workspaceID,
     floating: workspace.floatingWindows.contains(windowID),
-    column: workspace.columns.first { $0.windows.contains(windowID) }
+    columnIndex: columnIndex,
+    column: columnIndex.map { workspace.columns[$0] }
   )
 }
 
