@@ -89,9 +89,11 @@ public final class RecentWindowsController {
     background.material = .hudWindow
     background.blendingMode = .behindWindow
     background.state = .active
-    background.wantsLayer = true
-    background.layer?.cornerRadius = 20
-    background.layer?.masksToBounds = true
+    // A mask, not a layer corner radius: the window shadow then follows the rounded shape.
+    background.maskImage = NSImage(size: size, flipped: false) { rect in
+      NSBezierPath(roundedRect: rect, xRadius: 20, yRadius: 20).fill()
+      return true
+    }
 
     let document = NSView(frame: CGRect(
       x: 0, y: 0, width: max(contentWidth, size.width), height: size.height))
@@ -144,13 +146,17 @@ private final class RecentWindowCard: NSView {
       width: preview.width, height: preview.height)
     let picture = previews ? WindowCaptureStore.shared.picture(entry.id) : nil
     let icon = NSImageView(image: application?.icon ?? NSImage())
-    if let picture {
+    if let picture, picture.size.width > 0, picture.size.height > 0 {
+      let scale = min(preview.width / picture.size.width, preview.height / picture.size.height, 1)
+      let fitted = CGSize(width: picture.size.width * scale, height: picture.size.height * scale)
       let layer = CALayer()
-      layer.frame = previewFrame
+      layer.frame = CGRect(
+        x: previewFrame.midX - fitted.width / 2, y: previewFrame.midY - fitted.height / 2,
+        width: fitted.width, height: fitted.height)
       layer.contents = picture.contents
       layer.contentsGravity = .resizeAspect
       self.layer?.addSublayer(layer)
-      icon.frame = CGRect(x: previewFrame.minX + 4, y: previewFrame.minY + 4, width: 32, height: 32)
+      icon.frame = CGRect(x: layer.frame.minX - 6, y: layer.frame.minY - 6, width: 32, height: 32)
     } else {
       icon.frame = CGRect(x: previewFrame.midX - 32, y: previewFrame.midY - 32, width: 64, height: 64)
     }
