@@ -18,13 +18,7 @@ private final class DesktopFocusFixtureDelegate: NSObject, NSApplicationDelegate
       styleMask: [.titled, .closable, .miniaturizable, .resizable],
       backing: .buffered, defer: false
     )
-    // `late` opens untitled and sets the title afterwards, as some apps do.
-    let title = CommandLine.arguments[1]
-    if CommandLine.arguments.dropFirst(2).first == "late" {
-      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { window.title = title }
-    } else {
-      window.title = title
-    }
+    window.title = CommandLine.arguments[1]
     window.isReleasedWhenClosed = false
     window.level = .normal
     window.hidesOnDeactivate = false
@@ -40,6 +34,11 @@ private final class DesktopFocusFixtureDelegate: NSObject, NSApplicationDelegate
     // Cooperative activation: only the active app can let the test runner activate.
     DispatchQueue.global().async {
       while let line = readLine() {
+        // Some apps set their title after the window opens.
+        if line.hasPrefix("title ") {
+          DispatchQueue.main.async { window.title = String(line.dropFirst(6)) }
+          continue
+        }
         guard line.hasPrefix("yield "), let pid = pid_t(line.dropFirst(6)) else { continue }
         DispatchQueue.main.async {
           NSRunningApplication(processIdentifier: pid).map { NSApplication.shared.yieldActivation(to: $0) }
@@ -56,7 +55,7 @@ private final class DesktopFocusFixtureDelegate: NSObject, NSApplicationDelegate
 @main
 private struct DesktopFocusFixture {
   @MainActor static func main() {
-    guard (2...3).contains(CommandLine.arguments.count) else { exit(2) }
+    guard CommandLine.arguments.count == 2 else { exit(2) }
     let application = NSApplication.shared
     let delegate = DesktopFocusFixtureDelegate()
     application.setActivationPolicy(.regular)
