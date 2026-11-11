@@ -138,13 +138,18 @@ public struct Config: Equatable, Sendable {
     guard (0.25...4).contains(input.scrollGestureSpeed) else {
       throw ConfigError.invalidValue("input.scroll_gesture_speed")
     }
-    guard (0.05...1).contains(layout.defaultColumnWidth) else {
-      throw ConfigError.invalidValue("layout.default_column_width")
-    }
-    guard !layout.presetColumnWidths.isEmpty,
-      layout.presetColumnWidths.allSatisfy({ (0.05...1).contains($0) })
-    else {
-      throw ConfigError.invalidValue("layout.preset_column_widths")
+    let columnWidths: [(String, Double?, [Double]?)] =
+      [("layout", layout.defaultColumnWidth, layout.presetColumnWidths)]
+      + layout.monitors.sorted { $0.key < $1.key }.map {
+        ("layout.monitors.\($0.key)", $0.value.defaultColumnWidth, $0.value.presetColumnWidths)
+      }
+    for (table, defaultWidth, presets) in columnWidths {
+      guard defaultWidth.map({ (0.05...1).contains($0) }) ?? true else {
+        throw ConfigError.invalidValue("\(table).default_column_width")
+      }
+      guard presets.map({ !$0.isEmpty && $0.allSatisfy { (0.05...1).contains($0) } }) ?? true else {
+        throw ConfigError.invalidValue("\(table).preset_column_widths")
+      }
     }
     guard !layout.presetWindowHeights.isEmpty,
       layout.presetWindowHeights.allSatisfy({ (0.05...0.95).contains($0) })

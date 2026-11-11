@@ -106,6 +106,30 @@ with the monitor.
 Reserved values are extra insets, not bar heights. See the
 [SketchyBar integration](contrib/sketchybar/README.md) to compute them.
 
+### Per-display column widths
+
+A `[layout.monitors."<display name>"]` table overrides column widths on one
+display, like Niri's per-output `layout`. Its name matches the display name
+macOS shows in System Settings, as `rules.monitor` does, ignoring case. Settings
+lists the connected displays under Layout.
+
+```toml
+[layout.monitors."DELL U3818DW"]
+default_column_width = 0.40
+preset_column_widths = [0.25, 0.40, 0.60]
+```
+
+| Setting | Default | Values | Description |
+| --- | --- | --- | --- |
+| `default_column_width` | `layout.default_column_width` | `0.05` to `1.0` | Width of each new column on this display. |
+| `preset_column_widths` | `layout.preset_column_widths` | non-empty list, `0.05` to `1.0` | Widths that `cycle-width` steps through on this display. |
+
+The display a column is on decides: a window opens at that display's width, and
+`cycle-width` and `maximize-column` use its presets and default. A column or
+workspace moved to another display keeps its width until you change it there.
+A display with no table, or one that is disconnected, uses `[layout]`. A reload
+changes new columns only. Gaps and other `[layout]` keys stay global.
+
 ### Focused column centering
 
 | Mode | When focus moves to another column |

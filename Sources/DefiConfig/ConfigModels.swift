@@ -248,6 +248,8 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
   public var outerLeftGap: Double?
   public var reservedTop: Double
   public var reservedBottom: Double
+  /// Overrides keyed by display name, matched case-insensitively like `rules.monitor`.
+  public var monitors: [String: MonitorLayoutConfig]
 
   public init(
     defaultColumnWidth: Double = 0.80,
@@ -261,7 +263,8 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     outerBottomGap: Double? = nil,
     outerLeftGap: Double? = nil,
     reservedTop: Double = 0,
-    reservedBottom: Double = 0
+    reservedBottom: Double = 0,
+    monitors: [String: MonitorLayoutConfig] = [:]
   ) {
     self.defaultColumnWidth = defaultColumnWidth
     self.presetColumnWidths = presetColumnWidths
@@ -275,6 +278,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     self.outerLeftGap = outerLeftGap
     self.reservedTop = reservedTop
     self.reservedBottom = reservedBottom
+    self.monitors = monitors
   }
 
   enum CodingKeys: String, CodingKey {
@@ -290,6 +294,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     case outerLeftGap = "outer_left_gap"
     case reservedTop = "reserved_top"
     case reservedBottom = "reserved_bottom"
+    case monitors
   }
 
   public init(from decoder: Decoder) throws {
@@ -318,6 +323,24 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
     outerLeftGap = try values.decodeIfPresent(Double.self, forKey: .outerLeftGap)
     reservedTop = try values.decodeIfPresent(Double.self, forKey: .reservedTop) ?? defaults.reservedTop
     reservedBottom = try values.decodeIfPresent(Double.self, forKey: .reservedBottom) ?? defaults.reservedBottom
+    monitors =
+      try values.decodeIfPresent([String: MonitorLayoutConfig].self, forKey: .monitors) ?? defaults.monitors
+  }
+}
+
+/// `[layout]` keys one display can override; `nil` inherits the global value.
+public struct MonitorLayoutConfig: Codable, Equatable, Sendable {
+  public var defaultColumnWidth: Double?
+  public var presetColumnWidths: [Double]?
+
+  public init(defaultColumnWidth: Double? = nil, presetColumnWidths: [Double]? = nil) {
+    self.defaultColumnWidth = defaultColumnWidth
+    self.presetColumnWidths = presetColumnWidths
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case defaultColumnWidth = "default_column_width"
+    case presetColumnWidths = "preset_column_widths"
   }
 }
 

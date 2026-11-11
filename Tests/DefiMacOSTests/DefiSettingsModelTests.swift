@@ -33,6 +33,29 @@ struct DefiSettingsModelTests {
     #expect(model.message == nil)
   }
 
+  @Test
+  func displayOverrideEditsTheTableTheFileAlreadyNames() throws {
+    let url = try configFile()
+    defer { removeConfig(url) }
+    try Data("[layout]\ndefault_column_width = 0.7\n\n[layout.monitors.LG]\ndefault_column_width = 0.6\n".utf8)
+      .write(to: url)
+    let model = DefiSettingsModel(configURL: url)
+
+    model.setMonitorLayout("lg", key: "preset_column_widths", value: "[0.3, 0.6]")
+    model.setMonitorLayoutOverride("DELL U3818DW", enabled: true)
+    #expect(model.message == nil)
+    #expect(model.config.layout.monitors == [
+      "LG": MonitorLayoutConfig(defaultColumnWidth: 0.6, presetColumnWidths: [0.3, 0.6]),
+      "DELL U3818DW": MonitorLayoutConfig(defaultColumnWidth: 0.7),
+    ])
+    #expect(try String(contentsOf: url, encoding: .utf8).contains("[layout.monitors.\"DELL U3818DW\"]"))
+
+    model.setMonitorLayoutOverride("LG", enabled: false)
+    model.setMonitorLayoutOverride("DELL U3818DW", enabled: false)
+    #expect(model.config.layout.monitors.isEmpty)
+    #expect(try !String(contentsOf: url, encoding: .utf8).contains("layout.monitors"))
+  }
+
   @Test(arguments: ["up", "down", "1"])
   func workspaceRenamePreservesDirectionalAndPositionalShortcuts(name: String) throws {
     let url = try configFile()

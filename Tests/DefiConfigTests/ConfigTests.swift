@@ -163,6 +163,9 @@ struct ConfigTests {
     ("[layout]\nouter_left_gap = 257", .invalidValue("layout.outer_left_gap")),
     ("[layout]\npreset_window_heights = []", .invalidValue("layout.preset_window_heights")),
     ("[layout]\npreset_window_heights = [1.0]", .invalidValue("layout.preset_window_heights")),
+    ("[layout.monitors.\"DELL U3818DW\"]\ndefault_column_width = 0", .invalidValue("layout.monitors.DELL U3818DW.default_column_width")),
+    ("[layout.monitors.LG]\npreset_column_widths = []", .invalidValue("layout.monitors.LG.preset_column_widths")),
+    ("[layout.monitors.LG]\npreset_column_widths = [1.5]", .invalidValue("layout.monitors.LG.preset_column_widths")),
     ("[layout]\nreserved_top = -1", .invalidValue("layout.reserved_top")),
     ("[layout]\nreserved_top = 513", .invalidValue("layout.reserved_top")),
     ("\(rule) = 0", .invalidValue("rules.initial_column_width")),
@@ -226,6 +229,13 @@ struct ConfigTests {
       reserved_top = 11
       reserved_bottom = 4
 
+      [layout.monitors."DELL U3818DW"]
+      default_column_width = 0.5
+      preset_column_widths = [0.25, 0.5]
+
+      [layout.monitors.LG]
+      default_column_width = 0.6
+
       [menu_bar]
       enabled = false
 
@@ -259,6 +269,10 @@ struct ConfigTests {
       config.layout.outerLeftGap] == [1, 2, 0, 3])
     #expect(config.layout.reservedTop == 11)
     #expect(config.layout.reservedBottom == 4)
+    #expect(config.layout.monitors == [
+      "DELL U3818DW": MonitorLayoutConfig(defaultColumnWidth: 0.5, presetColumnWidths: [0.25, 0.5]),
+      "LG": MonitorLayoutConfig(defaultColumnWidth: 0.6),
+    ])
     #expect(!config.menuBar.enabled)
     #expect(config.keys["mod-d"] == "diagnostic-mark")
   }

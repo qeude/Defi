@@ -56,7 +56,7 @@ struct LosslessTOMLDocument {
       return
     }
     guard let value else { return }
-    let insertion = "\(quoteKeyIfNeeded(key)) = \(value)"
+    let insertion = "\(Self.quotedKey(key)) = \(value)"
     // Keep the blank lines that separate this table from the next one after the new key.
     var insertionIndex = sectionEnd
     while insertionIndex > sectionStart,
@@ -74,7 +74,7 @@ struct LosslessTOMLDocument {
     }
     if !lines.isEmpty { lines.append("") }
     lines.append("[[\(table)]]")
-    lines.append(contentsOf: values.map { "\(quoteKeyIfNeeded($0.0)) = \($0.1)" })
+    lines.append(contentsOf: values.map { "\(Self.quotedKey($0.0)) = \($0.1)" })
     hasFinalNewline = true
   }
 
@@ -93,7 +93,7 @@ struct LosslessTOMLDocument {
     let quoted = written.trimmingCharacters(in: .whitespaces).hasPrefix("\"")
     let key = quoted
       ? "\"\(new.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
-      : quoteKeyIfNeeded(new)
+      : Self.quotedKey(new)
     lines[index] = indent + key + spacing + line[equals...]
   }
 
@@ -386,7 +386,7 @@ struct LosslessTOMLDocument {
     return spacing + line[start...]
   }
 
-  private func quoteKeyIfNeeded(_ key: String) -> String {
+  static func quotedKey(_ key: String) -> String {
     // TOML bare keys are ASCII only.
     guard key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }) else {
       return

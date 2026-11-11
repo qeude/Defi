@@ -60,7 +60,11 @@ public struct WindowFocusHistory: Equatable, Codable, Sendable {
 public struct RuntimeState: Equatable, Sendable {
   public var monitors: [Monitor]
   public var windows: [WindowID: Window]
+  /// The global layout; `layout(on:)` applies a display's overrides.
   public var layout: LayoutSettings
+  public var monitorLayouts: [String: MonitorLayoutConfig]
+  /// Display names by monitor, as the last display snapshot reported them.
+  public var monitorNames: [MonitorID: String]
   public var windowRules: [Rule]
   public var workspaceNames: [WorkspaceID]
   public var defaultWorkspace: WorkspaceID?
@@ -82,6 +86,8 @@ public struct RuntimeState: Equatable, Sendable {
     self.monitors = []
     self.windows = [:]
     self.layout = LayoutSettings(config: config)
+    self.monitorLayouts = config.layout.monitors
+    self.monitorNames = [:]
     self.windowRules = config.rules
     self.workspaceNames = names
     self.defaultWorkspace = config.workspaces.defaultName.map(WorkspaceID.init(rawValue:))
@@ -130,6 +136,18 @@ public struct RuntimeState: Equatable, Sendable {
     reconcileConfiguredWorkspaces()
   }
 
+  /// The layout for new columns and width presets on a monitor. A display without
+  /// an override, or a monitor whose name is unknown, uses the global layout.
+  public func layout(on monitorID: MonitorID?) -> LayoutSettings {
+    guard let name = monitorID.flatMap({ monitorNames[$0] }),
+      let override = monitorLayouts.first(where: { $0.key.caseInsensitiveCompare(name) == .orderedSame })?.value
+    else { return layout }
+    var result = layout
+    result.defaultColumnWidth = override.defaultColumnWidth ?? result.defaultColumnWidth
+    result.presetColumnWidths = override.presetColumnWidths ?? result.presetColumnWidths
+    return result
+  }
+
   public var topology: WorkspaceTopology {
     WorkspaceTopology(state: self)
   }
@@ -158,6 +176,7 @@ public struct RuntimeState: Equatable, Sendable {
       previousPositions: workspaceMonitorPositions, nextPositions: nextWorkspaceMonitorPositions
     )
     layout = LayoutSettings(config: config)
+    monitorLayouts = config.layout.monitors
     windowRules = config.rules
     workspaceNames = nextWorkspaceNames
     defaultWorkspace = config.workspaces.defaultName.map(WorkspaceID.init(rawValue:))
@@ -276,10 +295,12 @@ public struct RuntimeState: Equatable, Sendable {
     _ monitorIDs: [MonitorID],
     previousViewports: [MonitorID: Rect] = [:],
     nextViewports: [MonitorID: Rect] = [:],
-    stableIDs: [MonitorID: String] = [:]
+    stableIDs: [MonitorID: String] = [:],
+    names: [MonitorID: String] = [:]
   ) {
     guard !monitorIDs.isEmpty else { return }
     monitorStableIDs.merge(stableIDs) { _, next in next }
+    monitorNames.merge(names) { _, next in next }
     let initialPrimaryTransfer = monitors.count == 1 && monitorIDs.count > 1
       && monitorIDs.contains(monitors[0].id)
       && monitorIDs.first != monitors[0].id

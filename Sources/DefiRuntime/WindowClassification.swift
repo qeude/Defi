@@ -64,7 +64,7 @@ func relocateTransientIfNeeded(
     insertNewWindow(
       windowID,
       width: relocatedTiledColumn?.width
-        ?? .fraction(state.layout.defaultColumnWidth),
+        ?? .fraction(state.layout(on: target.monitorID).defaultColumnWidth),
       into: &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
       settings: state.layout,
       focusInsertedWindow: wasSelected
@@ -294,7 +294,7 @@ func reclassifyAutomaticWindow(
       )
     }
   } else {
-    insertNewWindow(windowID, into: &workspace, settings: state.layout)
+    insertNewWindow(windowID, into: &workspace, settings: state.layout(on: location.monitorID))
   }
   if wasFocused {
     workspace.focusedLayer = .tiled

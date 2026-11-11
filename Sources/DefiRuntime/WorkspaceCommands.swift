@@ -234,7 +234,7 @@ func moveFocusedSelection(
       insertNewWindow(
         windowID,
         into: &state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex],
-        settings: state.layout,
+        settings: state.layout(on: state.monitors[targetMonitorIndex].id),
         focusInsertedWindow: windowID == selectedWindowID
       )
     }

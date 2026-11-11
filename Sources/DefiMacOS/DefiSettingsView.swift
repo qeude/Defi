@@ -355,8 +355,16 @@ private struct LayoutSettingsView: View {
         )
           .settingsSearchTarget(.centerLoneColumn)
       }
-      WidthPresetsSettings(model: model)
+      WidthPresetsSettings(widths: model.config.layout.presetColumnWidths) {
+        model.set(table: "layout", key: "preset_column_widths", value: tomlArray($0))
+      }
         .settingsSearchTarget(.widthPresets)
+      ForEach(model.monitorLayoutNames, id: \.self) { name in
+        // Search reveals the first display's section.
+        DisplayLayoutSettings(model: model, name: name)
+          .id(name == model.monitorLayoutNames.first
+            ? AnyHashable(SettingsSearchAnchor.option(.displayLayouts)) : AnyHashable(name))
+      }
       Section("Spacing") {
         SpacingEditor(model: model)
           .settingsSearchTarget(.screenMargins)
@@ -389,20 +397,22 @@ private struct LayoutSettingsView: View {
 
 @MainActor
 private struct WidthPresetsSettings: View {
-  let model: DefiSettingsModel
+  var title = "Width presets"
+  let widths: [Double]
+  let save: ([Double]) -> Void
 
   var body: some View {
     Section {
-      ForEach(model.config.layout.presetColumnWidths.indices, id: \.self) { index in
+      ForEach(widths.indices, id: \.self) { index in
         HStack {
           Text("Preset \(index + 1)")
           Slider(value: Binding(
-            get: { model.config.layout.presetColumnWidths[index] * 100 },
+            get: { widths[index] * 100 },
             set: { update(index, percentage: $0) }
           ), in: 5...100, step: 5)
           .accessibilityLabel("Preset \(index + 1) width")
           TextField("Width", value: Binding(
-            get: { model.config.layout.presetColumnWidths[index] * 100 },
+            get: { widths[index] * 100 },
             set: { update(index, percentage: $0) }
           ), format: .number.precision(.fractionLength(0...2)))
           .labelsHidden()
@@ -410,25 +420,25 @@ private struct WidthPresetsSettings: View {
           .frame(width: 65)
           Text("%").foregroundStyle(.secondary)
           Button {
-            var widths = model.config.layout.presetColumnWidths
+            var widths = widths
             widths.remove(at: index)
             save(widths)
           } label: {
             Image(systemName: "minus.circle")
           }
           .buttonStyle(.borderless)
-          .disabled(model.config.layout.presetColumnWidths.count == 1)
+          .disabled(widths.count == 1)
           .accessibilityLabel("Remove preset \(index + 1)")
         }
       }
     } header: {
       HStack {
-        Text("Width presets")
+        Text(title)
         Spacer()
         Menu {
           ForEach([25, 33, 50, 67, 75, 100], id: \.self) { percentage in
             Button("\(percentage)%") {
-              save(model.config.layout.presetColumnWidths + [Double(percentage) / 100])
+              save(widths + [Double(percentage) / 100])
             }
           }
         } label: {
@@ -444,14 +454,55 @@ private struct WidthPresetsSettings: View {
   }
 
   private func update(_ index: Int, percentage: Double) {
-    var widths = model.config.layout.presetColumnWidths
+    var widths = widths
     widths[index] = percentage / 100
     save(widths)
   }
+}
 
-  private func save(_ widths: [Double]) {
-    model.set(table: "layout", key: "preset_column_widths",
-      value: "[\(widths.map { String($0) }.joined(separator: ", "))]")
+private func tomlArray(_ widths: [Double]) -> String {
+  "[\(widths.map { String($0) }.joined(separator: ", "))]"
+}
+
+/// One display's column widths; a display without an override uses the values above.
+@MainActor
+private struct DisplayLayoutSettings: View {
+  let model: DefiSettingsModel
+  let name: String
+
+  var body: some View {
+    let override = model.monitorLayout(name)
+    let layout = model.config.layout
+    Section {
+      Toggle("Use its own column widths", isOn: Binding(
+        get: { override != nil },
+        set: { model.setMonitorLayoutOverride(name, enabled: $0) }
+      ))
+      if let override {
+        SettingsNumberRow(
+          title: SettingsOption.defaultColumnWidth.title,
+          value: (override.defaultColumnWidth ?? layout.defaultColumnWidth) * 100,
+          range: 5...100, step: 5, unit: "%",
+          onChange: { model.setMonitorLayout(name, key: "default_column_width", value: String($0 / 100)) }
+        )
+        Toggle("Own width presets", isOn: Binding(
+          get: { override.presetColumnWidths != nil },
+          set: {
+            model.setMonitorLayout(
+              name, key: "preset_column_widths", value: $0 ? tomlArray(layout.presetColumnWidths) : nil)
+          }
+        ))
+      }
+    } header: {
+      Text(name)
+    } footer: {
+      Text(model.displayNames.contains(name) ? "" : "Not connected.")
+    }
+    if let presets = override?.presetColumnWidths {
+      WidthPresetsSettings(title: "\(name) width presets", widths: presets) {
+        model.setMonitorLayout(name, key: "preset_column_widths", value: tomlArray($0))
+      }
+    }
   }
 }
 

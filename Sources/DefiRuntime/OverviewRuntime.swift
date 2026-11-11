@@ -222,7 +222,7 @@ public func applyOverviewDrop(
     else { throw OverviewRuntimeError.invalidDropTarget }
     var column = Column(
       window: intent.windowID,
-      width: sourceColumn?.width ?? .fraction(next.layout.defaultColumnWidth),
+      width: sourceColumn?.width ?? .fraction(next.layout(on: destination.monitorID).defaultColumnWidth),
       preMaximizedWidth: sourceColumn?.preMaximizedWidth
     )
     scalePixelWidths(in: &column, by: widthScale)
@@ -315,7 +315,7 @@ public func applyOverviewDrop(
     } else if !movedTiledColumns.windowIDs.contains(windowID) {
       next.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
         .columns.insert(
-          Column(window: windowID, width: .fraction(next.layout.defaultColumnWidth)),
+          Column(window: windowID, width: .fraction(next.layout(on: destination.monitorID).defaultColumnWidth)),
           at: auxiliaryColumnInsertionIndex
         )
       auxiliaryColumnInsertionIndex += 1
