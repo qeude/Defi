@@ -17,16 +17,16 @@ npm install && npm run dev
 
 ### Tinycast
 
-[Tinycast](https://github.com/abue-ammar/tinycast) runs the built extension:
+[Tinycast](https://github.com/abue-ammar/tinycast) runs the built extension.
+Build it straight into Tinycast's extensions folder:
 
 ```sh
 cd contrib/raycast
-npm install && npm run build
+npm install && npm run tinycast
 ```
 
-In Tinycast, open Settings > Extensions > Install New > Add from folder and
-pick `contrib/raycast/dist`. Tinycast copies the folder, so after an update,
-build and add it again.
+Tinycast reads each command's bundle when the command starts, so after an
+update, run `npm run tinycast` again; there is nothing to reinstall.
 
 ## Commands
 
