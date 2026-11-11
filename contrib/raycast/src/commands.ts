@@ -1,15 +1,23 @@
 import { Icon } from "@raycast/api";
 
-export type Entry = { command: string; title: string; icon: Icon; shortcut?: string };
+export type Entry = { command: string; title: string; icon: Icon; shortcut?: string; hud?: string };
 
 // Commands that take a value, offered as rows that put an example in the search bar.
-export const prompts: { section: string; title: string; icon: Icon; example: string; hint: string }[] = [
+export const prompts: {
+  section: string;
+  title: string;
+  icon: Icon;
+  example: string;
+  hint: string;
+  keywords: string[];
+}[] = [
   {
     section: "Workspaces",
     title: "Go to Workspace…",
     icon: Icon.ArrowRight,
     example: "1",
-    hint: "Type a workspace's number or the start of its name.",
+    hint: "Type a workspace's number or the start of its name, such as 2 or web.",
+    keywords: ["workspace", "go", "switch", "number", "name"],
   },
   {
     section: "Widths and Stacks",
@@ -17,6 +25,7 @@ export const prompts: { section: string; title: string; icon: Icon; example: str
     icon: Icon.ArrowsExpand,
     example: "60",
     hint: "Type a width: 60 for 60%, +10 or -10 to change it, or 960 for points.",
+    keywords: ["width", "resize", "size", "column"],
   },
   {
     section: "Widths and Stacks",
@@ -24,6 +33,7 @@ export const prompts: { section: string; title: string; icon: Icon; example: str
     icon: Icon.ChevronUpDown,
     example: "h50",
     hint: "Type h and a height for the focused stacked window: h50, h+10, or h-10.",
+    keywords: ["height", "stack", "resize", "size"],
   },
 ];
 
@@ -87,8 +97,8 @@ export const sections: [string, Entry[]][] = [
       { command: "focus-window-previous", title: "Focus Previous Window", icon: Icon.Undo },
       { command: "focus-window-or-workspace up", title: "Focus Window or Workspace Above", icon: Icon.ArrowUp },
       { command: "focus-window-or-workspace down", title: "Focus Window or Workspace Below", icon: Icon.ArrowDown },
-      { command: "focus-column-or-monitor left", title: "Focus Left Column or Display", icon: Icon.ArrowLeft },
-      { command: "focus-column-or-monitor right", title: "Focus Right Column or Display", icon: Icon.ArrowRight },
+      { command: "focus-column-or-monitor left", title: "Focus Left Column or Left Display", icon: Icon.ArrowLeft },
+      { command: "focus-column-or-monitor right", title: "Focus Right Column or Right Display", icon: Icon.ArrowRight },
       {
         command: "focus-floating previous",
         title: "Focus Previous Floating Window",
@@ -120,9 +130,9 @@ export const sections: [string, Entry[]][] = [
   [
     "Workspaces",
     [
-      { command: "focus-workspace up", title: "Focus Workspace Above", icon: Icon.ChevronUp, shortcut: "mod-i" },
-      { command: "focus-workspace down", title: "Focus Workspace Below", icon: Icon.ChevronDown, shortcut: "mod-u" },
-      { command: "focus-workspace-previous", title: "Focus Previous Workspace", icon: Icon.Undo },
+      { command: "focus-workspace up", title: "Go to Workspace Above", icon: Icon.ChevronUp, shortcut: "mod-i" },
+      { command: "focus-workspace down", title: "Go to Workspace Below", icon: Icon.ChevronDown, shortcut: "mod-u" },
+      { command: "focus-workspace-previous", title: "Go to Previous Workspace", icon: Icon.Undo },
       { command: "reorder-workspace up", title: "Move Workspace Up", icon: Icon.ArrowUp, shortcut: "mod-shift-i" },
       {
         command: "reorder-workspace down",
@@ -180,8 +190,12 @@ export const sections: [string, Entry[]][] = [
         icon: Icon.Monitor,
         shortcut: `mod-shift-cmd-${direction}`,
       })),
-      { command: "move-column-or-to-monitor left", title: "Move Column Left or to Display", icon: Icon.ArrowLeft },
-      { command: "move-column-or-to-monitor right", title: "Move Column Right or to Display", icon: Icon.ArrowRight },
+      { command: "move-column-or-to-monitor left", title: "Move Column Left or to Left Display", icon: Icon.ArrowLeft },
+      {
+        command: "move-column-or-to-monitor right",
+        title: "Move Column Right or to Right Display",
+        icon: Icon.ArrowRight,
+      },
       ...(["left", "right", "up", "down"] as const).map((direction) => ({
         command: `move-window-to-monitor ${direction}`,
         title: `Move Window to ${displayName(direction)}`,
@@ -241,7 +255,12 @@ export const sections: [string, Entry[]][] = [
       { command: "toggle-overview", title: "Toggle Overview", icon: Icon.AppWindowGrid3x3, shortcut: "mod-o" },
       { command: "toggle-cheatsheet", title: "Toggle Cheatsheet", icon: Icon.Keyboard, shortcut: "mod-shift-slash" },
       { command: "open-settings", title: "Open Settings", icon: Icon.Gear },
-      { command: "diagnostic-mark", title: "Mark a Problem for Diagnostics", icon: Icon.Bug },
+      {
+        command: "diagnostic-mark",
+        title: "Mark a Problem for Diagnostics",
+        icon: Icon.Bug,
+        hud: "Marked for diagnostics",
+      },
     ],
   ],
 ];

@@ -1,7 +1,6 @@
 import { getApplications } from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
-import { useEffect, useRef } from "react";
-import { defi, subscribe } from "./defi";
+import { defi } from "./defi";
 import { parseWindows, parseWorkspaces } from "./parse";
 
 async function readDesktop() {
@@ -16,46 +15,12 @@ async function readApps() {
   return (await getApplications()).map(({ bundleId, name, path }) => ({ bundleId, name, path }));
 }
 
-// Windows and workspaces, shown from the last run at once and kept live while the view is open.
+// Windows and workspaces, shown from the last run at once while they reload.
+// No live stream: launchers do not always run effect cleanups, which would leave `defi subscribe` running.
 export function useDesktop() {
   // The empty view reports the error with its recovery actions, so no toast as well.
   const desktop = useCachedPromise(readDesktop, [], { onError: () => undefined });
   const apps = useCachedPromise(readApps);
-  const reload = useRef(desktop.revalidate);
-  reload.current = desktop.revalidate;
-
-  useEffect(() => {
-    let stopped = false;
-    let reloadTimer: ReturnType<typeof setTimeout> | undefined;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let stop = () => undefined as void;
-    let connections = 0;
-    const start = () => {
-      connections += 1;
-      const reconnect = connections > 1;
-      stop = subscribe(
-        (event) => {
-          // The first snapshot repeats what was just read; after a reconnect it is news.
-          if (event === "snapshot" && !reconnect) return;
-          // Defi batches changes within about 30 ms; reload once per burst.
-          clearTimeout(reloadTimer);
-          reloadTimer = setTimeout(() => reload.current(), 60);
-        },
-        // Defi stopped or is not running yet: keep trying while the view is open.
-        () => {
-          if (!stopped) retryTimer = setTimeout(start, 2000);
-        },
-      );
-    };
-    start();
-    return () => {
-      stopped = true;
-      clearTimeout(reloadTimer);
-      clearTimeout(retryTimer);
-      stop();
-    };
-  }, []);
-
   const appsByID = new Map(apps.data?.map((app) => [app.bundleId, app]));
   const windows = desktop.data?.windows;
   return {

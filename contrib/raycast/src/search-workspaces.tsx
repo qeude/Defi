@@ -1,18 +1,32 @@
-import { Action, ActionPanel, Color, environment, Icon, Keyboard, List, showToast, Toast } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Color,
+  environment,
+  Icon,
+  Keyboard,
+  LaunchProps,
+  List,
+  showToast,
+  Toast,
+} from "@raycast/api";
 import { useCachedState } from "@raycast/utils";
+import { useState } from "react";
 import { runAndClose } from "./defi";
 import { useDesktop } from "./desktop";
 import { ErrorView } from "./error-view";
 import { workspaceLabel, type DefiWorkspace } from "./parse";
 import { StripDetail } from "./strip-detail";
+import { WindowList } from "./window-list";
 import { workspaceIcon } from "./workspace-icon";
 
 const maxAppIcons = 5;
 
-export default function Command() {
+export default function Command(props: LaunchProps) {
   const desktop = useDesktop();
   const { windows, workspaces, focused, displayCount, appIcon, appName } = desktop;
-  const [showStrip, setShowStrip] = useCachedState("workspaces-strip", true);
+  const [searchText, setSearchText] = useState(props.fallbackText ?? "");
+  const [showDetail, setShowDetail] = useCachedState("workspaces-strip", true);
   const dark = environment.appearance === "dark";
   // Cached rows would look live while Defi is unreachable, so an error hides them.
   const shown = desktop.error ? [] : (workspaces ?? []);
@@ -24,10 +38,7 @@ export default function Command() {
     const move = (command: string, hud: string) => () =>
       elsewhere
         ? runAndClose([[command, workspace.id]], hud)
-        : showToast({
-            style: Toast.Style.Failure,
-            title: focused ? `${moving} is already on ${label}` : "No window is focused",
-          });
+        : showToast({ style: Toast.Style.Failure, title: focused ? `Already on ${label}` : "No Focused Window" });
     return (
       <ActionPanel>
         <ActionPanel.Section>
@@ -62,11 +73,19 @@ export default function Command() {
           />
         </ActionPanel.Section>
         <ActionPanel.Section>
+          {workspace.windowCount > 0 ? (
+            <Action.Push
+              title="Show Windows"
+              icon={Icon.AppWindowList}
+              shortcut={Keyboard.Shortcut.Common.Open}
+              target={<WindowList workspaceID={workspace.id} />}
+            />
+          ) : null}
           <Action
-            title={showStrip ? "Hide Strip" : "Show Strip"}
+            title={showDetail ? "Hide Details" : "Show Details"}
             icon={Icon.AppWindowSidebarRight}
             shortcut={Keyboard.Shortcut.Common.ToggleQuickLook}
-            onAction={() => setShowStrip(!showStrip)}
+            onAction={() => setShowDetail(!showDetail)}
           />
           <Action
             title="Refresh"
@@ -82,8 +101,11 @@ export default function Command() {
   return (
     <List
       isLoading={desktop.isLoading}
-      isShowingDetail={showStrip && shown.length > 0}
+      isShowingDetail={showDetail && shown.length > 0}
       searchBarPlaceholder="Search workspaces by name, number, or app"
+      searchText={searchText}
+      onSearchTextChange={setSearchText}
+      filtering
     >
       {desktop.error ? (
         <ErrorView error={desktop.error} onRetry={desktop.revalidate} />
@@ -105,17 +127,19 @@ export default function Command() {
                 tooltip: appName(app),
               }));
               const extra = icons.length - maxAppIcons;
+              const activeTag = workspace.active ? [{ tag: { value: "Active", color: Color.Blue } }] : [];
               return (
                 <List.Item
                   key={workspace.id}
                   icon={workspaceIcon(workspace, workspace.active)}
                   title={label}
                   keywords={[String(workspace.position), ...workspace.applications.map(appName)]}
-                  accessories={[
-                    ...icons.slice(0, maxAppIcons),
-                    ...(extra > 0 ? [{ text: `+${extra}` }] : []),
-                    ...(workspace.active ? [{ tag: { value: "Active", color: Color.Blue } }] : []),
-                  ]}
+                  // The side pane names every app, so rows next to it keep only the active tag.
+                  accessories={
+                    showDetail
+                      ? activeTag
+                      : [...icons.slice(0, maxAppIcons), ...(extra > 0 ? [{ text: `+${extra}` }] : []), ...activeTag]
+                  }
                   detail={
                     <StripDetail
                       windows={windows ?? []}
@@ -123,6 +147,7 @@ export default function Command() {
                       highlightID={focused?.id}
                       dark={dark}
                       appIcon={appIcon}
+                      empty="No windows yet. Go here, or move the focused window here with ⌘↵."
                     >
                       <List.Item.Detail.Metadata.Label
                         title="Windows"
@@ -131,7 +156,6 @@ export default function Command() {
                       {displayCount > 1 ? (
                         <List.Item.Detail.Metadata.Label title="Display" text={String(display)} />
                       ) : null}
-                      <List.Item.Detail.Metadata.Separator />
                     </StripDetail>
                   }
                   actions={actions(workspace, label)}

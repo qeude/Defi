@@ -1,4 +1,4 @@
-import { Action, ActionPanel, Icon, Keyboard, List, openExtensionPreferences } from "@raycast/api";
+import { Action, ActionPanel, Icon, List, openExtensionPreferences } from "@raycast/api";
 import { defiAppPath, notInstalled, notRunning } from "./defi";
 import { VersionMismatch } from "./parse";
 
@@ -48,15 +48,10 @@ export function RecoveryActions({ error, onRetry }: { error: Error; onRetry: () 
           title="Launch Defi"
           icon={Icon.Power}
           target={defiAppPath()}
-          onOpen={() => setTimeout(onRetry, 1500)}
+          onOpen={() => [1000, 2500, 5000].forEach((delay) => setTimeout(onRetry, delay))}
         />
       ) : null}
-      <Action
-        title="Try Again"
-        icon={Icon.ArrowClockwise}
-        shortcut={Keyboard.Shortcut.Common.Refresh}
-        onAction={onRetry}
-      />
+      <Action title="Try Again" icon={Icon.ArrowClockwise} onAction={onRetry} />
       {preferences}
     </ActionPanel>
   );
