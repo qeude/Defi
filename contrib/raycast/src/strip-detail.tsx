@@ -9,8 +9,8 @@ type Props = {
   dark: boolean;
   appIcon: (bundleID?: string) => Image.ImageLike | undefined;
   empty: string;
-  // A picture of the highlighted window above its strip; null when macOS refused to take it.
-  preview?: string | null;
+  // A picture of the highlighted window, shown above its strip.
+  preview?: string;
   children?: React.ReactNode;
 };
 
@@ -38,12 +38,7 @@ export function StripDetail({ windows, workspaceID, highlightID, dark, appIcon, 
     ));
   return (
     <List.Item.Detail
-      markdown={[
-        preview === null
-          ? "_No picture of this window: allow Screen Recording for this launcher in System Settings, then reopen it._"
-          : preview && `![Window](${preview})`,
-        stripImage(windows, workspaceID, highlightID, dark) || empty,
-      ]
+      markdown={[preview && `![Window](${preview})`, stripImage(windows, workspaceID, highlightID, dark) || empty]
         .filter(Boolean)
         .join("\n\n")}
       metadata={

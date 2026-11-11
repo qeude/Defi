@@ -11,7 +11,6 @@ import { stripColumns } from "./strip";
 import { workspaceAccessories, workspaceIcon } from "./workspace-icon";
 
 const current = "current";
-const screenRecordingSettings = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 
 // Reads Defi before acting, reporting a failure where the user still sees it.
 async function readOrReport<T>(read: () => Promise<T>): Promise<T | undefined> {
@@ -90,14 +89,11 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
   const dark = environment.appearance === "dark";
   // Pictures of windows, taken one at a time for the selected row while the side pane is open.
   const [selectedID, setSelectedID] = useState<string | null>(null);
-  // undefined while a picture is being taken, null when macOS refused it.
-  const [previews, setPreviews] = useState<Record<string, string | null | undefined>>({});
+  const [previews, setPreviews] = useState<Record<string, string | undefined>>({});
   useEffect(() => {
     if (!showDetail || !selectedID || selectedID in previews) return;
     setPreviews((taken) => ({ ...taken, [selectedID]: undefined }));
-    capturePreview(Number(selectedID)).then((preview) =>
-      setPreviews((taken) => ({ ...taken, [selectedID]: preview ?? null })),
-    );
+    capturePreview(Number(selectedID)).then((preview) => setPreviews((taken) => ({ ...taken, [selectedID]: preview })));
   }, [showDetail, selectedID]);
 
   const position = (window: DefiWindow) => {
@@ -318,13 +314,6 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                     shortcut={Keyboard.Shortcut.Common.Refresh}
                     onAction={desktop.revalidate}
                   />
-                  {previews[String(window.id)] === null ? (
-                    <Action.Open
-                      title="Open Screen Recording Settings"
-                      icon={Icon.Lock}
-                      target={screenRecordingSettings}
-                    />
-                  ) : null}
                 </ActionPanel.Section>
               </ActionPanel>
             }
