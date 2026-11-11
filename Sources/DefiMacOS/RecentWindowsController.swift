@@ -1,5 +1,6 @@
 import AppKit
 import DefiModel
+import SwiftUI
 
 public struct RecentWindowsEntry: Equatable, Sendable {
   public let id: WindowID
@@ -13,18 +14,15 @@ public struct RecentWindowsEntry: Equatable, Sendable {
   }
 }
 
-/// The recent windows switcher: one card per window, a picture when Screen Recording
-/// allows it, else the app icon. It never takes focus and shows without animation.
+/// The recent windows switcher, on the cheat sheet's surface: one card per window, a
+/// picture when Screen Recording allows it, else the app icon. It never takes focus and,
+/// like Command-Tab, shows without animation.
 @MainActor
 public final class RecentWindowsController {
   static let panelTitle = "Defi recent windows"
-  private static let preview = CGSize(width: 176, height: 110)
-  private static let cardSize = CGSize(width: preview.width + 16, height: preview.height + 40)
-  private static let spacing: CGFloat = 8
-  private static let inset: CGFloat = 14
 
   private var panel: NSPanel?
-  private var cards: [RecentWindowCard] = []
+  private var hosting: NSHostingView<RecentWindowsView>?
   private var shown: (entries: [RecentWindowsEntry], monitorID: MonitorID?, previews: Bool)?
 
   public init() {}
@@ -36,36 +34,34 @@ public final class RecentWindowsController {
   ) {
     guard !entries.isEmpty else { return close() }
     let previews = previews && CGPreflightScreenCaptureAccess()
-    if panel == nil || shown?.entries != entries || shown?.monitorID != monitorID
-      || shown?.previews != previews
-    {
-      build(entries, on: monitorID, previews: previews)
+    if let hosting, shown?.entries == entries, shown?.monitorID == monitorID, shown?.previews == previews {
+      hosting.rootView = RecentWindowsView(cards: hosting.rootView.cards, selection: selection)
+      return
     }
-    for (index, card) in cards.enumerated() { card.isSelected = index == selection }
-    if cards.indices.contains(selection) {
-      cards[selection].scrollToVisible(cards[selection].bounds.insetBy(dx: -Self.inset, dy: 0))
-    }
+    build(entries, selection: selection, on: monitorID, previews: previews)
   }
 
   public func close() {
     panel?.close()
     panel = nil
-    cards = []
+    hosting = nil
     shown = nil
   }
 
-  private func build(_ entries: [RecentWindowsEntry], on monitorID: MonitorID?, previews: Bool) {
+  private func build(
+    _ entries: [RecentWindowsEntry], selection: Int, on monitorID: MonitorID?, previews: Bool
+  ) {
     guard let screen = NSScreen.screens.first(where: {
       ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?
         .uint64Value == monitorID?.rawValue
     }) ?? NSScreen.main else { return }
     close()
     shown = (entries, monitorID, previews)
-    let count = CGFloat(entries.count)
-    let contentWidth = count * Self.cardSize.width + (count - 1) * Self.spacing + 2 * Self.inset
+    let cards = entries.map { RecentWindowCard(entry: $0, previews: previews) }
     let bounds = screen.visibleFrame
     let size = CGSize(
-      width: min(contentWidth, bounds.width - 96), height: Self.cardSize.height + 2 * Self.inset)
+      width: min(RecentWindowsView.contentWidth(count: cards.count), bounds.width - 96),
+      height: RecentWindowsView.height)
     let frame = CGRect(
       x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
       width: size.width, height: size.height)
@@ -84,37 +80,11 @@ public final class RecentWindowsController {
     panel.animationBehavior = .none
     panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-
-    let background = NSVisualEffectView(frame: CGRect(origin: .zero, size: size))
-    background.material = .hudWindow
-    background.blendingMode = .behindWindow
-    background.state = .active
-    // A mask, not a layer corner radius: the window shadow then follows the rounded shape.
-    background.maskImage = NSImage(size: size, flipped: false) { rect in
-      NSBezierPath(roundedRect: rect, xRadius: 20, yRadius: 20).fill()
-      return true
-    }
-
-    let document = NSView(frame: CGRect(
-      x: 0, y: 0, width: max(contentWidth, size.width), height: size.height))
-    let leading = max(Self.inset, (size.width - contentWidth) / 2 + Self.inset)
-    cards = entries.enumerated().map { index, entry in
-      let card = RecentWindowCard(
-        entry: entry, previews: previews, preview: Self.preview,
-        frame: CGRect(
-          x: leading + CGFloat(index) * (Self.cardSize.width + Self.spacing), y: Self.inset,
-          width: Self.cardSize.width, height: Self.cardSize.height))
-      document.addSubview(card)
-      return card
-    }
-    let scrollView = NSScrollView(frame: background.bounds)
-    scrollView.drawsBackground = false
-    scrollView.hasHorizontalScroller = false
-    scrollView.hasVerticalScroller = false
-    scrollView.documentView = document
-    background.addSubview(scrollView)
-    panel.contentView = background
+    let hosting = NSHostingView(rootView: RecentWindowsView(cards: cards, selection: selection))
+    hosting.sizingOptions = []
+    panel.contentView = hosting
     self.panel = panel
+    self.hosting = hosting
     panel.orderFrontRegardless()
   }
 }
@@ -124,55 +94,108 @@ private final class RecentWindowsPanel: NSPanel {
   override var canBecomeMain: Bool { false }
 }
 
-private final class RecentWindowCard: NSView {
-  var isSelected = false {
-    didSet {
-      guard isSelected != oldValue else { return }
-      layer?.backgroundColor = isSelected ? NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor : nil
-      layer?.borderWidth = isSelected ? 2 : 0
-      setAccessibilitySelected(isSelected)
-    }
-  }
+struct RecentWindowCard {
+  static let preview = CGSize(width: 176, height: 110)
 
-  init(entry: RecentWindowsEntry, previews: Bool, preview: CGSize, frame: CGRect) {
-    super.init(frame: frame)
-    wantsLayer = true
-    layer?.cornerRadius = 12
-    layer?.borderColor = NSColor.controlAccentColor.cgColor
+  let title: String
+  let appName: String
+  let icon: NSImage?
+  /// The capture's layer contents and its size in points, when previews are allowed.
+  let picture: (contents: AnyObject, size: CGSize)?
+
+  init(entry: RecentWindowsEntry, previews: Bool) {
     let application = entry.processID.flatMap { NSRunningApplication(processIdentifier: $0) }
-    let title = entry.title.isEmpty ? application?.localizedName ?? "" : entry.title
-    let previewFrame = CGRect(
-      x: (frame.width - preview.width) / 2, y: frame.height - 8 - preview.height,
-      width: preview.width, height: preview.height)
-    let picture = previews ? WindowCaptureStore.shared.picture(entry.id) : nil
-    let icon = NSImageView(image: application?.icon ?? NSImage())
-    if let picture, picture.size.width > 0, picture.size.height > 0 {
-      let scale = min(preview.width / picture.size.width, preview.height / picture.size.height, 1)
-      let fitted = CGSize(width: picture.size.width * scale, height: picture.size.height * scale)
-      let layer = CALayer()
-      layer.frame = CGRect(
-        x: previewFrame.midX - fitted.width / 2, y: previewFrame.midY - fitted.height / 2,
-        width: fitted.width, height: fitted.height)
-      layer.contents = picture.contents
-      layer.contentsGravity = .resizeAspect
-      self.layer?.addSublayer(layer)
-      icon.frame = CGRect(x: layer.frame.minX - 6, y: layer.frame.minY - 6, width: 32, height: 32)
-    } else {
-      icon.frame = CGRect(x: previewFrame.midX - 32, y: previewFrame.midY - 32, width: 64, height: 64)
-    }
-    addSubview(icon)
-    let label = NSTextField(labelWithString: title)
-    label.font = .systemFont(ofSize: 12, weight: .medium)
-    label.alignment = .center
-    label.lineBreakMode = .byTruncatingTail
-    label.frame = CGRect(x: 6, y: 8, width: frame.width - 12, height: 18)
-    addSubview(label)
-    setAccessibilityElement(true)
-    setAccessibilityRole(.button)
-    let appName = application?.localizedName ?? ""
-    setAccessibilityLabel(appName.isEmpty || appName == title ? title : "\(title), \(appName)")
+    appName = application?.localizedName ?? ""
+    title = entry.title.isEmpty ? appName : entry.title
+    icon = application?.icon
+    picture = (previews ? WindowCaptureStore.shared.picture(entry.id) : nil)
+      .flatMap { $0.size.width > 0 && $0.size.height > 0 ? ($0.contents, $0.size) : nil }
   }
 
-  @available(*, unavailable)
-  required init?(coder: NSCoder) { fatalError() }
+  /// The picture fitted inside the preview box, never scaled up.
+  var pictureSize: CGSize? {
+    picture.map {
+      let scale = min(Self.preview.width / $0.size.width, Self.preview.height / $0.size.height, 1)
+      return CGSize(width: $0.size.width * scale, height: $0.size.height * scale)
+    }
+  }
+}
+
+struct RecentWindowsView: View {
+  static let cardWidth = RecentWindowCard.preview.width + 16
+  static let spacing: CGFloat = 8
+  static let padding: CGFloat = 20
+  static let height = RecentWindowCard.preview.height + 54 + 2 * padding
+
+  static func contentWidth(count: Int) -> CGFloat {
+    CGFloat(count) * cardWidth + CGFloat(max(count - 1, 0)) * spacing + 2 * padding
+  }
+
+  let cards: [RecentWindowCard]
+  let selection: Int
+
+  var body: some View {
+    ScrollViewReader { proxy in
+      ScrollView(.horizontal) {
+        HStack(spacing: Self.spacing) {
+          ForEach(cards.indices, id: \.self) { index in
+            card(cards[index], selected: index == selection).id(index)
+          }
+        }
+        .padding(Self.padding)
+      }
+      .scrollIndicators(.hidden)
+      .onAppear { proxy.scrollTo(selection, anchor: .center) }
+      .onChange(of: selection) { proxy.scrollTo(selection) }
+    }
+    .defiPanelSurface()
+  }
+
+  private func card(_ card: RecentWindowCard, selected: Bool) -> some View {
+    VStack(spacing: 8) {
+      Group {
+        if let picture = card.picture, let size = card.pictureSize {
+          WindowPictureView(contents: picture.contents)
+            .frame(width: size.width, height: size.height)
+            .overlay(alignment: .bottomLeading) { appIcon(card, size: 32).offset(x: -6, y: 6) }
+        } else {
+          appIcon(card, size: 64)
+        }
+      }
+      .frame(width: RecentWindowCard.preview.width, height: RecentWindowCard.preview.height)
+      Text(card.title)
+        .font(.system(size: 13, weight: .medium))
+        .lineLimit(1)
+        .truncationMode(.tail)
+    }
+    .padding(8)
+    .frame(width: Self.cardWidth)
+    .background(selected ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 12))
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel(card.appName.isEmpty || card.appName == card.title
+      ? card.title : "\(card.title), \(card.appName)")
+    .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+  }
+
+  @ViewBuilder private func appIcon(_ card: RecentWindowCard, size: CGFloat) -> some View {
+    if let icon = card.icon {
+      Image(nsImage: icon).resizable().frame(width: size, height: size)
+    }
+  }
+}
+
+/// A capture is a CGImage or an IOSurface: a layer shows either without copying it.
+private struct WindowPictureView: NSViewRepresentable {
+  let contents: AnyObject
+
+  func makeNSView(context: Context) -> NSView {
+    let view = NSView()
+    view.wantsLayer = true
+    view.layer?.contentsGravity = .resizeAspect
+    return view
+  }
+
+  func updateNSView(_ view: NSView, context: Context) {
+    if (view.layer?.contents as AnyObject?) !== contents { view.layer?.contents = contents }
+  }
 }
