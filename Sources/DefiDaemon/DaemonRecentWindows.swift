@@ -56,11 +56,14 @@ extension Daemon {
   /// Windows that close while the switcher is open leave it; the Overview closes it.
   func refreshRecentWindowsIfOpen() {
     guard recentWindows.isOpen else { return }
-    recentWindows.retainManagedWindows(in: state)
-    guard recentWindows.isOpen, !overviewState.isOpen else {
+    var retained = recentWindows
+    retained.retainManagedWindows(in: state)
+    // Close before pruning: an emptied switcher would read as already closed.
+    guard retained.isOpen, !overviewState.isOpen else {
       closeRecentWindows()
       return
     }
+    recentWindows = retained
     presentRecentWindows()
   }
 
