@@ -33,14 +33,16 @@ const suggestionIcons: Record<Suggestion["kind"], Icon> = {
 // What a row does, then the line to paste into [keys]; Default Shortcut appears where Defi binds
 // one, or as None for a command that has none.
 function CommandDetail({ text, command, shortcut }: { text: string; command?: string; shortcut?: string | null }) {
-  const binding = command ? `\n\n\`\`\`toml\n"${shortcut ?? "mod-x"}" = "${command}"\n\`\`\`` : "";
+  // Without a default shortcut, the key in the line is a stand-in, and says so.
+  const key = shortcut ? `"${shortcut}"` : '"mod-x"';
+  const note = shortcut ? "" : "  # pick your own key";
+  const binding = command ? `\n\n\`\`\`toml\n${key} = "${command}"${note}\n\`\`\`` : "";
   return (
     <List.Item.Detail
       markdown={text + binding}
       metadata={
         command ? (
           <List.Item.Detail.Metadata>
-            <List.Item.Detail.Metadata.Label title="Command" text={command} />
             {shortcut !== undefined ? (
               <List.Item.Detail.Metadata.Label
                 title="Default Shortcut"
