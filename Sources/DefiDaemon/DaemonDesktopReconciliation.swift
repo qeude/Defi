@@ -211,6 +211,7 @@ extension Daemon {
     invalidateDisplayArrangement()
     closeOverview()
     handleCheatsheetInput(.dismiss)
+    closeRecentWindows()
     displayConfigurationEventCount += 1
     let now = ProcessInfo.processInfo.systemUptime
     pendingDisplaySyncDeadlines = [0.05, 0.2, 0.5, 1.0, 2.0].map {

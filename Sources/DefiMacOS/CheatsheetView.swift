@@ -3,7 +3,6 @@ import SwiftUI
 struct CheatsheetView: View {
   let groups: [ShortcutGroup]
   let layout: CheatsheetLayout
-  @Environment(\.colorScheme) private var colorScheme
 
   var body: some View {
     ScrollView([.horizontal, .vertical]) {
@@ -14,8 +13,18 @@ struct CheatsheetView: View {
     .scrollIndicators(.hidden)
     .scrollDisabled(layout.panelSize == layout.scaledSize)
     .frame(width: layout.panelSize.width, height: layout.panelSize.height)
+    .defiPanelSurface()
+  }
+}
+
+/// The surface of Defi's floating panels, the cheat sheet and the recent windows switcher.
+private struct DefiPanelSurface: ViewModifier {
+  @Environment(\.colorScheme) private var colorScheme
+
+  func body(content: Content) -> some View {
     // Solid at the top for legibility, then fading down into the glass.
-    .background(
+    let core: Color = colorScheme == .dark ? .black : .white
+    let tinted = content.background(
       LinearGradient(
         stops: [
           .init(color: core.opacity(0.94), location: 0),
@@ -26,20 +35,16 @@ struct CheatsheetView: View {
       ),
       in: .rect(cornerRadius: 20)
     )
-    .cheatsheetGlass()
-  }
-
-  private var core: Color { colorScheme == .dark ? .black : .white }
-}
-
-private extension View {
-  @ViewBuilder func cheatsheetGlass() -> some View {
     if #available(macOS 26, *) {
-      glassEffect(.regular, in: .rect(cornerRadius: 20))
+      tinted.glassEffect(.regular, in: .rect(cornerRadius: 20))
     } else {
-      background(.regularMaterial, in: .rect(cornerRadius: 20))
+      tinted.background(.regularMaterial, in: .rect(cornerRadius: 20))
     }
   }
+}
+
+extension View {
+  func defiPanelSurface() -> some View { modifier(DefiPanelSurface()) }
 }
 
 struct CheatsheetContent: View {

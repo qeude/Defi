@@ -842,6 +842,10 @@ struct DaemonCommandPolicyTests {
     state.recordCommittedFocus(a)
     #expect(!commandActivatesWorkspace(command, state: state))
     #expect(try changedState(after: command, on: monitor, from: state) == nil)
+    // The switcher confirms through `focus-window-id`, which follows the same rule.
+    #expect(!commandActivatesWorkspace(.focusWindowID(c), state: state))
+    #expect(!commandActivatesWorkspace(.focusWindowID(a), state: state))
+    #expect(commandActivatesWorkspace(.focusWindowID(b), state: state))
     #expect(!commandValidationIsNoOp(
       hasValidationState: false, rebasesPendingFrame: false, command: command,
       workspaceFocusMonitorID: other, activeMonitorID: monitor, selectedWindowIsNativelyFocused: false

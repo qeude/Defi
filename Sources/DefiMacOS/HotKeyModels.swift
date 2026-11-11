@@ -333,8 +333,8 @@ func resolveHotKeys(
         added: added, follows: follows, userFirst: written && [0, 1, 3].contains(rank)))
     }
     let physical = acceleratorKeyCodes[name]
-    // Digits and navigation keys never follow the layout.
-    if let physical, layout == nil || Int(name) != nil || physical >= firstNavigationKeyCode {
+    // Digits, Tab, and navigation keys never follow the layout.
+    if let physical, layout == nil || Int(name) != nil || acceleratorKeyKeepsName(physical) {
       claim(0, modifiers, physical)
       continue
     }
@@ -463,7 +463,7 @@ struct ShortcutResolution {
 
   /// Digits and navigation keys keep their name; any other key is named for the keycap at its resolved code.
   func keyName(for key: Key, named name: String) -> String {
-    guard let layout, Int(name) == nil, (acceleratorKeyCodes[name] ?? 0) < firstNavigationKeyCode,
+    guard let layout, Int(name) == nil, !acceleratorKeyKeepsName(acceleratorKeyCodes[name] ?? 0),
       let character = layout.baseCharacter(code: key.code, command: key.modifierNames.contains("cmd"))
     else { return name }
     return canonicalKeyName(character)

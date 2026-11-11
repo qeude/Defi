@@ -120,6 +120,11 @@ final class Daemon {
   var cheatsheetState = CheatsheetState()
   @MainActor var cheatsheetController: CheatsheetController?
   var cheatsheetHoldTask: Task<Void, Never>?
+  var recentWindows = RecentWindowsSwitcher()
+  var recentWindowsMonitorID: MonitorID?
+  var recentWindowsVisible = false
+  var recentWindowsShowTask: Task<Void, Never>?
+  @MainActor var recentWindowsController: RecentWindowsController?
   nonisolated let hotKeyGeneration = Mutex<UInt64>(0)
   var overviewEditedMonitorIDs: Set<MonitorID> = []
   var overviewFloatingFrameWriteIDs: Set<WindowID> = []
@@ -353,7 +358,7 @@ final class Daemon {
     if active { invalidateDisplayArrangement() }
     displayPointerRouter.setActive(active)
     desktopSessionActive = active
-    if !active { handleCheatsheetInput(.dismiss); cancelScrollPan() }
+    if !active { handleCheatsheetInput(.dismiss); closeRecentWindows(); cancelScrollPan() }
     desktopSessionGeneration &+= 1
     guard active else {
       cancelPendingCommandFrameRead()

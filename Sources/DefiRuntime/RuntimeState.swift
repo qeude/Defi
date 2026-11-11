@@ -26,7 +26,8 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
   public var nativeFullscreenTiledPlacements: [WindowID: SuspendedTiledPlacement]
   public var pendingNativeFullscreenWidthResetWindowIDs: Set<WindowID>
   public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
-  public var windowFocusHistory: WindowFocusHistory?
+  // A new key: stores with the former single-entry history decode and start empty.
+  public var recentWindowIDs: [WindowID]?
 
   public init(state: RuntimeState) {
     monitorStableIDs = state.monitorStableIDs
@@ -42,18 +43,7 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
     pendingNativeFullscreenWidthResetWindowIDs =
       state.pendingNativeFullscreenWidthResetWindowIDs
     suspendedTiledPlacements = state.suspendedTiledPlacements
-    windowFocusHistory = state.windowFocusHistory
-  }
-}
-
-/// The managed window with the latest committed focus and the one focused before it.
-public struct WindowFocusHistory: Equatable, Codable, Sendable {
-  public var current: WindowID?
-  public var previous: WindowID?
-
-  public init(current: WindowID? = nil, previous: WindowID? = nil) {
-    self.current = current
-    self.previous = previous
+    recentWindowIDs = state.recentWindowIDs
   }
 }
 
@@ -79,7 +69,8 @@ public struct RuntimeState: Equatable, Sendable {
   public var pendingNativeFullscreenWidthResetWindowIDs: Set<WindowID>
   public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
   public var reservedEdgesByMonitor: [MonitorID: ReservedEdges]
-  public var windowFocusHistory = WindowFocusHistory()
+  /// Managed windows by latest committed focus, the current one first.
+  public var recentWindowIDs: [WindowID] = []
 
   public init(config: Config) {
     let names = config.workspaces.names.map(WorkspaceID.init(rawValue:))
@@ -126,7 +117,7 @@ public struct RuntimeState: Equatable, Sendable {
     pendingNativeFullscreenWidthResetWindowIDs =
       topology.pendingNativeFullscreenWidthResetWindowIDs
     suspendedTiledPlacements = topology.suspendedTiledPlacements
-    windowFocusHistory = topology.windowFocusHistory ?? WindowFocusHistory()
+    recentWindowIDs = topology.recentWindowIDs ?? []
     clearChangedWorkspaceAffinities(
       previousIDs: topology.workspaceMonitorIDs ?? workspaceMonitorIDs,
       nextIDs: workspaceMonitorIDs,
@@ -727,21 +718,35 @@ public struct RuntimeState: Equatable, Sendable {
     location(containing: windowID)?.monitorID
   }
 
-  /// Records a window that holds both native focus and the selection. A closed window
-  /// never becomes the previous one, so the history keeps the last window still open.
+  /// Records a window that holds both native focus and the selection. Closed windows
+  /// leave the history then, so it never steps back to a window that is gone.
   public mutating func recordCommittedFocus(_ windowID: WindowID) {
-    guard windowFocusHistory.current != windowID else { return }
-    if let current = windowFocusHistory.current, windows[current] != nil {
-      windowFocusHistory.previous = current
-    } else if windowFocusHistory.previous == windowID {
-      windowFocusHistory.previous = nil
-    }
-    windowFocusHistory.current = windowID
+    guard recentWindowIDs.first != windowID else { return }
+    recentWindowIDs.removeAll { $0 == windowID || windows[$0] == nil }
+    recentWindowIDs.insert(windowID, at: 0)
   }
 
-  /// The window `focus-window-previous` focuses, while it is still managed in a workspace.
+  /// The window `focus-window-previous` focuses: the latest one before the current
+  /// that is still managed in a workspace.
   public var previousFocusedWindowTarget: WindowID? {
-    windowFocusHistory.previous.flatMap { location(containing: $0) == nil ? nil : $0 }
+    recentWindowIDs.dropFirst().first { location(containing: $0) != nil }
+  }
+
+  /// The windows the recent windows switcher lists: by latest committed focus, then
+  /// the others in monitor, workspace, and column order.
+  public var recentWindowCandidates: [WindowID] {
+    let locations = windowLocationMap()
+    var listed = Set<WindowID>()
+    var result = recentWindowIDs.filter { locations[$0] != nil && listed.insert($0).inserted }
+    for monitor in monitors {
+      for workspace in monitor.workspaces {
+        for windowID in workspace.columns.flatMap(\.windows) + workspace.floatingWindows
+        where listed.insert(windowID).inserted {
+          result.append(windowID)
+        }
+      }
+    }
+    return result
   }
 
   public mutating func updateWindowFrame(_ frame: Rect, for windowID: WindowID) {

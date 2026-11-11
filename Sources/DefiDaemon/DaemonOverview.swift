@@ -133,6 +133,7 @@ extension Daemon {
 
   func updateOverviewIfOpen() {
     presentOverview()
+    refreshRecentWindowsIfOpen()
   }
 
   private func applyOverviewToggle(_ request: OverviewToggleRequest) {
@@ -237,6 +238,7 @@ extension Daemon {
           overviewExitPreparationActive = false
           overviewState.isOpen = isOpen
           if isOpen {
+            closeRecentWindows()
             overviewEditedMonitorIDs.removeAll()
             overviewFloatingFrameWriteIDs.removeAll()
           }

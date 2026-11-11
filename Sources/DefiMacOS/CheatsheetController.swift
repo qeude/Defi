@@ -150,6 +150,7 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("focus-window-or-workspace down", "Window or workspace down"),
   ("focus-workspace-previous", "Previous workspace"),
   ("focus-window-previous", "Previous window"),
+  ("recent-windows next", "Recent windows"), ("recent-windows previous", "Recent windows, backward"),
   ("focus-workspace-name", "Workspace"), ("workspace", "Workspace"),
   ("focus-workspace-position", "Workspace"), ("toggle-overview", "Overview"),
   ("focus-column-or-monitor left", "Column or monitor left"),
@@ -189,8 +190,8 @@ private struct ShortcutBinding {
   }
   var section: String {
     if verb.contains("monitor") { return "Monitors" }
-    // Previous window may cross workspaces, so it sits beside previous workspace.
-    if verb.contains("workspace") || ["toggle-overview", "focus-window-previous"].contains(verb) {
+    // Previous and recent windows may cross workspaces, so they sit beside previous workspace.
+    if verb.contains("workspace") || ["toggle-overview", "focus-window-previous", "recent-windows"].contains(verb) {
       return "Workspaces"
     }
     if verb.contains("width") || verb.contains("height") || verb == "maximize-column" {
@@ -359,7 +360,7 @@ private func modifierLabel(_ modifiers: Set<String>, displayMod: Bool, aliases: 
 private func keySymbol(_ key: String) -> String {
   let symbols = ["cmd": "⌘", "alt": "⌥", "ctrl": "⌃", "shift": "⇧",
     "left": "←", "right": "→", "up": "↑", "down": "↓",
-    "home": "↖", "end": "↘", "pageup": "⇞", "pagedown": "⇟",
+    "tab": "⇥", "home": "↖", "end": "↘", "pageup": "⇞", "pagedown": "⇟",
     "leftbracket": "[", "rightbracket": "]", "backslash": "\\", "slash": "/",
     "semicolon": ";", "quote": "'", "minus": "−", "equal": "=",
     "comma": ",", "period": "."]

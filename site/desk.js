@@ -153,7 +153,7 @@ const cheatsheet = [
     ['Windows in a column', [['⌃⌥', '↑', 'Window up', '⌃⌥⌘', 'Move window up'], ['⌃⌥', '↓', 'Window down', '⌃⌥⌘', 'Move window down'], ['⌃⌥', '[', 'Join or leave stack left'], ['⌃⌥', ']', 'Join or leave stack right'], ['⌃⌥', '.', 'Unjoin'], ['⌃⌥', ';', 'Join left column'], ['⌃⌥', "'", 'Join right column']]],
   ],
   [
-    ['Workspaces', [['⌃⌥', 'I', 'Workspace up', '⌃⌥⌘', 'Move column to workspace up'], ['⌃⌥', 'U', 'Workspace down', '⌃⌥⌘', 'Move column to workspace down'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⌘', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview'], ['⌃⌥⇧', 'I', 'Reorder workspace up'], ['⌃⌥⇧', 'U', 'Reorder workspace down']]],
+    ['Workspaces', [['⌃⌥', 'I', 'Workspace up', '⌃⌥⌘', 'Move column to workspace up'], ['⌃⌥', 'U', 'Workspace down', '⌃⌥⌘', 'Move column to workspace down'], ['⌃⌥', '⇥', 'Recent windows', '⌃⌥⇧', 'Recent windows, backward'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⌘', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview'], ['⌃⌥⇧', 'I', 'Reorder workspace up'], ['⌃⌥⇧', 'U', 'Reorder workspace down']]],
     ['Monitors', [['⌃⌥⇧', '←↑↓→', 'Focus monitor', '⌃⌥⇧⌘', 'Move column to monitor']]],
     ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column']]],
     ['Floating', [['⌃⌥', 'V', 'Float or tile window', '⌃⌥⇧', 'Show floating layer'], ['⌃⌥⇧', ',', 'Previous floating'], ['⌃⌥⇧', '.', 'Next floating']]],
