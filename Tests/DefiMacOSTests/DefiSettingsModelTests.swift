@@ -42,7 +42,7 @@ struct DefiSettingsModelTests {
     let model = DefiSettingsModel(configURL: url)
 
     model.setMonitorLayout("lg", key: "preset_column_widths", value: "[0.3, 0.6]")
-    model.setMonitorLayoutOverride("DELL U3818DW", enabled: true)
+    model.setMonitorLayout("DELL U3818DW", key: "default_column_width", value: "0.7")
     #expect(model.message == nil)
     #expect(model.config.layout.monitors == [
       "LG": MonitorLayoutConfig(defaultColumnWidth: 0.6, presetColumnWidths: [0.3, 0.6]),
@@ -50,8 +50,11 @@ struct DefiSettingsModelTests {
     ])
     #expect(try String(contentsOf: url, encoding: .utf8).contains("[layout.monitors.\"DELL U3818DW\"]"))
 
-    model.setMonitorLayoutOverride("LG", enabled: false)
-    model.setMonitorLayoutOverride("DELL U3818DW", enabled: false)
+    // Inheriting one value keeps the table; inheriting both removes it.
+    model.setMonitorLayout("LG", key: "default_column_width", value: nil)
+    #expect(model.config.layout.monitors["LG"] == MonitorLayoutConfig(presetColumnWidths: [0.3, 0.6]))
+    model.setMonitorLayout("LG", key: "preset_column_widths", value: nil)
+    model.setMonitorLayout("DELL U3818DW", key: "default_column_width", value: nil)
     #expect(model.config.layout.monitors.isEmpty)
     #expect(try !String(contentsOf: url, encoding: .utf8).contains("layout.monitors"))
   }

@@ -354,17 +354,13 @@ public final class DefiSettingsModel {
     return "layout.monitors.\(LosslessTOMLDocument.quotedKey(key))"
   }
 
+  /// Sets one override key; clearing the last one removes the display's table.
   public func setMonitorLayout(_ name: String, key: String, value: String?) {
-    set(table: monitorLayoutTable(name), key: key, value: value)
-  }
-
-  /// An enabled override starts from the global default width; disabling removes its table.
-  public func setMonitorLayoutOverride(_ name: String, enabled: Bool) {
-    save([
-      enabled
-        ? .set(table: monitorLayoutTable(name), key: "default_column_width", value: String(config.layout.defaultColumnWidth))
-        : .removeTable(monitorLayoutTable(name))
-    ])
+    let table = monitorLayoutTable(name)
+    let override = monitorLayout(name) ?? MonitorLayoutConfig()
+    let othersSet = key == "default_column_width"
+      ? override.presetColumnWidths != nil : override.defaultColumnWidth != nil
+    save([value == nil && !othersSet ? .removeTable(table) : .set(table: table, key: key, value: value)])
   }
 
   public func ruleName(_ rule: Rule, index: Int) -> String {

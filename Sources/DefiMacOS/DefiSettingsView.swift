@@ -328,6 +328,7 @@ private struct GeneralSettingsView: View {
 private struct LayoutSettingsView: View {
   let model: DefiSettingsModel
   let request: SettingsRevealRequest
+  @State private var editingDisplay: DisplayLayoutSheet?
 
   var body: some View {
     Form {
@@ -359,12 +360,8 @@ private struct LayoutSettingsView: View {
         model.set(table: "layout", key: "preset_column_widths", value: tomlArray($0))
       }
         .settingsSearchTarget(.widthPresets)
-      ForEach(model.monitorLayoutNames, id: \.self) { name in
-        // Search reveals the first display's section.
-        DisplayLayoutSettings(model: model, name: name)
-          .id(name == model.monitorLayoutNames.first
-            ? AnyHashable(SettingsSearchAnchor.option(.displayLayouts)) : AnyHashable(name))
-      }
+      DisplayLayoutsSection(model: model, editing: $editingDisplay)
+        .settingsSearchTarget(.displayLayouts)
       Section("Spacing") {
         SpacingEditor(model: model)
           .settingsSearchTarget(.screenMargins)
@@ -388,6 +385,7 @@ private struct LayoutSettingsView: View {
     }
     .formStyle(.grouped)
     .modifier(SettingsRevealModifier(request: request))
+    .sheet(item: $editingDisplay) { DisplayLayoutEditor(model: model, name: $0.id) }
   }
 
   private func stringBinding(_ table: String, _ key: String, _ value: String) -> Binding<String> {
@@ -483,42 +481,108 @@ private func tomlArray(_ widths: [Double]) -> String {
   "[\(widths.map { String($0) }.joined(separator: ", "))]"
 }
 
-/// One display's column widths in a single section; a grouped Form misplaces rows when one view yields several.
+private func percentage(_ width: Double) -> String { "\(Int((width * 100).rounded())) %" }
+
+private func percentages(_ widths: [Double]) -> String {
+  widths.map { "\(Int(($0 * 100).rounded()))" }.joined(separator: ", ") + " %"
+}
+
+private struct DisplayLayoutSheet: Identifiable {
+  let id: String
+}
+
+/// One row per display; its widths open in a sheet so the page stays short with many displays.
 @MainActor
-private struct DisplayLayoutSettings: View {
+private struct DisplayLayoutsSection: View {
+  let model: DefiSettingsModel
+  @Binding var editing: DisplayLayoutSheet?
+
+  var body: some View {
+    // A footer here pulls the last global width preset out of its section, so the hint is a row.
+    Section("Displays") {
+      Text("Give a display its own column widths. Other displays use the values above.")
+        .foregroundStyle(.secondary)
+      ForEach(Array(model.monitorLayoutNames.enumerated()), id: \.offset) { _, name in
+        HStack {
+          VStack(alignment: .leading, spacing: 2) {
+            Text(name)
+            Text(summary(name)).font(.caption).foregroundStyle(.secondary)
+          }
+          Spacer()
+          Button("Customize…") { editing = DisplayLayoutSheet(id: name) }
+        }
+      }
+    }
+  }
+
+  private func summary(_ name: String) -> String {
+    let connection = model.displayNames.contains(name) ? "" : "Not connected · "
+    guard let override = model.monitorLayout(name) else { return connection + "Same as all displays" }
+    let width = override.defaultColumnWidth.map(percentage) ?? "same width"
+    let presets = override.presetColumnWidths.map { "presets \(percentages($0))" } ?? "same presets"
+    return connection + "\(width) · \(presets)"
+  }
+}
+
+/// Each value inherits the global one until customized; inheriting both removes the display's table.
+@MainActor
+private struct DisplayLayoutEditor: View {
   let model: DefiSettingsModel
   let name: String
+  @Environment(\.dismiss) private var dismiss
 
   var body: some View {
     let override = model.monitorLayout(name)
     let layout = model.config.layout
-    Section {
-      Toggle("Use its own column widths", isOn: Binding(
-        get: { override != nil },
-        set: { model.setMonitorLayoutOverride(name, enabled: $0) }
-      ))
-      if let override {
-        SettingsNumberRow(
-          title: SettingsOption.defaultColumnWidth.title,
-          value: (override.defaultColumnWidth ?? layout.defaultColumnWidth) * 100,
-          range: 5...100, step: 5, unit: "%",
-          onChange: { model.setMonitorLayout(name, key: "default_column_width", value: String($0 / 100)) }
-        )
-        Toggle("Own width presets", isOn: Binding(
-          get: { override.presetColumnWidths != nil },
-          set: {
-            model.setMonitorLayout(
-              name, key: "preset_column_widths", value: $0 ? tomlArray(layout.presetColumnWidths) : nil)
+    VStack(alignment: .leading, spacing: 0) {
+      Text(name).font(.title3.bold()).padding([.top, .horizontal], 20)
+      Form {
+        Section {
+          Toggle("Same as all displays", isOn: Binding(
+            get: { override?.defaultColumnWidth == nil },
+            set: { model.setMonitorLayout(name, key: "default_column_width", value: $0 ? nil : String(layout.defaultColumnWidth)) }
+          ))
+          if let width = override?.defaultColumnWidth {
+            SettingsNumberRow(
+              title: "Width", value: width * 100, range: 5...100, step: 5, unit: "%",
+              onChange: { model.setMonitorLayout(name, key: "default_column_width", value: String($0 / 100)) }
+            )
+          } else {
+            LabeledContent("Width", value: percentage(layout.defaultColumnWidth))
+              .foregroundStyle(.secondary)
           }
-        ))
-        if let presets = override.presetColumnWidths {
-          let save = { model.setMonitorLayout(name, key: "preset_column_widths", value: tomlArray($0)) }
-          WidthPresetRows(widths: presets, save: save)
-          LabeledContent("Add preset") { AddWidthPresetMenu(widths: presets, save: save) }
+        } header: {
+          Text(SettingsOption.defaultColumnWidth.title)
+        } footer: {
+          Text("New windows on \(name) open at this width.")
+        }
+        Section {
+          Toggle("Same as all displays", isOn: Binding(
+            get: { override?.presetColumnWidths == nil },
+            set: {
+              model.setMonitorLayout(
+                name, key: "preset_column_widths", value: $0 ? nil : tomlArray(layout.presetColumnWidths))
+            }
+          ))
+          if let presets = override?.presetColumnWidths {
+            let save = { model.setMonitorLayout(name, key: "preset_column_widths", value: tomlArray($0)) }
+            WidthPresetRows(widths: presets, save: save)
+            LabeledContent("Add preset") { AddWidthPresetMenu(widths: presets, save: save) }
+          } else {
+            LabeledContent("Presets", value: percentages(layout.presetColumnWidths))
+              .foregroundStyle(.secondary)
+          }
+        } header: {
+          Text("Width presets")
+        } footer: {
+          Text("Cycle Width steps through these on \(name). Spacing stays the same on every display.")
         }
       }
-    } header: {
-      Text(model.displayNames.contains(name) ? name : "\(name) (not connected)")
+      .formStyle(.grouped)
+    }
+    .frame(minWidth: 560, minHeight: 420)
+    .toolbar {
+      ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
     }
   }
 }
