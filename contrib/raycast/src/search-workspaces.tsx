@@ -24,7 +24,7 @@ export default function Command(props: LaunchProps) {
   const desktop = useDesktop();
   const { windows, workspaces, focused, displayCount, appIcon, appName } = desktop;
   const [searchText, setSearchText] = useState(props.fallbackText ?? "");
-  const [showDetail, setShowDetail] = useCachedState("workspaces-strip", true);
+  const [showDetail, setShowDetail] = useCachedState("workspaces-detail", false);
   const dark = environment.appearance === "dark";
   // Cached rows would look live while Defi is unreachable, so an error hides them.
   const shown = desktop.error ? [] : (workspaces ?? []);
@@ -142,6 +142,11 @@ export default function Command(props: LaunchProps) {
                   key={workspace.id}
                   icon={workspaceIcon(workspace, workspace.active)}
                   title={label}
+                  subtitle={
+                    workspace.windowCount === 0
+                      ? "Empty"
+                      : `${workspace.windowCount} window${workspace.windowCount === 1 ? "" : "s"}`
+                  }
                   keywords={[String(workspace.position), ...workspace.applications.map(appName)]}
                   // Rows next to the side pane stay bare; the pane names every app.
                   accessories={showDetail ? undefined : workspaceAccessories(workspace, appIcon, appName)}

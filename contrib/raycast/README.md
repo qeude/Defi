@@ -21,8 +21,8 @@ that workspace for a moment, because Defi focuses the window first.
 | ⌘⇧F | Float or tile it |
 | ⌘⇧C / ⌘⇧I | Copy its title or ID |
 
-**Search Workspaces** lists the workspaces of every display with their apps and
-strip; search by name, number, or app.
+**Search Workspaces** lists the workspaces of every display with their window
+count and apps; search by name, number, or app. ⌘Y shows a workspace's columns.
 
 | Key | Action |
 | --- | --- |
