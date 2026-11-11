@@ -99,6 +99,23 @@ struct WindowLifecycleTests {
   }
 
   @Test
+  func `A late title leaves a native fullscreen window where it is`() {
+    var (config, state, window) = lateTitleFixture()
+    reconcileWindows([window("")], config: config, frontmostProcessID: 7, state: &state)
+    reconcileWindows([window("")], config: config, nativeFullscreenWindowIDs: [window("").id], state: &state)
+
+    reconcileWindows(
+      [window("Web Inspector")], config: config, nativeFullscreenWindowIDs: [window("").id], state: &state
+    )
+    reconcileWindows([window("Web Inspector")], config: config, state: &state)
+
+    let workspaces = state.monitors[0].workspaces.filter {
+      $0.columns.contains { $0.windows.contains(window("").id) } || $0.floatingWindows.contains(window("").id)
+    }
+    #expect(workspaces.map(\.id) == [WorkspaceID(rawValue: "dev")])
+  }
+
+  @Test
   func `A late title rule on the same workspace keeps the window's column`() throws {
     let config = Config(rules: [Rule(title: "Inspector", initialColumnWidth: 0.5)])
     var state = RuntimeState(config: config)

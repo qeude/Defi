@@ -203,8 +203,9 @@ public func reconcileWindows(
     state.pendingNativeFullscreenWidthResetWindowIDs.remove(existingID)
     state.suspendedTiledPlacements[existingID] = nil
   }
+  // Native fullscreen saves a placement that a late rule would not update, so it ends the candidate.
   state.lateTitleRuleCandidates = state.lateTitleRuleCandidates.filter {
-    state.windows[$0.key] != nil && now <= $0.value.expiresAt
+    state.windows[$0.key] != nil && now <= $0.value.expiresAt && !fullscreenWindowIDs.contains($0.key)
   }
 
   for window in discovered {
