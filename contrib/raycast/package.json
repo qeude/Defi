@@ -1,0 +1,65 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "defi",
+  "title": "Defi",
+  "description": "Search windows and workspaces and run commands of the Defi window manager",
+  "icon": "icon.png",
+  "author": "qeude",
+  "license": "MIT",
+  "platforms": [
+    "macOS"
+  ],
+  "categories": [
+    "System",
+    "Productivity"
+  ],
+  "commands": [
+    {
+      "name": "search-windows",
+      "title": "Search Windows",
+      "description": "Find a managed window and focus it or move it to a workspace",
+      "mode": "view"
+    },
+    {
+      "name": "search-workspaces",
+      "title": "Search Workspaces",
+      "description": "Show a workspace or move the focused window or column there",
+      "mode": "view"
+    },
+    {
+      "name": "run-command",
+      "title": "Run Command",
+      "description": "Run a Defi focus, move, width, or Overview command",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "defiPath",
+      "title": "Defi CLI Path",
+      "description": "Path to the defi binary. Leave empty to use Defi.app in /Applications or ~/Applications.",
+      "type": "textfield",
+      "required": false,
+      "placeholder": "/Applications/Defi.app/Contents/MacOS/defi"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^2.11.1",
+    "@raycast/utils": "^2.3.3"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^2.2.0",
+    "@types/node": "26.6.5",
+    "@types/react": "19.3.0",
+    "eslint": "^10.0.1",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3"
+  },
+  "scripts": {
+    "build": "ray build -e dist",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint",
+    "test": "node --test test/"
+  }
+}

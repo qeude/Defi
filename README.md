@@ -40,8 +40,9 @@ Defi is in alpha, so behavior and configuration may still change.
 - **Smooth motion**: windows glide on an overlay, then move once underneath.
 - **App rules**: send apps to a workspace, float them, or set their width.
 - **Keyboard and mouse**: custom shortcuts with a cheatsheet, and drag to reorder.
-- **Scriptable**: live TOML config, a CLI, and a
-  [SketchyBar integration](contrib/sketchybar/README.md).
+- **Scriptable**: live TOML config, a CLI, a
+  [SketchyBar integration](contrib/sketchybar/README.md), and a
+  [Raycast extension](contrib/raycast/README.md).
 
 Window borders, gaps, and every other option are in the
 [configuration reference](CONFIGURATION.md).
