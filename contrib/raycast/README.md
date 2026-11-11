@@ -15,6 +15,19 @@ npm install && npm run dev
 
 `npm run dev` adds the extension to Raycast in development mode.
 
+### Tinycast
+
+[Tinycast](https://github.com/abue-ammar/tinycast) runs the built extension:
+
+```sh
+cd contrib/raycast
+npm install && npm run build
+```
+
+In Tinycast, open Settings > Extensions > Install New > Add from folder and
+pick `contrib/raycast/dist`. Tinycast copies the folder, so after an update,
+build and add it again.
+
 ## Commands
 
 - **Search Windows** lists Defi's managed windows with their app, workspace, and
