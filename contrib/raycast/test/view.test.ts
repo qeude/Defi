@@ -33,11 +33,8 @@ test("the strip image draws one tile per tiled window and highlights one", () =>
 test("search text becomes a command argument", () => {
   const titles = (query: string) => suggestions(query, workspaces).map((s) => [s.title, s.args.join(" ")]);
   assert.deepEqual(titles("60"), [["Set Column Width to 60%", "set-column-width 60%"]]);
-  assert.deepEqual(titles("3"), [["Go to Workspace 3", "focus-workspace-position 3"]]);
-  assert.deepEqual(titles("7"), [
-    ["Go to Workspace 7", "focus-workspace-position 7"],
-    ["Set Column Width to 7%", "set-column-width 7%"],
-  ]);
+  assert.deepEqual(titles("3"), [["Go to dev-secondary", "--monitor 1 workspace dev-secondary"]]);
+  assert.deepEqual(titles("7"), [["Set Column Width to 7%", "set-column-width 7%"]]);
   assert.deepEqual(titles("+10"), [["Widen Column by 10%", "set-column-width +10%"]]);
   assert.deepEqual(titles("-40pt"), [["Narrow Column by 40 pt", "set-column-width -40"]]);
   assert.deepEqual(titles("960"), [["Set Column Width to 960 pt", "set-column-width 960"]]);
@@ -45,6 +42,7 @@ test("search text becomes a command argument", () => {
     ["Go to web", "--monitor 1 workspace web"],
     ["Move Column to web", "move-column-to-workspace-name web"],
     ["Move Window to web", "move-window-to-workspace-name web"],
+    ["Send Window to web", "send-window-to-workspace-name web"],
   ]);
   assert.deepEqual(titles("zzz"), []);
   assert.deepEqual(titles("  "), []);

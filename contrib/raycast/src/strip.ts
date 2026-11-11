@@ -1,6 +1,7 @@
 import type { DefiWindow } from "./parse";
 
 const column = { width: 44, height: 64, gap: 6, inset: 8 };
+const minWidth = 240;
 const palette = {
   light: { desk: "#00000010", window: "#FFFFFF", stroke: "#0000001F", highlight: "#007AFF" },
   dark: { desk: "#FFFFFF12", window: "#FFFFFF24", stroke: "#FFFFFF1F", highlight: "#0A84FF" },
@@ -19,17 +20,19 @@ export function stripColumns(windows: DefiWindow[], workspaceID: string): DefiWi
 // The strip as an SVG: one rounded tile per window, the highlighted one in the accent color.
 export function stripSVG(columns: DefiWindow[][], highlightID: number | undefined, dark: boolean): string {
   const colors = dark ? palette.dark : palette.light;
+  const stripWidth = Math.max(columns.length, 1) * (column.width + column.gap) - column.gap;
+  const width = Math.max(minWidth, column.inset * 2 + stripWidth);
+  const left = (width - stripWidth) / 2;
   const tiles = columns.flatMap((windows, index) => {
     const rowHeight = (column.height - column.gap * (windows.length - 1)) / Math.max(windows.length, 1);
     return windows.map((window, row) => {
       const highlighted = window.id === highlightID;
-      const x = column.inset + index * (column.width + column.gap);
+      const x = left + index * (column.width + column.gap);
       const y = column.inset + row * (rowHeight + column.gap);
       const fill = highlighted ? colors.highlight : colors.window;
       return `<rect x="${x}" y="${y}" width="${column.width}" height="${rowHeight}" rx="6" fill="${fill}" stroke="${highlighted ? fill : colors.stroke}"/>`;
     });
   });
-  const width = column.inset * 2 + Math.max(columns.length, 1) * (column.width + column.gap) - column.gap;
   const height = column.inset * 2 + column.height;
   const desk = `<rect width="${width}" height="${height}" rx="12" fill="${colors.desk}"/>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${desk}${tiles.join("")}</svg>`;

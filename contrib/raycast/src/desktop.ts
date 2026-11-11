@@ -1,22 +1,38 @@
 import { getApplications } from "@raycast/api";
-import { usePromise } from "@raycast/utils";
+import { useCachedPromise } from "@raycast/utils";
 import { defi } from "./defi";
 import { parseWindows, parseWorkspaces } from "./parse";
 
-// Windows, workspaces, and app paths, read together so a view renders once with all of them.
+async function readDesktop() {
+  const [windows, workspaces] = await Promise.all([
+    defi("list-windows", "--json").then(parseWindows),
+    defi("list-workspaces", "--json").then(parseWorkspaces),
+  ]);
+  return { windows, workspaces };
+}
+
+// Windows and workspaces read together, shown from the last run while they reload.
 export function useDesktop() {
-  const { data, isLoading, error } = usePromise(async () => {
-    const [windows, workspaces, apps] = await Promise.all([
-      defi("list-windows", "--json").then(parseWindows),
-      defi("list-workspaces", "--json").then(parseWorkspaces),
-      getApplications().catch(() => []),
-    ]);
-    return { windows, workspaces, appPaths: new Map(apps.map((app) => [app.bundleId, app.path])) };
-  });
-  const displayCount = new Set(data?.workspaces.map((workspace) => workspace.display)).size;
-  const appIcon = (bundleID?: string) => {
-    const path = bundleID ? data?.appPaths.get(bundleID) : undefined;
-    return path ? { fileIcon: path } : undefined;
+  // The empty view reports the error with its recovery actions, so no toast as well.
+  const desktop = useCachedPromise(readDesktop, [], { onError: () => undefined });
+  const apps = useCachedPromise(async () =>
+    (await getApplications()).map(({ bundleId, name, path }) => ({ bundleId, name, path })),
+  );
+  const appsByID = new Map(apps.data?.map((app) => [app.bundleId, app]));
+  const windows = desktop.data?.windows;
+  return {
+    windows,
+    workspaces: desktop.data?.workspaces,
+    isLoading: desktop.isLoading,
+    error: desktop.error,
+    revalidate: desktop.revalidate,
+    displayCount: new Set(desktop.data?.workspaces.map((workspace) => workspace.display)).size,
+    focused: windows?.find((window) => window.focused),
+    appIcon: (bundleID?: string) => {
+      const path = bundleID ? appsByID.get(bundleID)?.path : undefined;
+      return path ? { fileIcon: path } : undefined;
+    },
+    appName: (bundleID: string) =>
+      appsByID.get(bundleID)?.name ?? windows?.find((window) => window.appID === bundleID)?.appName ?? bundleID,
   };
-  return { ...data, isLoading, error, displayCount, appIcon };
 }

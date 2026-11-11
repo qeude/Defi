@@ -1,4 +1,4 @@
-import type { DefiWorkspace } from "./parse";
+import { workspaceLabel, type DefiWorkspace } from "./parse.ts";
 
 export type Suggestion = {
   title: string;
@@ -7,7 +7,36 @@ export type Suggestion = {
   hud?: string;
 };
 
-// Commands whose argument is the search text: "60" sets a width, "+10" widens, "web" targets a workspace.
+function workspaceSuggestions(workspace: DefiWorkspace): Suggestion[] {
+  const label = workspaceLabel(workspace);
+  return [
+    {
+      title: `Go to ${label}`,
+      args: ["--monitor", String(workspace.display), "workspace", workspace.id],
+      kind: "workspace",
+    },
+    {
+      title: `Move Column to ${label}`,
+      args: ["move-column-to-workspace-name", workspace.id],
+      kind: "column",
+      hud: `Column → ${label}`,
+    },
+    {
+      title: `Move Window to ${label}`,
+      args: ["move-window-to-workspace-name", workspace.id],
+      kind: "window",
+      hud: `Window → ${label}`,
+    },
+    {
+      title: `Send Window to ${label}`,
+      args: ["send-window-to-workspace-name", workspace.id],
+      kind: "window",
+      hud: `Window → ${label}`,
+    },
+  ];
+}
+
+// Commands whose argument is the search text: "60" sets a width, "+10" widens, "web" or "2" targets a workspace.
 export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggestion[] {
   const text = query.trim();
   if (!text) return [];
@@ -17,13 +46,8 @@ export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggest
   if (width) {
     const [, sign, digits, unit] = width;
     const amount = Number(digits);
-    if (!sign && !unit && amount >= 1 && amount <= 9) {
-      result.push({
-        title: `Go to Workspace ${amount}`,
-        args: ["focus-workspace-position", digits],
-        kind: "workspace",
-      });
-    }
+    const byPosition = !sign && !unit && workspaces.find((w) => w.focusedDisplay && w.position === amount);
+    if (byPosition) result.push(workspaceSuggestions(byPosition)[0]);
     const points = unit ? unit !== "%" : amount > 100;
     const shown = points ? `${amount} pt` : `${amount}%`;
     // Defi clamps a width to at least 5% of the usable width.
@@ -36,27 +60,7 @@ export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggest
 
   const lowered = text.toLowerCase();
   for (const workspace of workspaces) {
-    const label = workspace.name;
-    if (!label?.toLowerCase().startsWith(lowered)) continue;
-    result.push(
-      {
-        title: `Go to ${label}`,
-        args: ["--monitor", String(workspace.display), "workspace", workspace.id],
-        kind: "workspace",
-      },
-      {
-        title: `Move Column to ${label}`,
-        args: ["move-column-to-workspace-name", workspace.id],
-        kind: "column",
-        hud: `Column → ${label}`,
-      },
-      {
-        title: `Move Window to ${label}`,
-        args: ["move-window-to-workspace-name", workspace.id],
-        kind: "window",
-        hud: `Window → ${label}`,
-      },
-    );
+    if (workspace.name?.toLowerCase().startsWith(lowered)) result.push(...workspaceSuggestions(workspace));
   }
   return result;
 }

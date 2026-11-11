@@ -17,6 +17,7 @@ test("parses list-windows --json in the order received", () => {
     display: 1,
     column: 2,
     row: 1,
+    floating: false,
     focused: true,
   });
 });
@@ -33,7 +34,8 @@ test("parses list-workspaces --json across displays", () => {
       ["__defi_dynamic_5", 1, "trailing", false],
     ],
   );
-  assert.equal(workspaceLabel(workspaces[4]), "Workspace 5");
+  assert.equal(workspaceLabel(workspaces[4]), "New Workspace");
+  assert.equal(workspaceLabel({ position: 2 }), "Workspace 2");
 });
 
 test("ignores unknown fields and malformed entries", () => {
@@ -54,6 +56,7 @@ test("ignores unknown fields and malformed entries", () => {
       display: undefined,
       column: undefined,
       row: undefined,
+      floating: false,
       focused: false,
     },
   ]);

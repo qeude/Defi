@@ -3,10 +3,10 @@ import { showFailureToast } from "@raycast/utils";
 import { execFile } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
-const bundledCLI = "Defi.app/Contents/MacOS/defi";
 export const notRunning = "Defi is not running.";
+const cliInApp = "Contents/MacOS/defi";
 
 function isExecutable(path: string): boolean {
   try {
@@ -17,32 +17,31 @@ function isExecutable(path: string): boolean {
   }
 }
 
-function defiPath(): string {
-  const custom = getPreferenceValues<Preferences>().defiPath?.trim();
-  if (custom) {
-    if (isExecutable(custom)) return custom;
-    throw new Error(`No executable defi at ${custom}. Fix the path in the extension preferences.`);
+// Raycast stores a picked app as an object, Tinycast as its path.
+function pickedApp(): string | undefined {
+  const picked = getPreferenceValues<Preferences>().defiApp as unknown;
+  const path = typeof picked === "string" ? picked : (picked as { path?: string } | undefined)?.path;
+  return path?.trim() || undefined;
+}
+
+export function defiAppPath(): string {
+  const picked = pickedApp();
+  if (picked) {
+    if (isExecutable(join(picked, cliInApp))) return picked;
+    throw new Error(`${picked} has no defi command line tool. Pick Defi.app in the extension preferences.`);
   }
-  const found = [join("/Applications", bundledCLI), join(homedir(), "Applications", bundledCLI)].find(isExecutable);
+  const found = ["/Applications/Defi.app", join(homedir(), "Applications/Defi.app")].find((app) =>
+    isExecutable(join(app, cliInApp)),
+  );
   if (!found)
-    throw new Error("Defi.app was not found in /Applications or ~/Applications. Set its path in the preferences.");
+    throw new Error("Defi is not installed in Applications. Install it, or pick Defi.app in the preferences.");
   return found;
 }
 
-// The app bundle around the CLI, when the CLI sits in one.
-export function defiAppPath(): string | undefined {
-  try {
-    const app = dirname(dirname(dirname(defiPath())));
-    return app.endsWith(".app") ? app : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 export function defi(...args: string[]): Promise<string> {
-  const path = defiPath();
+  const cli = join(defiAppPath(), cliInApp);
   return new Promise((resolve, reject) => {
-    execFile(path, args, { timeout: 5000 }, (error, stdout, stderr) => {
+    execFile(cli, args, { timeout: 5000 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
       const message = stderr.trim() || error.message;
       reject(new Error(message.includes("connect failed") ? notRunning : message));
@@ -57,6 +56,6 @@ export async function runAndClose(commands: string[][], hud?: string): Promise<v
     for (const args of commands) await defi(...args);
     if (hud) await showHUD(hud);
   } catch (error) {
-    await showFailureToast(error, { title: "Defi command failed" });
+    await showFailureToast(error, { title: "Defi could not do that" });
   }
 }

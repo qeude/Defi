@@ -1,30 +1,98 @@
-import { Action, ActionPanel, environment, Icon, List } from "@raycast/api";
+import { Action, ActionPanel, Color, environment, Icon, Keyboard, List } from "@raycast/api";
 import { useCachedState } from "@raycast/utils";
 import { runAndClose } from "./defi";
 import { useDesktop } from "./desktop";
 import { ErrorView } from "./error-view";
-import { workspaceLabel } from "./parse";
-import { stripImage } from "./strip";
+import { workspaceLabel, type DefiWorkspace } from "./parse";
+import { StripDetail } from "./strip-detail";
 import { workspaceIcon } from "./workspace-icon";
 
 const maxAppIcons = 5;
 
 export default function Command() {
-  const { windows, workspaces, isLoading, error, displayCount, appIcon } = useDesktop();
+  const desktop = useDesktop();
+  const { windows, workspaces, focused, displayCount, appIcon, appName } = desktop;
   const [showStrip, setShowStrip] = useCachedState("show-strip", false);
   const dark = environment.appearance === "dark";
   const displays = [...new Set(workspaces?.map((workspace) => workspace.display))];
-  const focusedID = windows?.find((window) => window.focused)?.id;
-  const appName = (bundleID: string) => windows?.find((window) => window.appID === bundleID)?.appName ?? bundleID;
+  const focusedName = focused?.appName ?? "Window";
+
+  const actions = (workspace: DefiWorkspace, label: string) => {
+    const display = String(workspace.display);
+    const elsewhere = focused && focused.workspace?.id !== workspace.id;
+    return (
+      <ActionPanel>
+        <ActionPanel.Section>
+          <Action
+            title={workspace.kind === "trailing" ? "Show New Workspace" : `Show ${label}`}
+            icon={Icon.Eye}
+            onAction={() => runAndClose([["--monitor", display, "workspace", workspace.id]])}
+          />
+        </ActionPanel.Section>
+        {elsewhere ? (
+          <ActionPanel.Section title={focusedName}>
+            <Action
+              title={`Move ${focusedName} Here`}
+              icon={Icon.Window}
+              shortcut={{ modifiers: ["cmd"], key: "return" }}
+              onAction={() =>
+                runAndClose([["move-window-to-workspace-name", workspace.id]], `${focusedName} → ${label}`)
+              }
+            />
+            <Action
+              title={`Send ${focusedName} Here`}
+              icon={Icon.ArrowNe}
+              shortcut={{ modifiers: ["cmd", "shift"], key: "return" }}
+              onAction={() =>
+                runAndClose([["send-window-to-workspace-name", workspace.id]], `${focusedName} → ${label}`)
+              }
+            />
+            <Action
+              title="Move Its Column Here"
+              icon={Icon.AppWindowSidebarLeft}
+              shortcut={{ modifiers: ["opt"], key: "return" }}
+              onAction={() => runAndClose([["move-column-to-workspace-name", workspace.id]], `Column → ${label}`)}
+            />
+          </ActionPanel.Section>
+        ) : null}
+        <ActionPanel.Section>
+          <Action
+            title={showStrip ? "Hide Strip" : "Show Strip"}
+            icon={Icon.AppWindowSidebarRight}
+            shortcut={Keyboard.Shortcut.Common.ToggleQuickLook}
+            onAction={() => setShowStrip(!showStrip)}
+          />
+          <Action
+            title="Refresh"
+            icon={Icon.ArrowClockwise}
+            shortcut={Keyboard.Shortcut.Common.Refresh}
+            onAction={desktop.revalidate}
+          />
+        </ActionPanel.Section>
+      </ActionPanel>
+    );
+  };
 
   return (
-    <List isLoading={isLoading} isShowingDetail={showStrip} searchBarPlaceholder="Search workspaces">
-      {error && <ErrorView title="Cannot read Defi workspaces" error={error} />}
-      {displays.map((display) => (
-        <List.Section key={display} title={displayCount > 1 ? `Display ${display}` : undefined}>
-          {workspaces
-            ?.filter((workspace) => workspace.display === display)
-            .map((workspace) => {
+    <List
+      isLoading={desktop.isLoading}
+      isShowingDetail={showStrip && Boolean(workspaces?.length)}
+      searchBarPlaceholder="Search workspaces by name, number, or app"
+    >
+      {desktop.error ? (
+        <ErrorView error={desktop.error} onRetry={desktop.revalidate} />
+      ) : (
+        <List.EmptyView icon={Icon.AppWindowGrid3x3} title="No Matching Workspace" description="Try an app name." />
+      )}
+      {displays.map((display) => {
+        const onDisplay = workspaces?.filter((workspace) => workspace.display === display) ?? [];
+        return (
+          <List.Section
+            key={display}
+            title={displayCount > 1 ? `Display ${display}` : undefined}
+            subtitle={displayCount > 1 && onDisplay[0]?.focusedDisplay ? "Focused" : undefined}
+          >
+            {onDisplay.map((workspace) => {
               const label = workspaceLabel(workspace);
               const icons = workspace.applications.flatMap((app) => {
                 const icon = appIcon(app);
@@ -34,77 +102,39 @@ export default function Command() {
               return (
                 <List.Item
                   key={workspace.id}
-                  icon={workspaceIcon(workspace, workspace.active)}
+                  icon={workspace.kind === "trailing" ? Icon.Plus : workspaceIcon(workspace, workspace.active)}
                   title={label}
-                  subtitle={workspace.windowCount === 0 ? "Empty" : undefined}
-                  keywords={[String(workspace.position), ...workspace.applications]}
+                  keywords={[String(workspace.position), ...workspace.applications.map(appName)]}
                   accessories={[
                     ...icons.slice(0, maxAppIcons),
                     ...(extra > 0 ? [{ text: `+${extra}` }] : []),
-                    ...(workspace.active ? [{ text: "Active" }] : []),
+                    ...(workspace.active ? [{ tag: { value: "Active", color: Color.Blue } }] : []),
                   ]}
                   detail={
-                    <List.Item.Detail
-                      markdown={stripImage(windows ?? [], workspace.id, focusedID, dark)}
-                      metadata={
-                        <List.Item.Detail.Metadata>
-                          <List.Item.Detail.Metadata.Label title="Windows" text={String(workspace.windowCount)} />
-                          {displayCount > 1 ? (
-                            <List.Item.Detail.Metadata.Label title="Display" text={String(display)} />
-                          ) : null}
-                          {workspace.applications.length > 0 ? (
-                            <List.Item.Detail.Metadata.TagList title="Apps">
-                              {workspace.applications.map((app) => {
-                                return (
-                                  <List.Item.Detail.Metadata.TagList.Item
-                                    key={app}
-                                    text={appName(app)}
-                                    icon={appIcon(app)}
-                                  />
-                                );
-                              })}
-                            </List.Item.Detail.Metadata.TagList>
-                          ) : null}
-                        </List.Item.Detail.Metadata>
-                      }
-                    />
+                    <StripDetail
+                      windows={windows ?? []}
+                      workspaceID={workspace.id}
+                      highlightID={focused?.id}
+                      dark={dark}
+                      appIcon={appIcon}
+                    >
+                      <List.Item.Detail.Metadata.Label
+                        title="Windows"
+                        text={workspace.windowCount ? String(workspace.windowCount) : "None"}
+                      />
+                      {displayCount > 1 ? (
+                        <List.Item.Detail.Metadata.Label title="Display" text={String(display)} />
+                      ) : null}
+                      <List.Item.Detail.Metadata.Separator />
+                    </StripDetail>
                   }
-                  actions={
-                    <ActionPanel>
-                      <Action
-                        title="Show Workspace"
-                        icon={Icon.Eye}
-                        onAction={() => runAndClose([["--monitor", String(display), "workspace", workspace.id]])}
-                      />
-                      <Action
-                        title="Move Focused Window Here"
-                        icon={Icon.Window}
-                        shortcut={{ modifiers: ["cmd"], key: "return" }}
-                        onAction={() =>
-                          runAndClose([["move-window-to-workspace-name", workspace.id]], `Window → ${label}`)
-                        }
-                      />
-                      <Action
-                        title="Move Focused Column Here"
-                        icon={Icon.AppWindowSidebarLeft}
-                        shortcut={{ modifiers: ["opt"], key: "return" }}
-                        onAction={() =>
-                          runAndClose([["move-column-to-workspace-name", workspace.id]], `Column → ${label}`)
-                        }
-                      />
-                      <Action
-                        title={showStrip ? "Hide Strip" : "Show Strip"}
-                        icon={Icon.AppWindowSidebarRight}
-                        shortcut={{ modifiers: ["cmd"], key: "d" }}
-                        onAction={() => setShowStrip(!showStrip)}
-                      />
-                    </ActionPanel>
-                  }
+                  actions={actions(workspace, label)}
                 />
               );
             })}
-        </List.Section>
-      ))}
+          </List.Section>
+        );
+      })}
     </List>
   );
 }

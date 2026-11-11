@@ -2,7 +2,7 @@
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "defi",
   "title": "Defi",
-  "description": "Search windows and workspaces and run commands of the Defi window manager",
+  "description": "Switch windows, jump between workspaces, and run Defi window manager commands",
   "icon": "icon.png",
   "author": "qeude",
   "license": "MIT",
@@ -17,30 +17,59 @@
     {
       "name": "search-windows",
       "title": "Search Windows",
-      "description": "Find a managed window and focus it or move it to a workspace",
-      "mode": "view"
+      "description": "Find any window Defi manages, then focus it, bring it here, or move it",
+      "mode": "view",
+      "keywords": [
+        "switch",
+        "window",
+        "focus",
+        "alt tab",
+        "app"
+      ]
     },
     {
       "name": "search-workspaces",
       "title": "Search Workspaces",
-      "description": "Show a workspace or move the focused window or column there",
-      "mode": "view"
+      "description": "Jump to a workspace on any display, or move the focused window there",
+      "mode": "view",
+      "keywords": [
+        "space",
+        "desktop",
+        "virtual",
+        "display",
+        "monitor"
+      ]
     },
     {
       "name": "run-command",
       "title": "Run Command",
-      "description": "Run a Defi focus, move, width, or Overview command",
-      "mode": "view"
+      "description": "Run any Defi command; type 60 for a width or a workspace name to go there",
+      "mode": "view",
+      "keywords": [
+        "tiling",
+        "column",
+        "width",
+        "layout",
+        "overview",
+        "stack"
+      ],
+      "arguments": [
+        {
+          "name": "query",
+          "type": "text",
+          "placeholder": "60, +10, web",
+          "required": false
+        }
+      ]
     }
   ],
   "preferences": [
     {
-      "name": "defiPath",
-      "title": "Defi CLI Path",
-      "description": "Path to the defi binary. Leave empty to use Defi.app in /Applications or ~/Applications.",
-      "type": "textfield",
-      "required": false,
-      "placeholder": "/Applications/Defi.app/Contents/MacOS/defi"
+      "name": "defiApp",
+      "title": "Defi App",
+      "description": "Leave empty to use Defi.app from /Applications or ~/Applications.",
+      "type": "appPicker",
+      "required": false
     }
   ],
   "dependencies": {
