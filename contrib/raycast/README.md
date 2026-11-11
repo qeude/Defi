@@ -45,11 +45,7 @@ Type the same text after the command in the root search, as in
 `Search Commands 60`. ⌘↵ copies a command in the form `[keys]` accepts. See
 [Commands](https://github.com/qeude/Defi/blob/main/CONFIGURATION.md#commands).
 
-In every list, ⌘Y shows or hides the side pane and ⌘R reloads. In Search
-Windows, the pane also shows a picture of the selected window, taken with
-macOS's `screencapture` when you select it; Raycast or Tinycast asks once for
-Screen Recording. The picture stays in memory and is never written to disk
-beyond the moment it is read. Shortcuts shown
+In every list, ⌘Y shows or hides the side pane and ⌘R reloads. Shortcuts shown
 are Defi's defaults, with `mod` as ⌃⌥; your own `[keys]` may differ.
 
 ## Install
