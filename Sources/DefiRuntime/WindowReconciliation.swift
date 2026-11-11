@@ -343,6 +343,8 @@ struct LateTitleRulePlacement: Equatable, Sendable {
   var floating: Bool
   var columnIndex: Int?
   var column: Column?
+  /// A floating window's frame, so a move or resize by the user counts as a change.
+  var floatingFrame: Rect?
 }
 
 private func lateTitleRulePlacement(
@@ -357,7 +359,8 @@ private func lateTitleRulePlacement(
     workspaceID: location.workspaceID,
     floating: workspace.floatingWindows.contains(windowID),
     columnIndex: columnIndex,
-    column: columnIndex.map { workspace.columns[$0] }
+    column: columnIndex.map { workspace.columns[$0] },
+    floatingFrame: workspace.floatingWindows.contains(windowID) ? state.windows[windowID]?.frame : nil
   )
 }
 
@@ -387,6 +390,9 @@ private func applyLateTitleRules(
   else { return false }
   // Focus was settled at opening: a focused window follows, any other moves quietly.
   decision.openFocused = state.selectedWindowID(on: monitorID) == window.id
+  if decision.workspace == nil, decision.monitor == nil {
+    decision.workspace = candidate.placement.workspaceID
+  }
   removeWindowFromEveryWorkspace(window.id, state: &state)
   state.windows[window.id] = nil
   try? discoverWindow(

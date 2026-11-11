@@ -99,6 +99,47 @@ struct WindowLifecycleTests {
   }
 
   @Test
+  func `A late rule without a destination keeps the window on its workspace`() throws {
+    let config = Config(rules: [Rule(title: "Inspector", initialColumnWidth: 0.5)])
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = { (title: String) in
+      Window(
+        id: WindowID(rawValue: 1), appID: "browser", title: title,
+        frame: Rect(x: 0, y: 0, width: 600, height: 800), processID: 7, monitorID: self.monitorID
+      )
+    }
+    reconcileWindows([], config: config, appliesOpenFocus: false, state: &state)
+    reconcileWindows([window("")], config: config, frontmostProcessID: 7, state: &state)
+    let opened = try #require(state.location(containing: window("").id)?.workspaceID)
+    try reduce(.focusWorkspace(.relative(.down)), on: monitorID, state: &state)
+    #expect(state.monitors[0].activeWorkspace != opened)
+
+    reconcileWindows([window("Web Inspector")], config: config, state: &state)
+
+    #expect(state.location(containing: window("").id)?.workspaceID == opened)
+    #expect(state.monitors[0].workspaces.flatMap(\.columns).first { $0.windows == [window("").id] }?.width == .fraction(0.5))
+  }
+
+  @Test
+  func `A late title never moves a floating window the user moved`() {
+    var (config, state, window) = lateTitleFixture()
+    var dialog = window("")
+    dialog.floating = true
+    reconcileWindows([dialog], config: config, frontmostProcessID: 7, now: 10, state: &state)
+    #expect(state.location(containing: dialog.id)?.workspaceID == WorkspaceID(rawValue: "dev"))
+    dialog.frame.x += 200
+    reconcileWindows(
+      [dialog], config: config, externallyChangedWindowIDs: [dialog.id], now: 10.1, state: &state
+    )
+    dialog.title = "Web Inspector"
+
+    reconcileWindows([dialog], config: config, now: 10.2, state: &state)
+
+    #expect(state.location(containing: dialog.id)?.workspaceID == WorkspaceID(rawValue: "dev"))
+  }
+
+  @Test
   func `A late title leaves a native fullscreen window where it is`() {
     var (config, state, window) = lateTitleFixture()
     reconcileWindows([window("")], config: config, frontmostProcessID: 7, state: &state)
