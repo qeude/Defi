@@ -56,7 +56,8 @@ export async function runAndClose(commands: string[][], hud?: string): Promise<v
     for (const args of commands) await defi(...args);
     if (hud) await showHUD(hud);
   } catch (error) {
+    // A HUD holds one line, so keep the first sentence of Defi's reason.
     const message = error instanceof Error ? error.message : String(error);
-    await showHUD(message.startsWith("Defi") ? message : `Defi: ${message}`);
+    await showHUD(message.split(/(?<=[.!?])\s/)[0]);
   }
 }

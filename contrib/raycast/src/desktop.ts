@@ -3,7 +3,7 @@ import { useCachedPromise } from "@raycast/utils";
 import { defi } from "./defi";
 import { parseWindows, parseWorkspaces } from "./parse";
 
-async function readDesktop() {
+export async function readDesktop() {
   const [windows, workspaces] = await Promise.all([
     defi("list-windows", "--json").then(parseWindows),
     defi("list-workspaces", "--json").then(parseWorkspaces),
@@ -29,6 +29,8 @@ export function useDesktop() {
     isLoading: desktop.isLoading,
     error: desktop.error,
     revalidate: desktop.revalidate,
+    // The state to act on: a fresh read while the cached one is still reloading.
+    fresh: async () => (desktop.isLoading || !desktop.data ? await readDesktop() : desktop.data),
     displayCount: new Set(desktop.data?.workspaces.map((workspace) => workspace.display)).size,
     focused: windows?.find((window) => window.focused),
     // The workspace the user is on, even when it holds no window.

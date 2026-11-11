@@ -31,14 +31,17 @@ export default function Command(props: LaunchProps) {
   // Cached rows would look live while Defi is unreachable, so an error hides them.
   const shown = desktop.error ? [] : (workspaces ?? []);
   const displays = [...new Set(shown.map((workspace) => workspace.display))];
-  const moving = focused?.appName ?? "window";
 
   const actions = (workspace: DefiWorkspace, label: string) => {
-    const elsewhere = focused !== undefined && focused.workspace?.id !== workspace.id;
-    const move = (command: string, hud: string) => () =>
-      elsewhere
-        ? runAndClose([[command, workspace.id]], hud)
-        : showToast({ style: Toast.Style.Failure, title: focused ? `Already on ${label}` : "No Focused Window" });
+    // The cached focus may be stale while the list reloads, so moves check a fresh read.
+    const move = (command: string, describe: (app: string) => string) => async () => {
+      const latest = (await desktop.fresh()).windows.find((window) => window.focused);
+      if (!latest || latest.workspace?.id === workspace.id) {
+        await showToast({ style: Toast.Style.Failure, title: latest ? `Already on ${label}` : "No Focused Window" });
+        return;
+      }
+      await runAndClose([[command, workspace.id]], describe(latest.appName));
+    };
     return (
       <ActionPanel>
         <ActionPanel.Section>
@@ -51,25 +54,25 @@ export default function Command(props: LaunchProps) {
           <Action
             title="Move Focused Window Here"
             icon={Icon.Window}
-            onAction={move("move-window-to-workspace-name", `Moved ${moving} to ${label}`)}
+            onAction={move("move-window-to-workspace-name", (app) => `Moved ${app} to ${label}`)}
           />
           <Action
             title="Send Focused Window Here"
             icon={Icon.ArrowNe}
             shortcut={{ modifiers: ["cmd", "shift"], key: "return" }}
-            onAction={move("send-window-to-workspace-name", `Sent ${moving} to ${label}`)}
+            onAction={move("send-window-to-workspace-name", (app) => `Sent ${app} to ${label}`)}
           />
           <Action
             title="Move Focused Column Here"
             icon={Icon.AppWindowSidebarLeft}
             shortcut={{ modifiers: ["opt"], key: "return" }}
-            onAction={move("move-column-to-workspace-name", `Moved column to ${label}`)}
+            onAction={move("move-column-to-workspace-name", () => `Moved column to ${label}`)}
           />
           <Action
             title="Send Focused Column Here"
             icon={Icon.ArrowNe}
             shortcut={{ modifiers: ["opt", "shift"], key: "return" }}
-            onAction={move("send-column-to-workspace-name", `Sent column to ${label}`)}
+            onAction={move("send-column-to-workspace-name", () => `Sent column to ${label}`)}
           />
         </ActionPanel.Section>
         <ActionPanel.Section>
@@ -127,18 +130,21 @@ export default function Command(props: LaunchProps) {
                 tooltip: appName(app),
               }));
               const extra = icons.length - maxAppIcons;
-              const activeTag = workspace.active ? [{ tag: { value: "Active", color: Color.Blue } }] : [];
               return (
                 <List.Item
                   key={workspace.id}
                   icon={workspaceIcon(workspace, workspace.active)}
                   title={label}
                   keywords={[String(workspace.position), ...workspace.applications.map(appName)]}
-                  // The side pane names every app, so rows next to it keep only the active tag.
+                  // Rows next to the side pane stay bare; the pane names every app.
                   accessories={
                     showDetail
-                      ? activeTag
-                      : [...icons.slice(0, maxAppIcons), ...(extra > 0 ? [{ text: `+${extra}` }] : []), ...activeTag]
+                      ? undefined
+                      : [
+                          ...icons.slice(0, maxAppIcons),
+                          ...(extra > 0 ? [{ text: `+${extra}` }] : []),
+                          ...(workspace.active ? [{ tag: { value: "Active", color: Color.Blue } }] : []),
+                        ]
                   }
                   detail={
                     <StripDetail
@@ -153,6 +159,11 @@ export default function Command(props: LaunchProps) {
                         title="Windows"
                         text={workspace.windowCount ? String(workspace.windowCount) : "None"}
                       />
+                      {workspace.active ? (
+                        <List.Item.Detail.Metadata.TagList title="Status">
+                          <List.Item.Detail.Metadata.TagList.Item text="Active" color={Color.Blue} />
+                        </List.Item.Detail.Metadata.TagList>
+                      ) : null}
                       {displayCount > 1 ? (
                         <List.Item.Detail.Metadata.Label title="Display" text={String(display)} />
                       ) : null}

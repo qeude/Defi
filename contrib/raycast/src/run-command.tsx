@@ -31,7 +31,7 @@ function CommandDetail({ text, command, shortcut }: { text: string; command?: st
             {shortcut !== undefined ? (
               <List.Item.Detail.Metadata.Label
                 title="Default Shortcut"
-                text={shortcut ? formatShortcut(shortcut) : "Unset"}
+                text={shortcut ? formatShortcut(shortcut) : "None"}
               />
             ) : null}
           </List.Item.Detail.Metadata>
@@ -70,7 +70,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
   const item = (entry: (typeof entries)[number], keyPrefix = "") => (
     <List.Item
       key={keyPrefix + entry.command}
-      icon={entry.icon}
+      icon={Icon[entry.icon]}
       title={entry.title}
       subtitle={showDetail ? undefined : entry.command}
       keywords={entry.command.split(/[- ]/)}
@@ -137,9 +137,11 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
                     icon={Icon.Play}
                     onAction={() => runAndClose([suggestion.args], suggestion.hud)}
                   />
-                  {suggestion.binding ? (
-                    <Action.CopyToClipboard title="Copy Command" content={suggestion.binding} />
-                  ) : null}
+                  {/* Copy keeps ⌘↵ on every row; without a [keys] form, it copies the CLI call. */}
+                  <Action.CopyToClipboard
+                    title="Copy Command"
+                    content={suggestion.binding ?? `defi ${suggestion.args.join(" ")}`}
+                  />
                   {toggleDetail}
                 </ActionPanel>
               }
@@ -160,7 +162,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
                 .map((prompt) => (
                   <List.Item
                     key={prompt.title}
-                    icon={prompt.icon}
+                    icon={Icon[prompt.icon]}
                     title={prompt.title}
                     keywords={prompt.keywords}
                     detail={<CommandDetail text={prompt.hint} />}
@@ -171,6 +173,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments.RunCom
                           icon={Icon.TextCursor}
                           onAction={() => setSearchText(prompt.example)}
                         />
+                        <Action.CopyToClipboard title="Copy Command" content={prompt.syntax} />
                         {toggleDetail}
                       </ActionPanel>
                     }

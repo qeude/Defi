@@ -1,5 +1,5 @@
-import { Action, ActionPanel, Icon, List, openExtensionPreferences } from "@raycast/api";
-import { defiAppPath, notInstalled, notRunning } from "./defi";
+import { Action, ActionPanel, Icon, List, open, openExtensionPreferences, showToast, Toast } from "@raycast/api";
+import { defi, defiAppPath, notInstalled, notRunning } from "./defi";
 import { VersionMismatch } from "./parse";
 
 const releases = "https://github.com/qeude/Defi/releases/latest";
@@ -28,6 +28,28 @@ export function describeError(error: Error) {
   return { icon: Icon.Warning, title: "Cannot Reach Defi", description: error.message };
 }
 
+const launchAttempts = 10;
+
+// Opens Defi and keeps the launcher open, retrying until Defi answers.
+async function launch(onRetry: () => void) {
+  const toast = await showToast({ style: Toast.Style.Animated, title: "Launching Defi…" });
+  await open(defiAppPath());
+  for (let attempt = 0; attempt < launchAttempts; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    try {
+      await defi("list-workspaces", "--json");
+      onRetry();
+      toast.style = Toast.Style.Success;
+      toast.title = "Defi Is Running";
+      return;
+    } catch {
+      // Not answering yet.
+    }
+  }
+  toast.style = Toast.Style.Failure;
+  toast.title = "Defi Did Not Start";
+}
+
 // Recovery for every read failure: install or launch Defi, try again, or pick the app in the preferences.
 export function RecoveryActions({ error, onRetry }: { error: Error; onRetry: () => void }) {
   const preferences = (
@@ -44,12 +66,7 @@ export function RecoveryActions({ error, onRetry }: { error: Error; onRetry: () 
   return (
     <ActionPanel>
       {error.message === notRunning ? (
-        <Action.Open
-          title="Launch Defi"
-          icon={Icon.Power}
-          target={defiAppPath()}
-          onOpen={() => [1000, 2500, 5000].forEach((delay) => setTimeout(onRetry, delay))}
-        />
+        <Action title="Launch Defi" icon={Icon.Power} onAction={() => launch(onRetry)} />
       ) : null}
       <Action title="Try Again" icon={Icon.ArrowClockwise} onAction={onRetry} />
       {preferences}

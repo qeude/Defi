@@ -17,11 +17,10 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
   const { windows, workspaces, displayCount, appIcon, current: here } = desktop;
   const [searchText, setSearchText] = useState(initialSearch);
   const [showDetail, setShowDetail] = useCachedState("windows-strip", false);
-  const [storedScope, setScope] = useCachedState("window-scope", "");
+  // Every launch starts on all workspaces, so a narrowed list never surprises.
+  const [chosenScope, setScope] = useState("");
   const withWindows = workspaces?.filter((workspace) => workspace.windowCount > 0) ?? [];
-  // A remembered workspace that has since emptied or gone falls back to all workspaces.
-  const scope =
-    workspaceID ?? (storedScope === current || withWindows.some((w) => w.id === storedScope) ? storedScope : "");
+  const scope = workspaceID ?? chosenScope;
   // shortcut: ranks windows by picks made here, not by Defi's focus history, and keeps the ranks of
   // closed windows; use Defi's order once list-windows exposes it (feat/recent-windows-switcher keeps one).
   const { data: ranked, visitItem } = useFrecencySorting(windows, { key: (window) => String(window.id) });
@@ -113,7 +112,6 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
         const workspace = window.workspace;
         const label = workspace ? workspaceLabel(workspace) : undefined;
         const fullWorkspace = workspaces?.find((candidate) => candidate.id === workspace?.id);
-        const focusedTag = window.focused ? [{ tag: { value: "Focused", color: Color.Blue } }] : [];
         return (
           <List.Item
             key={window.id}
@@ -126,12 +124,12 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
               ...(window.floating ? ["floating"] : []),
               ...(displayCount > 1 ? [`display ${window.display}`] : []),
             ]}
-            // The side pane repeats the rest, so rows next to it keep only the focus tag.
+            // Rows next to the side pane stay bare; the pane carries the same facts.
             accessories={
               showDetail
-                ? focusedTag
+                ? undefined
                 : [
-                    ...focusedTag,
+                    ...(window.focused ? [{ tag: { value: "Focused", color: Color.Blue } }] : []),
                     ...(window.floating ? [{ tag: "Floating" }] : []),
                     ...(fullWorkspace && label
                       ? [
@@ -160,6 +158,14 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                     <List.Item.Detail.Metadata.Label title="Display" text={String(window.display)} />
                   ) : null}
                   <List.Item.Detail.Metadata.Label title="Position" text={position(window)} />
+                  {window.focused || window.floating ? (
+                    <List.Item.Detail.Metadata.TagList title="Status">
+                      {window.focused ? (
+                        <List.Item.Detail.Metadata.TagList.Item text="Focused" color={Color.Blue} />
+                      ) : null}
+                      {window.floating ? <List.Item.Detail.Metadata.TagList.Item text="Floating" /> : null}
+                    </List.Item.Detail.Metadata.TagList>
+                  ) : null}
                 </StripDetail>
               ) : undefined
             }
@@ -193,13 +199,16 @@ export function WindowList({ initialSearch = "", workspaceID }: { initialSearch?
                       title={`Bring to ${workspaceLabel(here)}`}
                       icon={Icon.ArrowDownCircle}
                       shortcut={{ modifiers: ["shift"], key: "return" }}
-                      onAction={() =>
-                        act(
+                      onAction={async () => {
+                        // The cached current workspace may be stale while the list reloads.
+                        const latest = (await desktop.fresh()).workspaces.find((w) => w.active && w.focusedDisplay);
+                        const target = latest && latest.id !== workspace.id ? latest : undefined;
+                        await act(
                           window,
-                          [["move-window-to-workspace-name", here.id]],
-                          `Brought ${window.appName} to ${workspaceLabel(here)}`,
-                        )
-                      }
+                          target ? [["move-window-to-workspace-name", target.id]] : [],
+                          target ? `Brought ${window.appName} to ${workspaceLabel(target)}` : undefined,
+                        );
+                      }}
                     />
                   ) : null}
                   <Action

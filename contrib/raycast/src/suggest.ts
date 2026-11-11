@@ -13,13 +13,17 @@ export type Suggestion = {
 };
 
 // Go to, then the four moves in the order Search Workspaces offers them.
-function workspaceSuggestions(workspace: DefiWorkspace): Suggestion[] {
+function workspaceSuggestions(workspace: DefiWorkspace, namedCount: number): Suggestion[] {
   const label = workspaceLabel(workspace);
   const named = workspace.name !== undefined;
   const target = (byName: string, byPosition?: string) =>
     named ? `${byName} ${workspace.name}` : byPosition && `${byPosition} ${workspace.position}`;
-  // mod-1 … mod-9 reach the first nine workspaces of the focused display.
-  const digit = workspace.focusedDisplay && workspace.position <= 9 ? String(workspace.position) : undefined;
+  // mod-1 … mod-9 go to the named workspaces in [workspaces].names order, which the CLI does not
+  // report, then to positions on the focused display; only that second case is known here.
+  const digit =
+    !named && workspace.focusedDisplay && workspace.position > namedCount && workspace.position <= 9
+      ? String(workspace.position)
+      : undefined;
   return [
     {
       title: `Go to ${label}`,
@@ -105,11 +109,15 @@ function matchesName(name: string, text: string): boolean {
   return name.toLowerCase().startsWith(lowered) || words.some((word) => word.startsWith(lowered));
 }
 
+const minNameQuery = 2;
+
 // Commands whose argument is the search text: "60" sets a width, "h50" a stacked window's height,
 // "+10" widens, "2" or "web" targets a workspace.
 export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggestion[] {
   const text = query.trim();
   if (!text) return [];
+  const namedCount = workspaces.filter((workspace) => workspace.kind === "named").length;
+  const forWorkspace = (workspace: DefiWorkspace) => workspaceSuggestions(workspace, namedCount);
   const result: Suggestion[] = [];
 
   const width = text.match(/^([+-])?(\d{1,4})\s*(%|pt|px)?$/i);
@@ -118,12 +126,13 @@ export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggest
     const amount = Number(digits);
     const byPosition = !sign && !unit && workspaces.find((w) => w.focusedDisplay && w.position === amount);
     const points = unit ? unit !== "%" : amount > 100;
-    const forWorkspace = byPosition ? workspaceSuggestions(byPosition) : [];
-    result.push(...forWorkspace.slice(0, 1));
+    const [goTo, moveWindow] = byPosition ? forWorkspace(byPosition) : [];
+    if (goTo) result.push(goTo);
     // Defi clamps a width to at least 5% of the usable width.
-    if (sign ? amount > 0 : points || amount >= 5)
+    if (sign ? amount > 0 : points || amount >= 5) {
       result.push(sized("width", sign as "+" | "-" | undefined, amount, points));
-    result.push(...forWorkspace.slice(1));
+    }
+    if (moveWindow) result.push(moveWindow);
   }
 
   const height = text.match(/^h\s*([+-])?(\d{1,3})\s*%?$/i);
@@ -131,8 +140,13 @@ export function suggestions(query: string, workspaces: DefiWorkspace[]): Suggest
     result.push(sized("height", height[1] as "+" | "-" | undefined, Number(height[2]), false));
   }
 
-  for (const workspace of workspaces) {
-    if (workspace.name && matchesName(workspace.name, text)) result.push(...workspaceSuggestions(workspace));
+  // A partial name offers the two common actions; the exact name offers all five.
+  if (text.length >= minNameQuery) {
+    for (const workspace of workspaces) {
+      if (!workspace.name || !matchesName(workspace.name, text)) continue;
+      const all = forWorkspace(workspace);
+      result.push(...(workspace.name.toLowerCase() === text.toLowerCase() ? all : all.slice(0, 2)));
+    }
   }
   return result;
 }

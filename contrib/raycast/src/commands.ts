@@ -1,37 +1,44 @@
-import { Icon } from "@raycast/api";
+import type { Icon } from "@raycast/api";
 
-export type Entry = { command: string; title: string; icon: Icon; shortcut?: string; hud?: string };
+type IconName = keyof typeof Icon;
+
+export type Entry = { command: string; title: string; icon: IconName; shortcut?: string; hud?: string };
 
 // Commands that take a value, offered as rows that put an example in the search bar.
 export const prompts: {
   section: string;
   title: string;
-  icon: Icon;
+  icon: IconName;
   example: string;
+  // The command in [keys] syntax, with a placeholder for the value.
+  syntax: string;
   hint: string;
   keywords: string[];
 }[] = [
   {
     section: "Workspaces",
     title: "Go to Workspace…",
-    icon: Icon.ArrowRight,
+    icon: "ArrowRight",
     example: "1",
+    syntax: "workspace <name>",
     hint: "Type a workspace's number or the start of its name, such as 2 or web.",
     keywords: ["workspace", "go", "switch", "number", "name"],
   },
   {
     section: "Widths and Stacks",
     title: "Set Column Width…",
-    icon: Icon.ArrowsExpand,
+    icon: "ArrowsExpand",
     example: "60",
+    syntax: "set-column-width <width>",
     hint: "Type a width: 60 for 60%, +10 or -10 to change it, or 960 for points.",
     keywords: ["width", "resize", "size", "column"],
   },
   {
     section: "Widths and Stacks",
     title: "Set Window Height…",
-    icon: Icon.ChevronUpDown,
+    icon: "ChevronUpDown",
     example: "h50",
+    syntax: "set-window-height <height>",
     hint: "Type h and a height for the focused stacked window: h50, h+10, or h-10.",
     keywords: ["height", "stack", "resize", "size"],
   },
@@ -86,43 +93,43 @@ export const sections: [string, Entry[]][] = [
   [
     "Focus",
     [
-      { command: "focus-column left", title: "Focus Left Column", icon: Icon.ArrowLeft, shortcut: "mod-left" },
-      { command: "focus-column right", title: "Focus Right Column", icon: Icon.ArrowRight, shortcut: "mod-right" },
-      { command: "focus-column first", title: "Focus First Column", icon: Icon.ArrowLeftCircle, shortcut: "mod-home" },
-      { command: "focus-column last", title: "Focus Last Column", icon: Icon.ArrowRightCircle, shortcut: "mod-end" },
-      { command: "focus-window up", title: "Focus Window Above", icon: Icon.ArrowUp, shortcut: "mod-up" },
-      { command: "focus-window down", title: "Focus Window Below", icon: Icon.ArrowDown, shortcut: "mod-down" },
-      { command: "focus-window first", title: "Focus Top Window", icon: Icon.ArrowUpCircle },
-      { command: "focus-window last", title: "Focus Bottom Window", icon: Icon.ArrowDownCircle },
-      { command: "focus-window-previous", title: "Focus Previous Window", icon: Icon.Undo },
-      { command: "focus-window-or-workspace up", title: "Focus Window or Workspace Above", icon: Icon.ArrowUp },
-      { command: "focus-window-or-workspace down", title: "Focus Window or Workspace Below", icon: Icon.ArrowDown },
-      { command: "focus-column-or-monitor left", title: "Focus Left Column or Left Display", icon: Icon.ArrowLeft },
-      { command: "focus-column-or-monitor right", title: "Focus Right Column or Right Display", icon: Icon.ArrowRight },
+      { command: "focus-column left", title: "Focus Left Column", icon: "ArrowLeft", shortcut: "mod-left" },
+      { command: "focus-column right", title: "Focus Right Column", icon: "ArrowRight", shortcut: "mod-right" },
+      { command: "focus-column first", title: "Focus First Column", icon: "ArrowLeftCircle", shortcut: "mod-home" },
+      { command: "focus-column last", title: "Focus Last Column", icon: "ArrowRightCircle", shortcut: "mod-end" },
+      { command: "focus-window up", title: "Focus Window Above", icon: "ArrowUp", shortcut: "mod-up" },
+      { command: "focus-window down", title: "Focus Window Below", icon: "ArrowDown", shortcut: "mod-down" },
+      { command: "focus-window first", title: "Focus Top Window", icon: "ArrowUpCircle" },
+      { command: "focus-window last", title: "Focus Bottom Window", icon: "ArrowDownCircle" },
+      { command: "focus-window-previous", title: "Focus Previous Window", icon: "Undo" },
+      { command: "focus-window-or-workspace up", title: "Focus Window or Workspace Above", icon: "ArrowUp" },
+      { command: "focus-window-or-workspace down", title: "Focus Window or Workspace Below", icon: "ArrowDown" },
+      { command: "focus-column-or-monitor left", title: "Focus Left Column or Left Display", icon: "ArrowLeft" },
+      { command: "focus-column-or-monitor right", title: "Focus Right Column or Right Display", icon: "ArrowRight" },
       {
         command: "focus-floating previous",
         title: "Focus Previous Floating Window",
-        icon: Icon.ChevronLeft,
+        icon: "ChevronLeft",
         shortcut: "mod-shift-comma",
       },
       {
         command: "focus-floating next",
         title: "Focus Next Floating Window",
-        icon: Icon.ChevronRight,
+        icon: "ChevronRight",
         shortcut: "mod-shift-period",
       },
-      { command: "focus-floating first", title: "Focus First Floating Window", icon: Icon.ArrowLeftCircle },
-      { command: "focus-floating last", title: "Focus Last Floating Window", icon: Icon.ArrowRightCircle },
+      { command: "focus-floating first", title: "Focus First Floating Window", icon: "ArrowLeftCircle" },
+      { command: "focus-floating last", title: "Focus Last Floating Window", icon: "ArrowRightCircle" },
       {
         command: "activate-floating",
         title: "Bring Floating Windows Forward",
-        icon: Icon.Layers,
+        icon: "Layers",
         shortcut: "mod-shift-v",
       },
-      ...(["left", "right", "up", "down"] as const).map((direction) => ({
+      ...(["left", "right", "up", "down"] as const).map((direction): Entry => ({
         command: `focus-monitor ${direction}`,
         title: `Focus ${displayName(direction)}`,
-        icon: Icon.Monitor,
+        icon: "Monitor",
         shortcut: `mod-shift-${direction}`,
       })),
     ],
@@ -130,135 +137,135 @@ export const sections: [string, Entry[]][] = [
   [
     "Workspaces",
     [
-      { command: "focus-workspace up", title: "Go to Workspace Above", icon: Icon.ChevronUp, shortcut: "mod-i" },
-      { command: "focus-workspace down", title: "Go to Workspace Below", icon: Icon.ChevronDown, shortcut: "mod-u" },
-      { command: "focus-workspace-previous", title: "Go to Previous Workspace", icon: Icon.Undo },
-      { command: "reorder-workspace up", title: "Move Workspace Up", icon: Icon.ArrowUp, shortcut: "mod-shift-i" },
+      { command: "focus-workspace up", title: "Go to Workspace Above", icon: "ChevronUp", shortcut: "mod-i" },
+      { command: "focus-workspace down", title: "Go to Workspace Below", icon: "ChevronDown", shortcut: "mod-u" },
+      { command: "focus-workspace-previous", title: "Go to Previous Workspace", icon: "Undo" },
+      { command: "reorder-workspace up", title: "Move Workspace Up", icon: "ArrowUp", shortcut: "mod-shift-i" },
       {
         command: "reorder-workspace down",
         title: "Move Workspace Down",
-        icon: Icon.ArrowDown,
+        icon: "ArrowDown",
         shortcut: "mod-shift-u",
       },
-      ...(["left", "right", "up", "down"] as const).map((direction) => ({
+      ...(["left", "right", "up", "down"] as const).map((direction): Entry => ({
         command: `move-workspace-to-monitor ${direction}`,
         title: `Move Workspace to ${displayName(direction)}`,
-        icon: Icon.Monitor,
+        icon: "Monitor",
       })),
     ],
   ],
   [
     "Move",
     [
-      { command: "move-column left", title: "Move Column Left", icon: Icon.ArrowLeft, shortcut: "mod-cmd-left" },
-      { command: "move-column right", title: "Move Column Right", icon: Icon.ArrowRight, shortcut: "mod-cmd-right" },
+      { command: "move-column left", title: "Move Column Left", icon: "ArrowLeft", shortcut: "mod-cmd-left" },
+      { command: "move-column right", title: "Move Column Right", icon: "ArrowRight", shortcut: "mod-cmd-right" },
       {
         command: "move-column first",
         title: "Move Column to Start",
-        icon: Icon.ArrowLeftCircle,
+        icon: "ArrowLeftCircle",
         shortcut: "mod-cmd-home",
       },
       {
         command: "move-column last",
         title: "Move Column to End",
-        icon: Icon.ArrowRightCircle,
+        icon: "ArrowRightCircle",
         shortcut: "mod-cmd-end",
       },
-      { command: "move-window up", title: "Move Window Up", icon: Icon.ArrowUp, shortcut: "mod-cmd-up" },
-      { command: "move-window down", title: "Move Window Down", icon: Icon.ArrowDown, shortcut: "mod-cmd-down" },
+      { command: "move-window up", title: "Move Window Up", icon: "ArrowUp", shortcut: "mod-cmd-up" },
+      { command: "move-window down", title: "Move Window Down", icon: "ArrowDown", shortcut: "mod-cmd-down" },
       {
         command: "move-column-to-workspace up",
         title: "Move Column to Workspace Above",
-        icon: Icon.ChevronUp,
+        icon: "ChevronUp",
         shortcut: "mod-cmd-i",
       },
       {
         command: "move-column-to-workspace down",
         title: "Move Column to Workspace Below",
-        icon: Icon.ChevronDown,
+        icon: "ChevronDown",
         shortcut: "mod-cmd-u",
       },
-      { command: "move-window-to-workspace up", title: "Move Window to Workspace Above", icon: Icon.ChevronUp },
-      { command: "move-window-to-workspace down", title: "Move Window to Workspace Below", icon: Icon.ChevronDown },
-      { command: "send-column-to-workspace up", title: "Send Column to Workspace Above", icon: Icon.ArrowNe },
-      { command: "send-column-to-workspace down", title: "Send Column to Workspace Below", icon: Icon.ArrowNe },
-      { command: "send-window-to-workspace up", title: "Send Window to Workspace Above", icon: Icon.ArrowNe },
-      { command: "send-window-to-workspace down", title: "Send Window to Workspace Below", icon: Icon.ArrowNe },
-      ...(["left", "right", "up", "down"] as const).map((direction) => ({
+      { command: "move-window-to-workspace up", title: "Move Window to Workspace Above", icon: "ChevronUp" },
+      { command: "move-window-to-workspace down", title: "Move Window to Workspace Below", icon: "ChevronDown" },
+      { command: "send-column-to-workspace up", title: "Send Column to Workspace Above", icon: "ArrowNe" },
+      { command: "send-column-to-workspace down", title: "Send Column to Workspace Below", icon: "ArrowNe" },
+      { command: "send-window-to-workspace up", title: "Send Window to Workspace Above", icon: "ArrowNe" },
+      { command: "send-window-to-workspace down", title: "Send Window to Workspace Below", icon: "ArrowNe" },
+      ...(["left", "right", "up", "down"] as const).map((direction): Entry => ({
         command: `move-column-to-monitor ${direction}`,
         title: `Move Column to ${displayName(direction)}`,
-        icon: Icon.Monitor,
+        icon: "Monitor",
         shortcut: `mod-shift-cmd-${direction}`,
       })),
-      { command: "move-column-or-to-monitor left", title: "Move Column Left or to Left Display", icon: Icon.ArrowLeft },
+      { command: "move-column-or-to-monitor left", title: "Move Column Left or to Left Display", icon: "ArrowLeft" },
       {
         command: "move-column-or-to-monitor right",
         title: "Move Column Right or to Right Display",
-        icon: Icon.ArrowRight,
+        icon: "ArrowRight",
       },
-      ...(["left", "right", "up", "down"] as const).map((direction) => ({
+      ...(["left", "right", "up", "down"] as const).map((direction): Entry => ({
         command: `move-window-to-monitor ${direction}`,
         title: `Move Window to ${displayName(direction)}`,
-        icon: Icon.Monitor,
+        icon: "Monitor",
       })),
     ],
   ],
   [
     "Widths and Stacks",
     [
-      { command: "cycle-width next", title: "Next Column Width", icon: Icon.ArrowsExpand, shortcut: "mod-equal" },
+      { command: "cycle-width next", title: "Next Column Width", icon: "ArrowsExpand", shortcut: "mod-equal" },
       {
         command: "cycle-width previous",
         title: "Previous Column Width",
-        icon: Icon.ArrowsContract,
+        icon: "ArrowsContract",
         shortcut: "mod-minus",
       },
-      { command: "maximize-column", title: "Maximize Column", icon: Icon.Maximize, shortcut: "mod-f" },
-      { command: "expand-column-to-available-width", title: "Fill Available Width", icon: Icon.ArrowsExpand },
-      { command: "center-column", title: "Center Column", icon: Icon.Center, shortcut: "mod-c" },
-      { command: "center-visible-columns", title: "Center Visible Columns", icon: Icon.AlignCentre },
-      { command: "switch-preset-window-height", title: "Next Window Height", icon: Icon.ChevronUpDown },
-      { command: "reset-window-height", title: "Reset Window Heights", icon: Icon.RotateAntiClockwise },
+      { command: "maximize-column", title: "Maximize Column", icon: "Maximize", shortcut: "mod-f" },
+      { command: "expand-column-to-available-width", title: "Fill Available Width", icon: "ArrowsExpand" },
+      { command: "center-column", title: "Center Column", icon: "Center", shortcut: "mod-c" },
+      { command: "center-visible-columns", title: "Center Visible Columns", icon: "AlignCentre" },
+      { command: "switch-preset-window-height", title: "Next Window Height", icon: "ChevronUpDown" },
+      { command: "reset-window-height", title: "Reset Window Heights", icon: "RotateAntiClockwise" },
       {
         command: "join-window left",
         title: "Stack into Left Column",
-        icon: Icon.AppWindowList,
+        icon: "AppWindowList",
         shortcut: "mod-semicolon",
       },
       {
         command: "join-window right",
         title: "Stack into Right Column",
-        icon: Icon.AppWindowList,
+        icon: "AppWindowList",
         shortcut: "mod-quote",
       },
-      { command: "unjoin-windows", title: "Unstack Window", icon: Icon.AppWindowGrid2x2, shortcut: "mod-period" },
+      { command: "unjoin-windows", title: "Unstack Window", icon: "AppWindowGrid2x2", shortcut: "mod-period" },
       {
         command: "consume-or-expel-window left",
         title: "Stack or Unstack Left",
-        icon: Icon.AppWindowSidebarLeft,
+        icon: "AppWindowSidebarLeft",
         shortcut: "mod-leftbracket",
       },
       {
         command: "consume-or-expel-window right",
         title: "Stack or Unstack Right",
-        icon: Icon.AppWindowSidebarRight,
+        icon: "AppWindowSidebarRight",
         shortcut: "mod-rightbracket",
       },
-      { command: "swap-window left", title: "Swap with Left Window", icon: Icon.Switch },
-      { command: "swap-window right", title: "Swap with Right Window", icon: Icon.Switch },
-      { command: "toggle-floating", title: "Float or Tile Window", icon: Icon.Window, shortcut: "mod-v" },
+      { command: "swap-window left", title: "Swap with Left Window", icon: "Switch" },
+      { command: "swap-window right", title: "Swap with Right Window", icon: "Switch" },
+      { command: "toggle-floating", title: "Float or Tile Window", icon: "Window", shortcut: "mod-v" },
     ],
   ],
   [
     "Other",
     [
-      { command: "toggle-overview", title: "Toggle Overview", icon: Icon.AppWindowGrid3x3, shortcut: "mod-o" },
-      { command: "toggle-cheatsheet", title: "Toggle Cheatsheet", icon: Icon.Keyboard, shortcut: "mod-shift-slash" },
-      { command: "open-settings", title: "Open Settings", icon: Icon.Gear },
+      { command: "toggle-overview", title: "Toggle Overview", icon: "AppWindowGrid3x3", shortcut: "mod-o" },
+      { command: "toggle-cheatsheet", title: "Toggle Cheatsheet", icon: "Keyboard", shortcut: "mod-shift-slash" },
+      { command: "open-settings", title: "Open Settings", icon: "Gear" },
       {
         command: "diagnostic-mark",
         title: "Mark a Problem for Diagnostics",
-        icon: Icon.Bug,
+        icon: "Bug",
         hud: "Marked for diagnostics",
       },
     ],
