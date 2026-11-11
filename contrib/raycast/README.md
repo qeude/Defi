@@ -1,10 +1,12 @@
-# Raycast extension
+# Defi
 
 Reach [Defi](https://github.com/qeude/Defi), the scrolling-columns window
-manager for macOS, from [Raycast](https://www.raycast.com) or
-[Tinycast](https://github.com/abue-ammar/tinycast). The extension only runs the
-`defi` command line tool inside Defi.app and makes no network calls, so window
-titles stay on your Mac.
+manager for macOS, from Raycast: switch windows, jump between workspaces, and
+run any Defi command. The extension only runs the `defi` command line tool
+inside Defi.app and makes no network calls, so window titles stay on your Mac.
+
+Requires [Defi.app](https://github.com/qeude/Defi/releases/latest) in
+`/Applications` or `~/Applications`, or picked in the extension's preferences.
 
 ## Commands
 
@@ -22,7 +24,7 @@ that workspace for a moment, because Defi focuses the window first.
 | ⌘⇧C / ⌘⇧I | Copy its title or ID |
 
 **Search Workspaces** lists the workspaces of every display with their window
-count and apps; search by name, number, or app. ⌘Y shows a workspace's columns.
+count and apps; search by name, number, or app.
 
 | Key | Action |
 | --- | --- |
@@ -46,32 +48,14 @@ Type the same text after the command in the root search, as in
 [Commands](https://github.com/qeude/Defi/blob/main/CONFIGURATION.md#commands).
 
 In every list, ⌘Y shows or hides the side pane and ⌘R reloads. Shortcuts shown
-are Defi's defaults, with `mod` as ⌃⌥; your own `[keys]` may differ.
-
-## Install
-
-You need Node.js 22.6 or later and Defi.app. From the Defi repository root:
-
-```sh
-cd contrib/raycast
-npm install && npm run dev
-```
-
-`npm run dev` adds the extension to Raycast in development mode. Give Search
-Windows a hotkey or an alias such as `w` in its command settings (⌘K, then
-Configure Command) to reach it in one keystroke.
-
-For Tinycast, run `npm run tinycast` instead: it builds straight into Tinycast's
-extensions folder, and Tinycast picks up a new build the next time a command
-starts.
+are Defi's defaults, with `mod` as ⌃⌥; your own `[keys]` may differ. Give Search
+Windows a hotkey or an alias such as `w` to reach it in one keystroke.
 
 ## Troubleshooting
 
-- **Defi Is Not Installed**: the extension looks for Defi.app in
-  `/Applications`, then `~/Applications`. If it lives elsewhere, pick it in
-  **Defi App** in the extension's preferences.
+- **Defi Is Not Installed**: install Defi, or pick Defi.app in **Defi App** in
+  the extension's preferences.
 - **Defi Is Not Running**: press Enter to launch it; the list fills in once
   Defi starts.
 - **Update Defi** or **Update This Extension**: Defi and the extension read
-  different versions of the JSON format. Update the older one; a newer
-  extension is rebuilt from this folder.
+  different versions of the JSON format. Update the older one.

@@ -21,7 +21,7 @@ export function describeError(error: Error) {
       title: error.received > error.supported ? "Update This Extension" : "Update Defi",
       description:
         error.received > error.supported
-          ? "Defi is newer than this extension. Rebuild the extension from the Defi repository."
+          ? "Defi is newer than this extension. Update the extension from the Raycast Store."
           : "This extension needs a newer Defi. Update Defi from its menu bar item or the releases page.",
     };
   }
