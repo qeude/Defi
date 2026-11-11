@@ -110,9 +110,14 @@ struct DaemonDesktopSynchronizationTests {
   }
 
   /// A window whose title arrives just after it opens ends where it would have opened with that title.
-  @Test(arguments: ["workspace = \"web\"", "window = \"force-floating\"\nmonitor = \"Second\""])
+  @Test(arguments: [
+    "[[rules]]\ntitle = \"Web Inspector\"\nworkspace = \"web\"",
+    "[[rules]]\ntitle = \"Web Inspector\"\nwindow = \"force-floating\"\nmonitor = \"Second\"",
+    // Already floating when it opens.
+    "[[rules]]\napp_id = \"dialog\"\nwindow = \"force-floating\"\n[[rules]]\ntitle = \"Web Inspector\"\nmonitor = \"Second\"",
+  ])
   @NavigationActor
-  func lateTitleRuleMovesTheWindowAsAnOpeningWould(rule: String) async throws {
+  func lateTitleRuleMovesTheWindowAsAnOpeningWould(rules: String) async throws {
     struct Outcome: Equatable {
       var monitorID: MonitorID?
       var workspaceID: WorkspaceID?
@@ -132,9 +137,7 @@ struct DaemonDesktopSynchronizationTests {
         names = ["web"]
         [animation]
         enabled = false
-        [[rules]]
-        title = "Web Inspector"
-        \(rule)
+        \(rules)
         """.write(to: configURL, atomically: true, encoding: .utf8)
       let daemon = try Daemon(
         options: DaemonOptions(arguments: [
@@ -154,7 +157,7 @@ struct DaemonDesktopSynchronizationTests {
         id: MonitorID(rawValue: 2), frame: Rect(x: 1_000, y: 0, width: 1_000, height: 700), name: "Second")
       let editor = Window(id: WindowID(rawValue: 1), appID: "app", title: "Editor",
         frame: Rect(x: 0, y: 0, width: 800, height: 700), monitorID: first.id)
-      var opened = Window(id: WindowID(rawValue: 2), appID: "app", title: late ? "" : "Web Inspector",
+      var opened = Window(id: WindowID(rawValue: 2), appID: "dialog", title: late ? "" : "Web Inspector",
         frame: Rect(x: 100, y: 100, width: 400, height: 300), monitorID: first.id)
       func apply(_ windows: [Window]) {
         daemon.applyDesktopSnapshot(

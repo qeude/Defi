@@ -34,11 +34,6 @@ private final class DesktopFocusFixtureDelegate: NSObject, NSApplicationDelegate
     // Cooperative activation: only the active app can let the test runner activate.
     DispatchQueue.global().async {
       while let line = readLine() {
-        // Some apps set their title after the window opens.
-        if line.hasPrefix("title ") {
-          DispatchQueue.main.async { window.title = String(line.dropFirst(6)) }
-          continue
-        }
         guard line.hasPrefix("yield "), let pid = pid_t(line.dropFirst(6)) else { continue }
         DispatchQueue.main.async {
           NSRunningApplication(processIdentifier: pid).map { NSApplication.shared.yieldActivation(to: $0) }

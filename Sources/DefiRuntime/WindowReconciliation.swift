@@ -394,6 +394,26 @@ private func applyLateTitleRules(
     ruleMonitorID: decision.monitor.flatMap { ruleMonitorID($0, displays: displays) },
     state: &state
   )
+  // A rule that keeps the window on its workspace leaves its column where it was.
+  if let oldIndex = candidate.placement.columnIndex,
+    let location = state.location(containing: window.id),
+    location.workspaceID == candidate.placement.workspaceID,
+    let monitorIndex = state.monitors.firstIndex(where: { $0.id == location.monitorID }),
+    let workspaceIndex = state.monitors[monitorIndex].workspaces.firstIndex(
+      where: { $0.id == location.workspaceID }
+    )
+  {
+    var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+    if let newIndex = workspace.columns.firstIndex(where: { $0.windows.contains(window.id) }),
+      newIndex != oldIndex, oldIndex < workspace.columns.count
+    {
+      let focusedWindow = workspace.columns[workspace.focusedColumn].windows
+      workspace.columns.insert(workspace.columns.remove(at: newIndex), at: oldIndex)
+      workspace.focusedColumn = workspace.columns.firstIndex { $0.windows == focusedWindow } ?? oldIndex
+      repairWorkspaceScroll(&workspace, settings: state.layout)
+      state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
+    }
+  }
   return true
 }
 

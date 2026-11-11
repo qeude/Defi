@@ -99,6 +99,31 @@ struct WindowLifecycleTests {
   }
 
   @Test
+  func `A late title rule on the same workspace keeps the window's column`() throws {
+    let config = Config(rules: [Rule(title: "Inspector", initialColumnWidth: 0.5)])
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = { (id: UInt64, title: String) in
+      Window(
+        id: WindowID(rawValue: id), appID: "browser", title: title,
+        frame: Rect(x: 0, y: 0, width: 600, height: 800), processID: 7, monitorID: self.monitorID
+      )
+    }
+    let left = window(1, "Left"), right = window(2, "Right")
+    reconcileWindows([left, right], config: config, appliesOpenFocus: false, state: &state)
+    focusWindow(left.id, state: &state)
+    reconcileWindows([left, right, window(3, "")], config: config, frontmostProcessID: 7, state: &state)
+    #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == [[left.id], [WindowID(rawValue: 3)], [right.id]])
+
+    reconcileWindows([left, right, window(3, "Web Inspector")], config: config, state: &state)
+
+    let workspace = state.monitors[0].workspaces[0]
+    #expect(workspace.columns.map(\.windows) == [[left.id], [WindowID(rawValue: 3)], [right.id]])
+    #expect(workspace.columns[1].width == .fraction(0.5))
+    #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
+  }
+
+  @Test
   func `Rule monitor and open focus place a new window`() throws {
     let second = MonitorID(rawValue: 2)
     var state = RuntimeState(config: Config())

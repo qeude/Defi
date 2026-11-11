@@ -428,6 +428,8 @@ extension Daemon {
         ),
         windows: state.windows
       ).intersection(relocatedTransientIDs)
+      // A rule that sent the window to another display rebases it once, below.
+      .subtracting(ruleRelocatedFloatingMonitorIDs.keys)
     if let previousSelectedWindowID,
       let reboundMonitorID = state.reboundFocusMonitorID(for: previousSelectedWindowID),
       reboundMonitorID != previousActiveMonitorID
