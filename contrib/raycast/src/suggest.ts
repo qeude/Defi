@@ -19,19 +19,19 @@ function workspaceSuggestions(workspace: DefiWorkspace): Suggestion[] {
       title: `Move Column to ${label}`,
       args: ["move-column-to-workspace-name", workspace.id],
       kind: "column",
-      hud: `Column → ${label}`,
+      hud: `Moved column to ${label}`,
     },
     {
       title: `Move Window to ${label}`,
       args: ["move-window-to-workspace-name", workspace.id],
       kind: "window",
-      hud: `Window → ${label}`,
+      hud: `Moved window to ${label}`,
     },
     {
       title: `Send Window to ${label}`,
       args: ["send-window-to-workspace-name", workspace.id],
       kind: "window",
-      hud: `Window → ${label}`,
+      hud: `Sent window to ${label}`,
     },
   ];
 }

@@ -1,4 +1,4 @@
-import { Image, List } from "@raycast/api";
+import { Color, Image, List } from "@raycast/api";
 import type { DefiWindow } from "./parse";
 import { stripColumns, stripImage } from "./strip";
 
@@ -21,7 +21,7 @@ export function StripDetail({ windows, workspaceID, highlightID, dark, appIcon, 
         key={window.id}
         text={window.appName}
         icon={appIcon(window.appID)}
-        color={window.id === highlightID ? "#0A84FF" : undefined}
+        color={window.id === highlightID ? Color.Blue : undefined}
       />
     ));
   return (

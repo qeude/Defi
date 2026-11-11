@@ -1,11 +1,11 @@
 import { closeMainWindow, getPreferenceValues, showHUD } from "@raycast/api";
-import { showFailureToast } from "@raycast/utils";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const notRunning = "Defi is not running.";
+export const notInstalled = "Defi is not installed.";
 const cliInApp = "Contents/MacOS/defi";
 
 function isExecutable(path: string): boolean {
@@ -33,8 +33,7 @@ export function defiAppPath(): string {
   const found = ["/Applications/Defi.app", join(homedir(), "Applications/Defi.app")].find((app) =>
     isExecutable(join(app, cliInApp)),
   );
-  if (!found)
-    throw new Error("Defi is not installed in Applications. Install it, or pick Defi.app in the preferences.");
+  if (!found) throw new Error(notInstalled);
   return found;
 }
 
@@ -49,13 +48,26 @@ export function defi(...args: string[]): Promise<string> {
   });
 }
 
+// Calls onChange whenever Defi reports a change; returns the function that stops listening.
+export function subscribe(onChange: () => void): () => void {
+  try {
+    const child = spawn(join(defiAppPath(), cliInApp), ["subscribe", "--json"]);
+    child.on("error", () => undefined);
+    child.stdout?.on("data", onChange);
+    return () => child.kill();
+  } catch {
+    return () => undefined;
+  }
+}
+
 // Close Raycast first so the command acts on the window that was focused before it.
+// Feedback is a HUD because the launcher window is already gone.
 export async function runAndClose(commands: string[][], hud?: string): Promise<void> {
   await closeMainWindow({ clearRootSearch: true });
   try {
     for (const args of commands) await defi(...args);
     if (hud) await showHUD(hud);
   } catch (error) {
-    await showFailureToast(error, { title: "Defi could not do that" });
+    await showHUD(`Defi: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

@@ -1,6 +1,7 @@
 import { getApplications } from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
-import { defi } from "./defi";
+import { useEffect, useRef } from "react";
+import { defi, subscribe } from "./defi";
 import { parseWindows, parseWorkspaces } from "./parse";
 
 async function readDesktop() {
@@ -11,13 +12,31 @@ async function readDesktop() {
   return { windows, workspaces };
 }
 
-// Windows and workspaces read together, shown from the last run while they reload.
+async function readApps() {
+  return (await getApplications()).map(({ bundleId, name, path }) => ({ bundleId, name, path }));
+}
+
+// Windows and workspaces, shown from the last run at once and kept live while the view is open.
 export function useDesktop() {
   // The empty view reports the error with its recovery actions, so no toast as well.
   const desktop = useCachedPromise(readDesktop, [], { onError: () => undefined });
-  const apps = useCachedPromise(async () =>
-    (await getApplications()).map(({ bundleId, name, path }) => ({ bundleId, name, path })),
-  );
+  const apps = useCachedPromise(readApps);
+  const reload = useRef(desktop.revalidate);
+  reload.current = desktop.revalidate;
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Defi batches changes within about 30 ms; reload once per burst.
+    const stop = subscribe(() => {
+      clearTimeout(timer);
+      timer = setTimeout(() => reload.current(), 60);
+    });
+    return () => {
+      clearTimeout(timer);
+      stop();
+    };
+  }, []);
+
   const appsByID = new Map(apps.data?.map((app) => [app.bundleId, app]));
   const windows = desktop.data?.windows;
   return {

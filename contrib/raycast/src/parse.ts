@@ -15,6 +15,8 @@ export type DefiWindow = {
 export type DefiWorkspace = {
   id: string;
   name?: string;
+  // SF Symbol name set in [workspaces] icons.
+  icon?: string;
   position: number;
   kind: string;
   display: number;
@@ -64,6 +66,7 @@ export function parseWorkspaces(text: string): DefiWorkspace[] {
       .map((workspace: Record<string, unknown>) => ({
         id: workspace.id,
         name: workspace.name,
+        icon: typeof workspace.icon === "string" ? workspace.icon : undefined,
         position: workspace.position,
         kind: String(workspace.kind ?? ""),
         display: monitor.display,

@@ -1,21 +1,44 @@
 import { Action, ActionPanel, Icon, Keyboard, List, openExtensionPreferences } from "@raycast/api";
-import { defiAppPath, notRunning } from "./defi";
+import { defiAppPath, notInstalled, notRunning } from "./defi";
 
-function launchTarget(): string | undefined {
-  try {
-    return defiAppPath();
-  } catch {
-    return undefined;
+const releases = "https://github.com/qeude/Defi/releases/latest";
+
+export function describeError(error: Error) {
+  if (error.message === notRunning) {
+    return { icon: Icon.Power, title: "Defi Is Not Running", description: "Press Enter to launch it." };
   }
+  if (error.message === notInstalled) {
+    return {
+      icon: Icon.Download,
+      title: "Defi Is Not Installed",
+      description: "Download Defi, or pick Defi.app in the extension preferences.",
+    };
+  }
+  return { icon: Icon.Warning, title: "Cannot Reach Defi", description: error.message };
 }
 
-// Recovery for every read failure: launch Defi, try again, or fix the app in the preferences.
+// Recovery for every read failure: install or launch Defi, try again, or pick the app in the preferences.
 export function RecoveryActions({ error, onRetry }: { error: Error; onRetry: () => void }) {
-  const app = error.message === notRunning ? launchTarget() : undefined;
+  const preferences = (
+    <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
+  );
+  if (error.message === notInstalled) {
+    return (
+      <ActionPanel>
+        <Action.OpenInBrowser title="Download Defi" url={releases} />
+        {preferences}
+      </ActionPanel>
+    );
+  }
   return (
     <ActionPanel>
-      {app ? (
-        <Action.Open title="Launch Defi" icon={Icon.Power} target={app} onOpen={() => setTimeout(onRetry, 1500)} />
+      {error.message === notRunning ? (
+        <Action.Open
+          title="Launch Defi"
+          icon={Icon.Power}
+          target={defiAppPath()}
+          onOpen={() => setTimeout(onRetry, 1500)}
+        />
       ) : null}
       <Action
         title="Try Again"
@@ -23,19 +46,11 @@ export function RecoveryActions({ error, onRetry }: { error: Error; onRetry: () 
         shortcut={Keyboard.Shortcut.Common.Refresh}
         onAction={onRetry}
       />
-      <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
+      {preferences}
     </ActionPanel>
   );
 }
 
 export function ErrorView({ error, onRetry }: { error: Error; onRetry: () => void }) {
-  const stopped = error.message === notRunning;
-  return (
-    <List.EmptyView
-      icon={stopped ? Icon.Power : Icon.Warning}
-      title={stopped ? "Defi Is Not Running" : "Cannot Reach Defi"}
-      description={stopped ? "Press Enter to launch it." : error.message}
-      actions={<RecoveryActions error={error} onRetry={onRetry} />}
-    />
-  );
+  return <List.EmptyView {...describeError(error)} actions={<RecoveryActions error={error} onRetry={onRetry} />} />;
 }
