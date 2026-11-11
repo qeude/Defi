@@ -46,9 +46,10 @@ Type the same text after the command in the root search, as in
 [Commands](https://github.com/qeude/Defi/blob/main/CONFIGURATION.md#commands).
 
 In every list, ⌘Y shows or hides the side pane and ⌘R reloads. In Search
-Windows, the pane also shows Defi's latest picture of the selected window, read
-with `defi window-preview`: the launcher captures nothing and needs no Screen
-Recording of its own. Shortcuts shown
+Windows, the pane also shows a picture of the selected window, taken with
+macOS's `screencapture` when you select it; Raycast or Tinycast asks once for
+Screen Recording. The picture stays in memory and is never written to disk
+beyond the moment it is read. Shortcuts shown
 are Defi's defaults, with `mod` as ⌃⌥; your own `[keys]` may differ.
 
 ## Install
