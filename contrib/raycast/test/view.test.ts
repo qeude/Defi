@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import { parseWindows, parseWorkspaces } from "../src/parse.ts";
+import { stripColumns, stripMarkdown } from "../src/strip.ts";
+import { suggestions } from "../src/suggest.ts";
+
+const fixture = (name: string) => readFileSync(new URL(`fixtures/${name}`, import.meta.url), "utf8");
+const windows = parseWindows(fixture("list-windows.json"));
+const workspaces = parseWorkspaces(fixture("list-workspaces.json"));
+
+test("strip columns follow column and row, skipping floating windows", () => {
+  const stacked = [
+    { id: 1, appName: "A", title: "", focused: false, workspace: { id: "w", position: 1 }, column: 2, row: 2 },
+    { id: 2, appName: "B", title: "", focused: false, workspace: { id: "w", position: 1 }, column: 2, row: 1 },
+    { id: 3, appName: "C", title: "", focused: false, workspace: { id: "w", position: 1 }, column: 1, row: 1 },
+    { id: 4, appName: "D", title: "", focused: false, workspace: { id: "w", position: 1 } },
+  ];
+  assert.deepEqual(
+    stripColumns(stacked, "w").map((column) => column.map((window) => window.id)),
+    [[3], [2, 1]],
+  );
+  const markdown = stripMarkdown(stacked, "w", 1, false);
+  assert.match(markdown, /^!\[Strip\]\(data:image\/svg\+xml;base64,/);
+  assert.match(markdown, /1 C · \*\*2 B \+ A\*\*/);
+  assert.match(markdown, /Floating: D/);
+});
+
+test("the strip of a real workspace highlights the chosen window", () => {
+  const svg = Buffer.from(stripMarkdown(windows, "dev", 2613, true).match(/base64,([^)]+)/)![1], "base64").toString();
+  assert.equal(svg.match(/<rect/g)?.length, 4);
+  assert.equal(svg.match(/#0A84FF/g)?.length, 1);
+  assert.equal(stripMarkdown(windows, "tools", undefined, true), "_No windows._");
+});
+
+test("search text becomes a command argument", () => {
+  const titles = (query: string) => suggestions(query, workspaces).map((s) => [s.title, s.args.join(" ")]);
+  assert.deepEqual(titles("60"), [["Set Column Width to 60%", "set-column-width 60%"]]);
+  assert.deepEqual(titles("3"), [["Go to Workspace 3", "focus-workspace-position 3"]]);
+  assert.deepEqual(titles("7"), [
+    ["Go to Workspace 7", "focus-workspace-position 7"],
+    ["Set Column Width to 7%", "set-column-width 7%"],
+  ]);
+  assert.deepEqual(titles("+10"), [["Widen Column by 10%", "set-column-width +10%"]]);
+  assert.deepEqual(titles("-40pt"), [["Narrow Column by 40 pt", "set-column-width -40"]]);
+  assert.deepEqual(titles("960"), [["Set Column Width to 960 pt", "set-column-width 960"]]);
+  assert.deepEqual(titles("We"), [
+    ["Go to web", "--monitor 1 workspace web"],
+    ["Move Column to web", "move-column-to-workspace-name web"],
+    ["Move Window to web", "move-window-to-workspace-name web"],
+  ]);
+  assert.deepEqual(titles("zzz"), []);
+  assert.deepEqual(titles("  "), []);
+});

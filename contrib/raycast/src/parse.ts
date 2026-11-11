@@ -5,6 +5,9 @@ export type DefiWindow = {
   title: string;
   workspace?: { id: string; name?: string; position: number };
   display?: number;
+  // 1-based place in the strip; absent for floating windows.
+  column?: number;
+  row?: number;
   focused: boolean;
 };
 
@@ -41,6 +44,8 @@ export function parseWindows(text: string): DefiWindow[] {
       title: String(window.title ?? ""),
       workspace: window.workspace,
       display: window.display,
+      column: window.column,
+      row: window.row,
       focused: window.focused === true,
     }));
 }

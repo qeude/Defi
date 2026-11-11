@@ -1,5 +1,9 @@
 import { Action, ActionPanel, Icon, List } from "@raycast/api";
-import { runAndClose } from "./defi";
+import { useFrecencySorting, usePromise } from "@raycast/utils";
+import { useState } from "react";
+import { defi, runAndClose } from "./defi";
+import { parseWorkspaces } from "./parse";
+import { suggestions } from "./suggest";
 
 // Argument-free forms of the commands in CONFIGURATION.md, "Commands".
 const sections: [string, string[]][] = [
@@ -88,27 +92,63 @@ const sections: [string, string[]][] = [
 const title = (command: string) =>
   command.replace(/(^|[- ])(\w)/g, (_, gap, letter) => (gap && " ") + letter.toUpperCase());
 
+const commands = sections.flatMap(([section, list]) => list.map((command) => ({ id: command, section })));
+
 export default function Command() {
+  const [searchText, setSearchText] = useState("");
+  const workspaces = usePromise(async () => parseWorkspaces(await defi("list-workspaces", "--json")));
+  const { data: sorted, visitItem } = useFrecencySorting(commands);
+
   return (
-    <List searchBarPlaceholder="Search Defi commands">
-      {sections.map(([section, commands]) => (
-        <List.Section key={section} title={section}>
-          {commands.map((command) => (
-            <List.Item
-              key={command}
-              icon={Icon.Terminal}
-              title={title(command)}
-              subtitle={command}
-              keywords={[command]}
-              actions={
-                <ActionPanel>
-                  <Action title="Run Command" icon={Icon.Play} onAction={() => runAndClose(command.split(" "))} />
-                </ActionPanel>
-              }
-            />
-          ))}
-        </List.Section>
-      ))}
+    <List
+      filtering
+      onSearchTextChange={setSearchText}
+      searchBarPlaceholder="Search commands, or type 60, +10, or a workspace"
+    >
+      <List.Section title="Suggestions">
+        {suggestions(searchText, workspaces.data ?? []).map((suggestion) => (
+          <List.Item
+            key={suggestion.args.join(" ")}
+            icon={Icon.Wand}
+            title={suggestion.title}
+            subtitle={suggestion.args.join(" ")}
+            keywords={[searchText]}
+            actions={
+              <ActionPanel>
+                <Action
+                  title="Run Command"
+                  icon={Icon.Play}
+                  onAction={() => runAndClose([suggestion.args], suggestion.hud)}
+                />
+              </ActionPanel>
+            }
+          />
+        ))}
+      </List.Section>
+      <List.Section title="Commands">
+        {sorted.map((item) => (
+          <List.Item
+            key={item.id}
+            icon={Icon.Terminal}
+            title={title(item.id)}
+            subtitle={item.id}
+            keywords={[item.id]}
+            accessories={[{ text: item.section }]}
+            actions={
+              <ActionPanel>
+                <Action
+                  title="Run Command"
+                  icon={Icon.Play}
+                  onAction={async () => {
+                    await visitItem(item);
+                    await runAndClose([item.id.split(" ")]);
+                  }}
+                />
+              </ActionPanel>
+            }
+          />
+        ))}
+      </List.Section>
     </List>
   );
 }

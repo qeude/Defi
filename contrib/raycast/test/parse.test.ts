@@ -15,6 +15,8 @@ test("parses list-windows --json in the order received", () => {
     title: "Window 2",
     workspace: { id: "dev", name: "dev", position: 1 },
     display: 1,
+    column: 2,
+    row: 1,
     focused: true,
   });
 });
@@ -43,7 +45,17 @@ test("ignores unknown fields and malformed entries", () => {
     }),
   );
   assert.deepEqual(windows, [
-    { id: 7, appID: undefined, appName: "A", title: "T", workspace: undefined, display: undefined, focused: false },
+    {
+      id: 7,
+      appID: undefined,
+      appName: "A",
+      title: "T",
+      workspace: undefined,
+      display: undefined,
+      column: undefined,
+      row: undefined,
+      focused: false,
+    },
   ]);
 });
 

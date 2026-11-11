@@ -1,11 +1,12 @@
-import { closeMainWindow, getPreferenceValues } from "@raycast/api";
+import { closeMainWindow, getPreferenceValues, showHUD } from "@raycast/api";
 import { showFailureToast } from "@raycast/utils";
 import { execFile } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 const bundledCLI = "Defi.app/Contents/MacOS/defi";
+export const notRunning = "Defi is not running.";
 
 function isExecutable(path: string): boolean {
   try {
@@ -28,22 +29,33 @@ function defiPath(): string {
   return found;
 }
 
+// The app bundle around the CLI, when the CLI sits in one.
+export function defiAppPath(): string | undefined {
+  try {
+    const app = dirname(dirname(dirname(defiPath())));
+    return app.endsWith(".app") ? app : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function defi(...args: string[]): Promise<string> {
   const path = defiPath();
   return new Promise((resolve, reject) => {
     execFile(path, args, { timeout: 5000 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
       const message = stderr.trim() || error.message;
-      reject(new Error(message.includes("connect failed") ? "Defi is not running. Open Defi and try again." : message));
+      reject(new Error(message.includes("connect failed") ? notRunning : message));
     });
   });
 }
 
 // Close Raycast first so the command acts on the window that was focused before it.
-export async function runAndClose(...commands: string[][]): Promise<void> {
+export async function runAndClose(commands: string[][], hud?: string): Promise<void> {
   await closeMainWindow({ clearRootSearch: true });
   try {
     for (const args of commands) await defi(...args);
+    if (hud) await showHUD(hud);
   } catch (error) {
     await showFailureToast(error, { title: "Defi command failed" });
   }
