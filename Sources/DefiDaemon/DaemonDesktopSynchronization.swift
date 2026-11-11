@@ -380,6 +380,7 @@ extension Daemon {
       frontmostProcessID: snapshot.frontmostProcessID,
       displays: latestMonitors.map { ($0.id, $0.name) },
       appliesOpenFocus: hasSynchronizedDesktop,
+      now: snapshotCompletedAt,
       state: &state
     )
     var forcedOpeningFocusWindowID: WindowID?

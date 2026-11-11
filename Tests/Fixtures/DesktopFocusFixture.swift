@@ -18,7 +18,13 @@ private final class DesktopFocusFixtureDelegate: NSObject, NSApplicationDelegate
       styleMask: [.titled, .closable, .miniaturizable, .resizable],
       backing: .buffered, defer: false
     )
-    window.title = CommandLine.arguments[1]
+    // `late` opens untitled and sets the title afterwards, as some apps do.
+    let title = CommandLine.arguments[1]
+    if CommandLine.arguments.dropFirst(2).first == "late" {
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { window.title = title }
+    } else {
+      window.title = title
+    }
     window.isReleasedWhenClosed = false
     window.level = .normal
     window.hidesOnDeactivate = false
@@ -50,7 +56,7 @@ private final class DesktopFocusFixtureDelegate: NSObject, NSApplicationDelegate
 @main
 private struct DesktopFocusFixture {
   @MainActor static func main() {
-    guard CommandLine.arguments.count == 2 else { exit(2) }
+    guard (2...3).contains(CommandLine.arguments.count) else { exit(2) }
     let application = NSApplication.shared
     let delegate = DesktopFocusFixtureDelegate()
     application.setActivationPolicy(.regular)

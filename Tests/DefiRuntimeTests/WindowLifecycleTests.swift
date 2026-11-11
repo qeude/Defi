@@ -34,6 +34,64 @@ struct WindowLifecycleTests {
     #expect(state.monitors[0].workspaces[1].columns[0].windows == [window.id])
   }
 
+  private func lateTitleFixture() -> (Config, RuntimeState, (String) -> Window) {
+    let config = Config(
+      workspaces: WorkspacesConfig(names: ["dev", "web"]),
+      rules: [Rule(title: "Inspector", workspace: "web", window: .forceFloating)]
+    )
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    reconcileWindows([], config: config, appliesOpenFocus: false, state: &state)
+    let window = { (title: String) in
+      Window(
+        id: WindowID(rawValue: 1), appID: "browser", title: title,
+        frame: Rect(x: 0, y: 0, width: 600, height: 800), processID: 7, monitorID: self.monitorID
+      )
+    }
+    return (config, state, window)
+  }
+
+  @Test
+  func `A title set right after opening applies its rules`() throws {
+    var (config, state, window) = lateTitleFixture()
+    reconcileWindows([window("")], config: config, frontmostProcessID: 7, state: &state)
+    #expect(state.location(containing: window("").id)?.workspaceID == WorkspaceID(rawValue: "dev"))
+
+    reconcileWindows([window("Web Inspector")], config: config, frontmostProcessID: 7, state: &state)
+
+    let web = WorkspaceID(rawValue: "web")
+    #expect(state.location(containing: window("").id)?.workspaceID == web)
+    #expect(state.windows[window("").id]?.floating == true)
+    #expect(state.monitors[0].activeWorkspace == web)
+  }
+
+  @Test(arguments: [
+    // Too late: the title arrives after the grace.
+    (lateTitleRuleGrace + 0.1, false, false),
+    // The user floated the window before its title arrived.
+    (0.1, true, false),
+    (0.1, false, true),
+  ])
+  func `A late title never overrides the user or a window in use`(
+    titleAt: Double, userToggledFloating: Bool, titleChangedTwice: Bool
+  ) throws {
+    var (config, state, window) = lateTitleFixture()
+    reconcileWindows([window("")], config: config, frontmostProcessID: 7, now: 10, state: &state)
+    if userToggledFloating {
+      try reduce(.toggleFloating, on: monitorID, state: &state)
+    }
+    if titleChangedTwice {
+      // A first title that matches nothing uses up the one re-evaluation.
+      reconcileWindows([window("New Tab")], config: config, now: 10.05, state: &state)
+    }
+    let floating = state.windows[window("").id]?.floating
+
+    reconcileWindows([window("Web Inspector")], config: config, now: 10 + titleAt, state: &state)
+
+    #expect(state.location(containing: window("").id)?.workspaceID == WorkspaceID(rawValue: "dev"))
+    #expect(state.windows[window("").id]?.floating == floating)
+  }
+
   @Test
   func `Rule monitor and open focus place a new window`() throws {
     let second = MonitorID(rawValue: 2)
