@@ -315,6 +315,10 @@ public final class HotKeyManager {
     context?.setCheatsheetVisible(visible)
   }
 
+  public func setRecentWindowsOpen(_ open: Bool) {
+    context?.setRecentWindowsOpen(open)
+  }
+
   public func stop() {
     registration?.stop()
     registration = nil
@@ -367,6 +371,10 @@ final class InputMonitor: @unchecked Sendable {
   private var capturedModifierReleaseState = CapturedHotKeyModifierReleaseState()
   private var overviewModeEnabled = false
   private var cheatsheetVisible = false
+  /// Escape cancels the recent windows switcher while it is open.
+  private var recentWindowsOpen = false
+  /// Modifiers that keep a switcher opened by a shortcut open; tap thread only.
+  private var recentWindowsHoldBits: UInt64?
   private let cheatsheetModifierBits: UInt64?
   private let deliverCheatsheet: @Sendable (CheatsheetInput) -> Void
   /// Nil when scroll gestures are off; the recognizer lives on the tap thread.
@@ -538,6 +546,11 @@ final class InputMonitor: @unchecked Sendable {
       pointerMotionTracker.invalidate(at: timestamp)
       for tap in taps { CGEvent.tapEnable(tap: tap.port, enable: true) }
       deliverCheatsheet(.dismiss)
+      // The release that would confirm may have been missed: nothing changes.
+      if recentWindowsHoldBits != nil {
+        recentWindowsHoldBits = nil
+        deliver(HotKeyInvocation(command: "recent-windows cancel", timestamp: timestamp))
+      }
       tapReenabled(timestamp)
       return Unmanaged.passUnretained(event)
     }
@@ -566,6 +579,11 @@ final class InputMonitor: @unchecked Sendable {
     if isKeyDown || type == .flagsChanged {
       let bits = hotKeyModifierBits(event.flags)
       lock.withLock { announcedModifierBits = bits }
+      // Like Command-Tab: releasing the shortcut's modifier confirms the selection.
+      if type == .flagsChanged, let held = recentWindowsHoldBits, bits & held != held {
+        recentWindowsHoldBits = nil
+        deliver(HotKeyInvocation(command: "recent-windows confirm", timestamp: timestamp))
+      }
     }
     let eventTargetPID = pid_t(exactly: event.getIntegerValueField(.eventTargetUnixProcessID))
     let isDefiTextInput = hotKeyTargetIsCurrentApplication(
@@ -643,6 +661,10 @@ final class InputMonitor: @unchecked Sendable {
     captured += 1
     lock.unlock()
     capturedModifierReleaseState.capture(modifierBits: key.modifierBits)
+    if recentWindowsHoldBits == nil, case .recentWindows(let action) = try? parseCommand(command),
+      action == .next || action == .previous {
+      recentWindowsHoldBits = recentWindowsHoldModifiers(key.modifierBits)
+    }
     userInputTracker.recordCapturedCommand(at: timestamp)
     deliver(HotKeyInvocation(
       command: command,
@@ -724,6 +746,13 @@ final class InputMonitor: @unchecked Sendable {
     let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
     let key = Key(code: code, flags: event.flags.rawValue)
     let (overview, cheatsheet, bindings) = lock.withLock { (overviewModeEnabled, cheatsheetVisible, self.bindings) }
+    if code == 53, lock.withLock({ recentWindowsOpen }) {
+      recentWindowsHoldBits = nil
+      capturedModifierReleaseState.reset()
+      recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
+      deliver(HotKeyInvocation(command: "recent-windows cancel", timestamp: Double(event.timestamp) / 1_000_000_000))
+      return nil
+    }
     if cheatsheet && code == 53 {
       capturedModifierReleaseState.reset()
       recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
@@ -813,6 +842,10 @@ final class InputMonitor: @unchecked Sendable {
     lock.unlock()
   }
 
+  func setRecentWindowsOpen(_ open: Bool) {
+    lock.withLock { recentWindowsOpen = open }
+  }
+
   func setOverviewModeEnabled(_ enabled: Bool) {
     lock.lock()
     overviewModeEnabled = enabled
@@ -891,4 +924,12 @@ final class InputMonitor: @unchecked Sendable {
       CFRunLoopWakeUp(runLoop)
     } else { cleanup() }
   }
+}
+
+/// The modifiers whose release confirms a switcher opened with them: Shift only steps
+/// backward. Nil without a modifier: such a switcher stays open until confirmed.
+func recentWindowsHoldModifiers(_ modifierBits: UInt64) -> UInt64? {
+  let held = modifierBits & ~CGEventFlags.maskShift.rawValue
+  if held != 0 { return held }
+  return modifierBits == 0 ? nil : modifierBits
 }

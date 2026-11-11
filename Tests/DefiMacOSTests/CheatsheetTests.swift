@@ -73,6 +73,7 @@ struct CheatsheetHotKeyTests {
       ShortcutGroup(title: "Workspaces", rows: [
         moved("I", "Workspace up", "Move column to workspace up"),
         moved("U", "Workspace down", "Move column to workspace down"),
+        row("⇥", "Recent windows", "Recent windows, backward"),
         moved("1–9", "Workspace 1–9", "Move column to workspace 1–9"), row("O", "Overview"),
         row("I", "Reorder workspace up", modifiers: shift),
         row("U", "Reorder workspace down", modifiers: shift),

@@ -169,6 +169,7 @@ extension Daemon {
     cancelPendingCommandFrameRead()
 
     handleCheatsheetInput(.dismiss)
+    closeRecentWindows()
     DispatchQueue.main.async { [self] in cheatsheetController = nil }
     if hotKeyConfigurationChanged(from: previousConfig, to: nextConfig) {
       hotKeys?.stop()

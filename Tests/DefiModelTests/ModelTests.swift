@@ -22,6 +22,10 @@ struct ModelTests {
     ("focus-workspace-position 4", Command.focusWorkspace(.position(4))),
     ("focus-workspace-previous", Command.focusWorkspace(.lastActive)),
     ("focus-window-previous", Command.focusWindowPrevious),
+    ("recent-windows next", Command.recentWindows(.next)),
+    ("recent-windows prev", Command.recentWindows(.previous)),
+    ("recent-windows confirm", Command.recentWindows(.confirm)),
+    ("recent-windows cancel", Command.recentWindows(.cancel)),
     (
       "move-column-to-workspace up",
       Command.moveColumnToWorkspace(.relative(.up), follow: true)
@@ -75,6 +79,7 @@ struct ModelTests {
     ("swap-window up", .invalidDirection("up")),
     ("move-column-to-monitor next", .invalidDirection("next")),
     ("focus-window-or-workspace next", .invalidDirection("next")),
+    ("recent-windows left", .invalidDirection("left")),
     ("focus-column-or-monitor up", .invalidDirection("up")),
     ("move-column-or-to-monitor first", .invalidDirection("first")),
     ("focus-window-or-workspace", .missingArgument("direction")),

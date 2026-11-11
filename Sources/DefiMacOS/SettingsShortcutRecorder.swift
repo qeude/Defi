@@ -15,7 +15,7 @@ func recordedAccelerator(
   if let layout {
     let character = layout.baseCharacter(code: keyCode, command: modifiers.contains(.command))
       .map(canonicalKeyName)
-    let pinned = physical.map { Int($0) != nil || keyCode >= firstNavigationKeyCode } ?? false
+    let pinned = physical.map { Int($0) != nil || acceleratorKeyKeepsName(keyCode) } ?? false
     names = pinned ? names : [character].compactMap { $0 } + names
   }
   var parts: [String] = []

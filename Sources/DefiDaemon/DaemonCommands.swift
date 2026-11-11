@@ -184,12 +184,16 @@ func workspaceTargetID(
   }
 }
 
-/// `focus-window-previous` switches workspaces only when the window's workspace is inactive;
+/// Focusing a given window switches workspaces only when the window's workspace is inactive;
 /// otherwise it scrolls like any focus command.
 func commandActivatesWorkspace(_ command: Command, state: RuntimeState) -> Bool {
-  guard command == .focusWindowPrevious else { return command.activatesWorkspace }
-  guard let location = state.previousFocusedWindowTarget.flatMap({ state.location(containing: $0) })
-  else { return false }
+  let target: WindowID?
+  switch command {
+  case .focusWindowPrevious: target = state.previousFocusedWindowTarget
+  case .focusWindowID(let windowID): target = windowID
+  default: return command.activatesWorkspace
+  }
+  guard let location = target.flatMap({ state.location(containing: $0) }) else { return false }
   return state.monitors.contains { $0.id == location.monitorID && $0.activeWorkspace != location.workspaceID }
 }
 
@@ -415,6 +419,11 @@ extension Daemon {
         return .success()
       }
       handleCheatsheetInput(.dismiss)
+      if case .recentWindows(let action) = parsedCommand {
+        return handleRecentWindows(action)
+      }
+      // Any other command ends the switcher without choosing a window.
+      closeRecentWindows()
       if parsedCommand == .toggleOverview {
         return toggleOverview()
       }

@@ -471,7 +471,7 @@ The key is one of these names, or any other single character, such as
 | Letters | `a` to `z` |
 | Digits | `0` to `9` |
 | Arrows | `left`, `right`, `up`, `down` |
-| Navigation | `home`, `end`, `pageup`, `pagedown` (Fn with an arrow on keyboards without them) |
+| Navigation | `tab`, `home`, `end`, `pageup`, `pagedown` (Fn with an arrow on keyboards without them) |
 | Punctuation | `minus`, `equal`, `leftbracket`, `rightbracket`, `semicolon`, `quote`, `backslash`, `comma`, `period`, `slash` |
 
 ### Keyboard layouts
@@ -480,7 +480,7 @@ Shortcuts follow your keyboard layout and update when it changes:
 
 | Key | Where it lands |
 | --- | --- |
-| Digits, arrows, and navigation keys | Always the same physical key. `ctrl-alt-1` stays on the number row on AZERTY. |
+| Digits, arrows, Tab, and navigation keys | Always the same physical key. `ctrl-alt-1` stays on the number row on AZERTY. |
 | Letters | The key printing that letter, such as `ctrl-alt-f` on Dvorak. A layout without the letter keeps the US position. |
 | Punctuation | The key printing the character, adding Shift or Option when it needs them: `ctrl-alt-period` is `⌃⌥⇧;` on French. |
 | Other characters | The key printing the character. If the layout lacks it, only that shortcut is inactive. |
@@ -549,6 +549,8 @@ declared in `[workspaces].names`; rules cannot target dynamic positions.
 | `focus-window first\|last` | Focus the first or last window in the stack. | unset |
 | `focus-window-or-workspace up\|down` | Like `focus-window`, but past the top or bottom of the stack, focus the adjacent workspace. | unset |
 | `focus-window-previous` | Go back to the window focused before this one, on any workspace or monitor. | unset |
+| `recent-windows next\|previous` | Open the recent windows switcher, or move its selection forward or backward, wrapping. | `mod-tab` / `mod-shift-tab` |
+| `recent-windows confirm\|cancel` | Focus the selected window and close the switcher, or close it without changing anything. | unset |
 | `focus-floating previous\|next` | Focus the previous or next floating window, wrapping. | `mod-shift-comma` / `mod-shift-period` |
 | `focus-floating first\|last` | Focus the first or last floating window. | unset |
 | `activate-floating` | Select the floating layer and bring its selected window forward. | `mod-shift-v` |
@@ -634,8 +636,28 @@ current one and activates its workspace; press it again to go back. Any
 committed focus change counts, including a click, the Dock, Command-Tab, and the
 Overview; windows passed over during rapid navigation do not. If the current
 window closes, the entry stays on the last window still open. Nothing happens
-when the previous window has closed or left Defi's management. Both entries
-survive daemon restarts in the same macOS session.
+when the previous window has closed or left Defi's management; an older window
+still open is chosen instead. The history survives daemon restarts in the same
+macOS session.
+
+**Recent windows.** `mod-tab` works like Command-Tab, but per window and across
+every workspace and monitor. While `mod` stays held, each Tab moves forward
+through the windows by latest focus, followed by windows never focused, and
+`mod-shift-tab` moves back. Releasing `mod` focuses the selected window and
+activates its workspace, like `focus-window-id`; Escape closes the switcher
+without changing anything. The switcher appears after 150 ms, without animation,
+on the active monitor, so a brief `mod-tab` goes back to the previous window
+like `focus-window-previous` without showing anything. Moving through the list
+does not focus the windows or change the history.
+
+Cards show the window picture the animations and the Overview keep, or the app
+icon when there is none, when Screen Recording is missing, or with
+`[overview].window_previews = false`. A window that closes leaves the list, and
+the selection moves to the next one. Holding `mod` with the switcher open never
+opens the cheat sheet. Any other command, the Overview, a display change, or
+locking the screen closes the switcher without choosing. While the Overview is
+open, `recent-windows next` and `previous` fail. From the CLI, `recent-windows
+next` opens the switcher until `recent-windows confirm` or `cancel`.
 
 `focus-window-or-workspace` gives the new workspace its remembered selection. It
 also switches workspace with no tiled window selected, stops at the first
@@ -1237,6 +1259,8 @@ names = []
 "mod-shift-comma" = "focus-floating previous"
 "mod-shift-period" = "focus-floating next"
 "mod-o" = "toggle-overview"
+"mod-tab" = "recent-windows next"
+"mod-shift-tab" = "recent-windows previous"
 "mod-shift-slash" = "toggle-cheatsheet"
 
 # No rules by default.

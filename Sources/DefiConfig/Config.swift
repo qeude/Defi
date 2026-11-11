@@ -401,6 +401,8 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-shift-comma": "focus-floating previous",
       "\(modifier)-shift-period": "focus-floating next",
       "\(modifier)-o": "toggle-overview",
+      "\(modifier)-tab": "recent-windows next",
+      "\(modifier)-shift-tab": "recent-windows previous",
       "\(modifier)-shift-slash": "toggle-cheatsheet",
     ]
     let directions = [

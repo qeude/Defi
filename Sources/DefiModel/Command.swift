@@ -28,6 +28,14 @@ public enum WindowHeightChange: Equatable, Codable, Sendable {
   case points(Double)
 }
 
+/// A step of the recent windows switcher, which focuses nothing until confirmed.
+public enum RecentWindowsAction: String, Equatable, Codable, Sendable {
+  case next
+  case previous
+  case confirm
+  case cancel
+}
+
 public enum Command: Equatable, Codable, Sendable {
   case focusColumn(Direction)
   case focusColumnOrMonitor(Direction)
@@ -41,6 +49,7 @@ public enum Command: Equatable, Codable, Sendable {
   case focusWindowOrWorkspace(Direction)
   case focusWindowPrevious
   case focusWindowID(WindowID)
+  case recentWindows(RecentWindowsAction)
   case moveWindowToWorkspace(WorkspaceID)
   case sendWindowToWorkspace(WorkspaceID)
   case switchWorkspace(WorkspaceID)

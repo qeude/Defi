@@ -61,6 +61,12 @@ public func parseCommand(_ input: String) throws -> Command {
     let value = try argument("window-id")
     guard let rawValue = UInt64(value) else { throw CommandParseError.invalidWindowID(value) }
     return .focusWindowID(WindowID(rawValue: rawValue))
+  case "recent-windows":
+    let value = try argument("action")
+    guard let action = RecentWindowsAction(rawValue: value == "prev" ? "previous" : value) else {
+      throw CommandParseError.invalidDirection(value)
+    }
+    return .recentWindows(action)
   case "focus-window-or-workspace":
     return .focusWindowOrWorkspace(try parseVerticalDirection(argument("direction")))
   case "move-window-to-workspace":

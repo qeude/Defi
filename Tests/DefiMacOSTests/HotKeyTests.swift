@@ -433,6 +433,48 @@ struct HotKeyTests {
   }
 
   @Test
+  func `Releasing the switcher modifier confirms, Shift does not, Escape cancels`() throws {
+    let next = try Key(accelerator: "alt-tab", aliases: aliases)
+    let previous = try Key(accelerator: "alt-shift-tab", aliases: aliases)
+    let (context, invocations) = makeContext(
+      bindings: [next: "recent-windows next", previous: "recent-windows previous"])
+    func press(_ key: Key) throws {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: key.code, keyDown: true))
+      event.flags = CGEventFlags(rawValue: key.modifierBits)
+      _ = context.handle(type: .keyDown, event: event)
+    }
+    func flags(_ flags: CGEventFlags) throws {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 58, keyDown: true))
+      event.type = .flagsChanged
+      event.flags = flags
+      _ = context.handle(type: .flagsChanged, event: event)
+    }
+
+    try press(next)
+    try flags([])
+    try press(next)
+    try press(next)
+    try flags([.maskAlternate, .maskShift])
+    try press(previous)
+    try flags([.maskAlternate])
+    try flags([])
+    #expect(invocations.commands == [
+      "recent-windows next", "recent-windows confirm",
+      "recent-windows next", "recent-windows next", "recent-windows previous", "recent-windows confirm",
+    ])
+
+    // Escape is taken only while the daemon shows the switcher open.
+    let escape = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: true))
+    escape.flags = [.maskAlternate]
+    #expect(context.intercept(type: .keyDown, event: escape) != nil)
+    try press(next)
+    context.setRecentWindowsOpen(true)
+    #expect(context.intercept(type: .keyDown, event: escape) == nil)
+    try flags([])
+    #expect(invocations.commands.suffix(2) == ["recent-windows next", "recent-windows cancel"])
+  }
+
+  @Test
   func scrollWheelRecordsUserInput() throws {
     let tracker = UserInputTracker()
     let context = InputMonitor(

@@ -401,6 +401,7 @@ extension Daemon {
   private func finishShutdown() async {
     await accessibilityPermissionMonitor.stop()
     handleCheatsheetInput(.dismiss)
+    closeRecentWindows()
     configReloadTask?.cancel()
     await configWatcher?.stop()
     timer?.cancel()

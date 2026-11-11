@@ -84,7 +84,7 @@ then asks for Screen Recording.
 | Permission | Used to | Without it |
 | --- | --- | --- |
 | **Accessibility** (required) | Focus and arrange windows | Defi cannot manage windows |
-| **Screen Recording** | Animate window pictures and show Overview previews | Windows move at once; Overview cards have no pictures |
+| **Screen Recording** | Animate window pictures and show Overview and recent windows previews | Windows move at once; Overview and recent windows cards have no pictures |
 
 Window pictures stay in memory and never leave your Mac. To start Defi with
 macOS, turn on **Launch Defi at login** in Settings › General.
