@@ -39,4 +39,5 @@ previews remain visible. Reverse animation is limited to unchanged native
 geometry and Overview offsets.
 
 The same captures feed the [ribbon overlay](./ribbon-motion.md) outside the
-Overview.
+Overview, and `defi window-preview`, which only reads the store: it never starts
+a capture, so a launcher showing pictures needs no permission of its own.

@@ -64,6 +64,24 @@ final class DeferredCommandReply: @unchecked Sendable {
   }
 }
 
+/// `window-preview <window-id>`: the window's latest picture as a JPEG data URI, or nil for
+/// any other command.
+func windowPreviewResponse(
+  _ command: String,
+  preview: (WindowID) -> Result<String, WindowPreviewError> = { windowPreviewDataURI($0) }
+) -> CommandResponse? {
+  let parts = command.split(separator: " ")
+  guard parts.first == "window-preview" else { return nil }
+  guard parts.count == 2, let rawID = UInt64(parts[1]) else {
+    return .failure("usage: window-preview <window-id>")
+  }
+  switch preview(WindowID(rawValue: rawID)) {
+  case .success(let uri): return .success(uri)
+  case .failure(.notAuthorized): return .failure("Defi needs Screen Recording to show window pictures.")
+  case .failure(.noPicture): return .failure("Defi has no picture of window \(rawID) yet.")
+  }
+}
+
 private func ipcEventHandler(
   server: UnixSocketServer,
   clientQueue: DispatchQueue,
@@ -77,6 +95,8 @@ private func ipcEventHandler(
         let handled = try server.poll(
           on: clientQueue,
           handler: { request in
+            // Pictures come from the thread-safe capture store, so they never wait on navigation.
+            if let preview = windowPreviewResponse(request.command) { return preview }
             if DaemonReadResponseCache.isReadCommand(request.command),
               let cached = readResponseCache.response(
                 for: request.command,

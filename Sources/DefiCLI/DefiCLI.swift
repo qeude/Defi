@@ -57,6 +57,7 @@ struct Options {
       defi list-workspaces --json
       defi list-windows --json
       defi focus-window-id 1234
+      defi window-preview 1234
       defi subscribe --json
       defi --monitor 1 set-reserved-area top 36
       defi status

@@ -1081,14 +1081,16 @@ CLI-only:
 | `list-workspaces` | Print workspace labels per display. Add `--json` for versioned identity, position, name, icon, kind, and app state. `icon` is the configured SF Symbol name, absent when none is set. |
 | `list-windows` | Print one managed window per line: ID, app name, and title. Add `--json` for bundle ID, workspace, display, column, row, floating, and focus. |
 | `focus-window-id <id>` | Focus a window by its `list-windows` ID, switching its display to its workspace. |
+| `window-preview <id>` | Print Defi's latest picture of a window as a JPEG data URI, at most 800 pixels long. Needs Screen Recording; fails while Defi holds no picture of that window. |
 | `subscribe --json` | Keep the connection open and print one JSON event per line. See [Event stream](#event-stream). |
 | `--monitor <index> <command>` | Run a command on a display, by its 1-based `NSScreen.screens` / SketchyBar index. |
 | `set-reserved-area top\|bottom <points>` | Override the reserved edge on every display, or on one with `--monitor`. |
 | `clear-reserved-area` | Restore the configured reserved edges. |
 | `triage [--agent claude\|codex]` | Write machine facts and a support playbook to `~/Library/Application Support/Defi/triage/`, then start `claude` or `codex` to investigate a problem and draft an issue. Never sent to the daemon. |
 
-`list-windows` and the event stream include window titles. They are served only
-over the per-user Unix socket and never written to diagnostics files. See the
+`list-windows` and the event stream include window titles, and `window-preview`
+window pictures. They are served only over the per-user Unix socket and never
+written to diagnostics files. See the
 [SketchyBar integration](contrib/sketchybar/README.md) for example scripts.
 
 ### Event stream
