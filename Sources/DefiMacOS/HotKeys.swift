@@ -706,7 +706,8 @@ final class InputMonitor: @unchecked Sendable {
       focusIntent: focusIntent,
       closeIntent: closeIntent,
       // Caps Lock can switch input sources, which shows the input mode marker.
-      typing: (isKeyDown && !commandPressed) || (type == .flagsChanged && code == 57)
+      typing: (isKeyDown && !commandPressed) || (type == .flagsChanged && code == 57),
+      press: isKeyDown || eventIsMouseButtonDown(type)
     )
     if closeIntent {
       capturedModifierReleaseState.capture(

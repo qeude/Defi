@@ -301,7 +301,8 @@ final class PlatformEventMonitor {
           ? .mouse(
             windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
           )
-          : nil
+          : nil,
+        press: true
       )
     }
     if event.type == .leftMouseDragged, let start = leftPressLocation, let location = event.cgEvent?.location,

@@ -91,7 +91,11 @@ extension MacOSPlatform {
       // panels are not windows to open in the ribbon, nor are Defi's own surfaces beside
       // its Settings window (SwiftUI names that one only after it is created).
       let createdNumber = kind == .windowCreated ? element.flatMap { self?.windowIDProvider.windowID(for: $0) } : nil
-      if kind == .windowCreated, let processID, let element,
+      // A link's URL bubble or a tooltip shows on hover or scroll: an app's next window
+      // opens on a key or a click, and only that one holds the screen.
+      let unrequested = (previousWindowCount ?? 0) > 0
+        && eventInput.map { ProcessInfo.processInfo.systemUptime - $0.latestPress > 1.5 } == true
+      if kind == .windowCreated, let processID, let element, !unrequested,
         NSRunningApplication(processIdentifier: processID)?.activationPolicy == .regular,
         processID != ProcessInfo.processInfo.processIdentifier || isStandardWindow(element),
         !windowOpenedBefore(createdNumber) {
