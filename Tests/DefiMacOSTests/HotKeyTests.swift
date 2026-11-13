@@ -186,8 +186,13 @@ struct OverviewHotKeyTests {
     }
     try press(45, [.maskShift], at: 3)
     try press(45, [.maskCommand], at: 5)
+    // A scroll is input, but no press: a window it shows is not one the user opened.
+    let scroll = try #require(CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: 4, wheel2: 0, wheel3: 0))
+    scroll.timestamp = 6_000_000_000
+    _ = context.handle(type: .scrollWheel, event: scroll)
     #expect(tracker.snapshot.latestTyping == 3)
-    #expect(tracker.snapshot.latestEventTimestamp == 5)
+    #expect(tracker.snapshot.latestPress == 5)
+    #expect(tracker.snapshot.latestEventTimestamp == 6)
   }
 
   @Test(arguments: [false, true])

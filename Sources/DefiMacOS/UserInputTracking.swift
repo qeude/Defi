@@ -31,6 +31,8 @@ public final class UserInputTracker: @unchecked Sendable {
     public let latestCloseIntent: TimeInterval
     /// A key typed without Command: text being entered, not a shortcut.
     public let latestTyping: TimeInterval
+    /// A key or a mouse button pressed: pointer motion and scrolling are left out.
+    public let latestPress: TimeInterval
     public let applicationActivation: ApplicationActivation?
     public var activatedProcessID: pid_t? { applicationActivation?.processID }
   }
@@ -46,6 +48,7 @@ public final class UserInputTracker: @unchecked Sendable {
   private var latestFocusIntent: FocusIntent?
   private var latestCloseIntentTimestamp: TimeInterval = 0
   private var latestTypingTimestamp: TimeInterval = 0
+  private var latestPressTimestamp: TimeInterval = 0
   private var observedFocusIntentTimestamp: TimeInterval = 0
   private var observedFocusTargets: [ObservedFocusTarget] = []
   private var applicationActivation: ApplicationActivation?
@@ -56,7 +59,8 @@ public final class UserInputTracker: @unchecked Sendable {
     timestamp: TimeInterval,
     focusIntent: FocusIntentSource? = nil,
     closeIntent: Bool = false,
-    typing: Bool = false
+    typing: Bool = false,
+    press: Bool = false
   ) {
     lock.lock()
     if timestamp > latestTimestamp && (focusIntent != nil || closeIntent) {
@@ -80,6 +84,9 @@ public final class UserInputTracker: @unchecked Sendable {
     }
     if typing {
       latestTypingTimestamp = max(latestTypingTimestamp, timestamp)
+    }
+    if press {
+      latestPressTimestamp = max(latestPressTimestamp, timestamp)
     }
     lock.unlock()
   }
@@ -308,6 +315,7 @@ public final class UserInputTracker: @unchecked Sendable {
       latestFocusIntent: latestFocusIntent,
       latestCloseIntent: latestCloseIntentTimestamp,
       latestTyping: latestTypingTimestamp,
+      latestPress: latestPressTimestamp,
       applicationActivation: applicationActivation
     )
   }
