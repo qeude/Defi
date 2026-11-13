@@ -41,10 +41,16 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(platform.snapshot(config: Config()).windows.contains { $0.id == tiled })
 
     try activate(fixtures.floatingProcess, focusing: floating, platform)
+    // Defi is a regular, inactive app while its Settings window is open.
+    let policy = NSApplication.shared.activationPolicy()
+    NSApplication.shared.setActivationPolicy(.regular)
     let result = DesktopValue<NativeFocusResult?>(nil)
     onNavigation { platform.focus(tiled, completion: { value in DispatchQueue.main.async { result.value = value } }) }
     XCTAssertTrue(pumpRunLoop(until: { result.value != nil }, timeout: 2))
     XCTAssertEqual(result.value, .completed)
+    XCTAssertTrue(pumpRunLoop(until: { NSWorkspace.shared.frontmostApplication?.processIdentifier == tiledPID },
+      timeout: 2), "A regular, inactive Defi must still activate the focused app")
+    NSApplication.shared.setActivationPolicy(policy)
     XCTAssertNotNil(try XCTUnwrap(platform.internalFocusSuppressions[tiled]).completedAt)
     // Normalized keyboard activation resolves its target through real AX.
     platform.userInputTracker.record(timestamp: ProcessInfo.processInfo.systemUptime, focusIntent: .keyboard)

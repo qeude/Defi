@@ -33,8 +33,12 @@ struct AXFocusOperations: @unchecked Sendable {
       AXUIElementSetAttributeValue(system, kAXFocusedApplicationAttribute as CFString, $0)
     }
   }
-  var activateApplication: (pid_t) -> Bool = {
-    NSRunningApplication(processIdentifier: $0)?.activate() == true
+  var activateApplication: (pid_t) -> Bool = { processID in
+    NSRunningApplication(processIdentifier: processID)?.activate() == true
+      // Cooperative activation refuses activate() while Defi is a regular inactive app, as with Settings open.
+      || AXUIElementSetAttributeValue(
+        AXUIElementCreateApplication(processID), kAXFrontmostAttribute as CFString, kCFBooleanTrue
+      ) == .success
   }
   var withTimeout: (Float, [AXUIElement], () -> Void) -> Void = { timeout, elements, perform in
     AXMessagingTimeoutAccess.shared.withTimeout(timeout, elements: elements, perform: perform)
