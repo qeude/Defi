@@ -348,8 +348,8 @@ Cycling uses the focused window's rules, including in a shared column; other app
 keep the global presets. Reloaded rules affect the next cycle at once, without
 resizing existing windows.
 
-Defi rewrites the earlier `floating` and `force_tiling` rule keys to `window`
-when it loads the configuration.
+`window` replaced the `floating` and `force_tiling` rule keys. A file that
+still sets them fails to load and names the replacement.
 
 </details>
 
@@ -393,9 +393,8 @@ wrote, to the new modifiers. If `mod` already includes Shift or Command, the
 shortcut with fewer added modifiers wins the chord they share. Your own `[keys]`
 entries still win.
 
-`mod` replaced `default_key_modifier` and `[modifier_combinations]`. Defi
-rewrites a file that still uses them on launch: `mod` takes the old default
-modifier, and a shortcut that used another alias spells out its modifiers.
+`mod` replaced `default_key_modifier` and `[modifier_combinations]`. A file
+that still sets them fails to load and names the replacement.
 
 </details>
 
