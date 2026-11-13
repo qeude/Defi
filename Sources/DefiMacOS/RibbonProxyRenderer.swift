@@ -1702,7 +1702,12 @@ let ribbonProxyWindowServerCapture: (@Sendable ([CGWindowID]) -> [CGImage]?)? = 
   let connectionID = unsafeBitCast(connection, to: Connection.self)()
   let capture = unsafeBitCast(symbol, to: Capture.self)
   return ribbonProxyBoundedCapture(deadline: ribbonProxyCaptureDeadline) { windowIDs in
-    var windowIDs = windowIDs
+    // Only windows WindowServer shows: macOS 27 draws an alert through a separate host
+    // window, and capturing the alert's own hidden window blanks it until it redraws.
+    var windowIDs = ribbonProxyWindowDescriptions(windowIDs)
+      .filter { ($0[kCGWindowIsOnscreen as String] as? Bool) == true }
+      .compactMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
+    guard !windowIDs.isEmpty else { return nil }
     // Ignore the global clip shape; bit 15 keeps the parts beyond the display, so a
     // parked window comes whole rather than as its one-point strip.
     // Full backing resolution (no nominal-resolution flag): crisp text on Retina.
