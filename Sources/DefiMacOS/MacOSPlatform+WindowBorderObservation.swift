@@ -6,6 +6,16 @@ import DefiConfig
 import DefiCore
 import DefiModel
 import OSLog
+import Synchronization
+
+/// Chromium's link URL bubble is one window, reported created again each time a hovered
+/// link shows it: holding the screen for it froze the page at every link.
+private let openedWindowNumbers = Mutex<Set<CGWindowID>>([])
+
+private func windowOpenedBefore(_ number: CGWindowID?) -> Bool {
+  guard let number else { return false }
+  return openedWindowNumbers.withLock { !$0.insert(number).inserted }
+}
 
 @MainActor
 extension MacOSPlatform {
@@ -80,9 +90,11 @@ extension MacOSPlatform {
       // instead of macOS drawing it over the others first. Accessory apps' popovers and
       // panels are not windows to open in the ribbon, nor are Defi's own surfaces beside
       // its Settings window (SwiftUI names that one only after it is created).
+      let createdNumber = kind == .windowCreated ? element.flatMap { self?.windowIDProvider.windowID(for: $0) } : nil
       if kind == .windowCreated, let processID, let element,
         NSRunningApplication(processIdentifier: processID)?.activationPolicy == .regular,
-        processID != ProcessInfo.processInfo.processIdentifier || isStandardWindow(element) {
+        processID != ProcessInfo.processInfo.processIdentifier || isStandardWindow(element),
+        !windowOpenedBefore(createdNumber) {
         // Only the latest window's check may release the hold: an earlier one timing out
         // would cut short the hold a later window still waits on.
         let opening = ProcessInfo.processInfo.systemUptime
@@ -102,7 +114,6 @@ extension MacOSPlatform {
         // An app's later dialogs, panels and native tabs open where they are: checked
         // after the hold, off the main thread, since the read waits on the app.
         let created = UncheckedSendable(value: element), checksOwnWindow = (previousWindowCount ?? 0) > 0
-        let createdNumber = self?.windowIDProvider.windowID(for: element)
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
           if typesWithInputMethod {
             if isTextInputAccessory(created.value) { return }
