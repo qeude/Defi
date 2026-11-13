@@ -3,7 +3,12 @@ import TOMLDecoder
 /// Keys whose migration Defi no longer ships, as dotted paths mapped to what replaces them.
 /// A path through an array of tables, such as `rules.floating`, matches any of its entries.
 /// Empty the table at the first stable release. See CONTRIBUTING.md.
-public let removedConfigKeys: [String: String] = [:]
+public let removedConfigKeys: [String: String] = [
+  "default_key_modifier": "set mod instead",
+  "modifier_combinations": "set mod and spell other modifiers out in each shortcut",
+  "rules.floating": "use window = \"force-floating\"",
+  "rules.force_tiling": "use window = \"force-tiled\"",
+]
 
 /// The first removed key the document sets, in path order.
 func firstRemovedKey(in root: TOMLTable, removed: [String: String]) -> (key: String, replacement: String)? {
