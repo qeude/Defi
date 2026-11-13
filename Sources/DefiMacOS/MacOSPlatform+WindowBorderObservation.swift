@@ -95,11 +95,10 @@ extension MacOSPlatform {
       // shortcut: an app slower than 1.5 s to open its window shows macOS's placement; widen per app if seen.
       let unrequested = (previousWindowCount ?? 0) > 0
         && eventInput.map { ProcessInfo.processInfo.systemUptime - $0.latestPress > 1.5 } == true
-      let createdNumber = kind == .windowCreated && !unrequested
-        ? element.flatMap { self?.windowIDProvider.windowID(for: $0) } : nil
       if kind == .windowCreated, let processID, let element, !unrequested,
         NSRunningApplication(processIdentifier: processID)?.activationPolicy == .regular,
         processID != ProcessInfo.processInfo.processIdentifier || isStandardWindow(element),
+        case let createdNumber = self?.windowIDProvider.windowID(for: element),
         !windowOpenedBefore(createdNumber) {
         // Only the latest window's check may release the hold: an earlier one timing out
         // would cut short the hold a later window still waits on.
