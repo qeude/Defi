@@ -865,9 +865,23 @@ final class RibbonProxyPresenter {
     processID: Int32, selectedWindowID: WindowID?, managedWindowIDs: Set<WindowID>,
     borderWindowIDs: Set<WindowID>) {
     // The still windows must look unchanged: a missing picture flashes an icon, a
-    // stand-in a blurred card under it. An old picture still holds: after a pause the
-    // screen rarely changed, and it is recaptured at once and dissolves into the new one,
-    // where refusing showed macOS's own placement instead.
+    // stand-in a blurred card under it. Each is retaken first: an older picture held a
+    // page as it was before a hover or a scroll, at every link's URL bubble.
+    let started = CACurrentMediaTime()
+    if !presenting, drag == .idle, RibbonProxyStore.shared.isAuthorized,
+      let capture = ribbonProxyWindowServerCapture {
+      let pictures = Mutex([Int: WindowPicture]())
+      DispatchQueue.concurrentPerform(iterations: windows.count) { index in
+        guard let number = CGWindowID(exactly: windows[index].id.rawValue),
+          let picture = windowPicture(capture([number]), native: windows[index].to) else { return }
+        pictures.withLock { $0[index] = picture }
+      }
+      for (index, picture) in pictures.withLock({ $0 }) {
+        let window = windows[index]
+        WindowCaptureStore.shared.setPicture(picture, for: RibbonProxyRefresh(id: window.id,
+          appID: window.appID, processID: window.processID, frame: window.to, distance: 0))
+      }
+    }
     let now = CACurrentMediaTime()
     let unsharp = windows.filter { window in
       WindowCaptureStore.shared.picture(window.id).map {
@@ -885,14 +899,8 @@ final class RibbonProxyPresenter {
     guard begin(windows: windows, viewport: viewport, generation: submission, nativeTargets: [:],
       duration: ribbonProxySpringDuration, selectedWindowID: selectedWindowID, holds: true,
       managedWindowIDs: managedWindowIDs, borderWindowIDs: borderWindowIDs) else { return }
-    let aged = windows.filter { window in
-      WindowCaptureStore.shared.picture(window.id).map { now - $0.capturedAt > ribbonProxyPictureFreshness } == true
-    }
-    // A picture older than the last input may show content the user has since scrolled.
     let oldest = windows.compactMap { WindowCaptureStore.shared.picture($0.id).map { now - $0.capturedAt } }.max() ?? 0
-    aged.forEach(ribbonProxyCaptureNow)
-    let input = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
-    ribbonProxyLogger.notice("open-hold pid=\(processID) recaptured=\(aged.count) oldestPicture=\(oldest, format: .fixed(precision: 2))s lastInput=\(input, format: .fixed(precision: 2))s")
+    ribbonProxyLogger.notice("open-hold pid=\(processID) oldestPicture=\(oldest, format: .fixed(precision: 2))s captureMs=\(Int((now - started) * 1_000))")
   }
 
   /// The held window is not one the ribbon opens (a dialog, a native tab): the screen
