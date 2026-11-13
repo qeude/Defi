@@ -512,15 +512,17 @@ final class InputMonitor: @unchecked Sendable {
   ) -> Unmanaged<CGEvent>? {
     if type.rawValue == gestureEventType, let bits = scrollGestureModifierBits, scrollGestureFingers >= 3 {
       let announced = lock.withLock { announcedModifierBits }
-      if let input = ScrollGestureInput(gesture: event, swipe: &fingerSwipe, modifierBits: bits,
-        announcedModifierBits: announced) {
-        // The Trackpad settings may have changed since the last swipe Defi could take.
-        if input.phase == 1, input.modifierHeld {
-          let system = systemTrackpadSwipes(fingers: scrollGestureFingers)
-          scrollGestures.horizontal = !system.horizontal
-          scrollGestures.vertical = !system.vertical
+      // Touches are read on the main thread, the only one AppKit gives them on; the swipe stays on this one.
+      if let event = event.copy() {
+        let runLoop = CFRunLoopGetCurrent()!, main = CFRunLoopGetMain()!
+        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
+          let touches = trackpadTouches(event)
+          CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) {
+            self.swipe(event, touches: touches, modifierBits: bits, announcedModifierBits: announced)
+          }
+          CFRunLoopWakeUp(runLoop)
         }
-        _ = route(input)
+        CFRunLoopWakeUp(main)
       }
       return Unmanaged.passUnretained(event)
     }
@@ -785,6 +787,19 @@ final class InputMonitor: @unchecked Sendable {
       return Unmanaged.passUnretained(event)
     }
     return route(input) ? nil : Unmanaged.passUnretained(event)
+  }
+
+  private func swipe(_ event: CGEvent, touches: [(id: Int, position: CGPoint)], modifierBits: UInt64,
+    announcedModifierBits: UInt64) {
+    guard let input = ScrollGestureInput(gesture: event, touches: touches, swipe: &fingerSwipe,
+      modifierBits: modifierBits, announcedModifierBits: announcedModifierBits) else { return }
+    // The Trackpad settings may have changed since the last swipe Defi could take.
+    if input.phase == 1, input.modifierHeld {
+      let system = systemTrackpadSwipes(fingers: scrollGestureFingers)
+      scrollGestures.horizontal = !system.horizontal
+      scrollGestures.vertical = !system.vertical
+    }
+    _ = route(input)
   }
 
   /// Returns whether the gesture took the input.

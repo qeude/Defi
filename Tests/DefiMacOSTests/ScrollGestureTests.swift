@@ -1,6 +1,7 @@
 import CoreGraphics
 import DefiModel
 import Foundation
+import Synchronization
 import Testing
 @testable import DefiMacOS
 
@@ -54,6 +55,38 @@ struct ScrollGestureTests {
     #expect(swipe.update(at(0.1, [1, 2, 4])) == nil)
     #expect(swipe.update(at(0.1, [1, 2, 3, 4]))! == (4, 0, 0))
     #expect(swipe.update(at(0.1, [1])) == nil)
+  }
+
+  /// The input monitor's tap runs on its own thread; AppKit gives a gesture's touches only on the main one.
+  @MainActor
+  @Test(.enabled(if: TrackpadGesture.freeAxis != nil, "needs a trackpad with a three-finger axis left free"))
+  func `Three fingers seen on the tap thread pan the strip`() throws {
+    let trackpad = try #require(TrackpadGesture()), vertical = try #require(TrackpadGesture.freeAxis as Bool?)
+    let actions = Mutex<[ScrollGestureAction]>([])
+    let monitor = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(), pointerMotionTracker: PointerMotionTracker(),
+      tracksPointerWindowTransitions: false, scrollGestureModifierBits: 0, scrollGestureFingers: 3,
+      deliverScrollGesture: { action in actions.withLock { $0.append(action) } },
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+    let type = try #require(CGEventType(rawValue: gestureEventType))
+    nonisolated(unsafe) let events = trackpad.swipe(vertical: vertical)
+    let tap = Thread {
+      for event in events { _ = monitor.handle(type: type, event: event) }
+      let deadline = Date().addingTimeInterval(2)
+      // A timer keeps the run loop alive for the touches handed back from the main thread.
+      RunLoop.current.add(Timer(timeInterval: 2, repeats: false) { _ in }, forMode: .common)
+      while actions.withLock({ $0.count }) < 2, Date() < deadline { RunLoop.current.run(until: Date() + 0.01) }
+    }
+    tap.start()
+    let deadline = Date().addingTimeInterval(2)
+    while actions.withLock({ $0.count }) < 2, Date() < deadline { RunLoop.main.run(until: Date() + 0.01) }
+    let seen = actions.withLock { $0 }
+    guard seen.count == 2, case .panBegan(_, vertical, _, _) = seen[0], case .panEnded(_, let travel, _, _) = seen[1]
+    else {
+      Issue.record("a three-finger swipe must begin and end one pan, got \(seen)")
+      return
+    }
+    #expect(travel != 0)
   }
 
   @Test

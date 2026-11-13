@@ -212,12 +212,18 @@ struct FingerSwipe {
   }
 }
 
+/// The fingers touching the trackpad in a gesture event. AppKit returns no touches off the main thread.
+func trackpadTouches(_ event: CGEvent) -> [(id: Int, position: CGPoint)] {
+  precondition(Thread.isMainThread)
+  return NSEvent(cgEvent: event)?.touches(matching: .touching, in: nil)
+    .map { (($0.identity as AnyObject).hash, $0.normalizedPosition) } ?? []
+}
+
 extension ScrollGestureInput {
   /// A gesture event's touches as one step of a finger swipe, or nil when it is none.
-  init?(gesture event: CGEvent, swipe: inout FingerSwipe, modifierBits: UInt64, announcedModifierBits: UInt64) {
-    guard let touches = NSEvent(cgEvent: event)?.touches(matching: .touching, in: nil),
-      let step = swipe.update(touches.map { ((($0.identity as AnyObject).hash), $0.normalizedPosition) })
-    else { return nil }
+  init?(gesture event: CGEvent, touches: [(id: Int, position: CGPoint)], swipe: inout FingerSwipe,
+    modifierBits: UInt64, announcedModifierBits: UInt64) {
+    guard let step = swipe.update(touches) else { return nil }
     phase = step.phase
     dx = step.dx
     dy = step.dy
