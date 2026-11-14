@@ -75,8 +75,8 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
     applications: [String],
     focusedApplication: String?,
     icon: String? = nil,
-    selectedWindowID: UInt64? = nil,
-    windows: [WorkspaceWindowSnapshot] = []
+    selectedWindowID: UInt64?,
+    windows: [WorkspaceWindowSnapshot]
   ) {
     self.id = id
     self.position = position
