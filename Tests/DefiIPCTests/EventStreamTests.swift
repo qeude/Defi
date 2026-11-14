@@ -64,11 +64,11 @@ struct EventStreamTests {
     #expect(windows[0].display == 1)
 
     let workspaces = state.workspaces.monitors[0].workspaces
-    #expect(workspaces[0].windows?.map(\.column) == [1, 1, 2])
-    #expect(workspaces[0].windows?.map(\.row) == [1, 2, 1])
-    #expect(workspaces[0].windows?.map(\.selected) == [true, false, false])
+    #expect(workspaces[0].windows.map(\.column) == [1, 1, 2])
+    #expect(workspaces[0].windows.map(\.row) == [1, 2, 1])
+    #expect(workspaces[0].windows.map(\.selected) == [true, false, false])
     #expect(workspaces[1].selectedWindowID == nil)
-    #expect(workspaces[1].windows?.map(\.selected) == [false])
+    #expect(workspaces[1].windows.map(\.selected) == [false])
   }
 
   @Test

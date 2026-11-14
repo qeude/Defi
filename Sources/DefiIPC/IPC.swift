@@ -63,8 +63,7 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
   public let focusedApplication: String?
   /// The selected window on an active workspace, if any.
   public let selectedWindowID: UInt64?
-  /// Empty for an unoccupied workspace; nil when decoded from an older daemon.
-  public let windows: [WorkspaceWindowSnapshot]?
+  public let windows: [WorkspaceWindowSnapshot]
 
   public init(
     id: String,
@@ -77,7 +76,7 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
     focusedApplication: String?,
     icon: String? = nil,
     selectedWindowID: UInt64? = nil,
-    windows: [WorkspaceWindowSnapshot]? = nil
+    windows: [WorkspaceWindowSnapshot] = []
   ) {
     self.id = id
     self.position = position
