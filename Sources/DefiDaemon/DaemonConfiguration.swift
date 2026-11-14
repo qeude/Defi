@@ -234,6 +234,8 @@ extension Daemon {
       || previous.input.scrollGestures != next.input.scrollGestures
       || previous.scrollGestureModifier != next.scrollGestureModifier
       || previous.input.scrollGestureFingers != next.input.scrollGestureFingers
+      || previous.input.overviewGestureActive != next.input.overviewGestureActive
+      || previous.input.overviewGestureFingers != next.input.overviewGestureFingers
   }
 
   func installHotKeys() {
@@ -318,6 +320,11 @@ extension Daemon {
           self?.cheatsheetController?.close()
           self?.overviewController?.close()
           self?.publishOverviewState()
+        }
+      },
+      overviewSwipeHandler: { [weak self] swipe in
+        DispatchQueue.main.async { [weak self] in
+          self?.handleOverviewSwipe(swipe)
         }
       },
       cheatsheetHandler: { [weak self] input in

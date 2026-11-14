@@ -648,6 +648,7 @@ private struct InputSettingsView: View {
           : "The strip stops where you let go. The column in the middle gets focus.")
           .font(.caption)
           .foregroundStyle(.secondary)
+        OverviewGestureSettings(model: model)
       }
       Section("Modifiers") {
         ModKeyRow(model: model)
@@ -2018,10 +2019,7 @@ private struct ScrollGestureSettings: View {
           Label(conflict, systemImage: "exclamationmark.triangle")
             .font(.caption)
           Spacer()
-          // The anchor opens the More Gestures tab, where macOS assigns these swipes.
-          Button("More Gestures…") {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Trackpad-Settings.extension?MoreGestures")!)
-          }
+          MoreGesturesButton()
         }
       }
     }
@@ -2049,6 +2047,60 @@ private struct ScrollGestureSettings: View {
     }
     let count = fingers == 3 ? "three" : "four"
     return "macOS already uses \(count)-finger swipes\(direction). Change them in More Gestures to use them here."
+  }
+}
+
+/// Opens the More Gestures tab of the Trackpad settings, where macOS assigns swipes.
+private struct MoreGesturesButton: View {
+  var body: some View {
+    Button("More Gestures…") {
+      NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Trackpad-Settings.extension?MoreGestures")!)
+    }
+  }
+}
+
+/// Which fingers swipe the Overview open, and what keeps that swipe from working.
+@MainActor
+private struct OverviewGestureSettings: View {
+  let model: DefiSettingsModel
+
+  var body: some View {
+    let input = model.config.input
+    Picker(SettingsOption.overviewGesture.title, selection: Binding(
+      get: { input.overviewGesture ? input.overviewGestureFingers : 0 },
+      set: { value in
+        if value != 0 { model.set(table: "input", key: "overview_gesture_fingers", value: String(value)) }
+        model.set(table: "input", key: "overview_gesture", value: value != 0 ? "true" : "false")
+      }
+    )) {
+      Text("Off").tag(0)
+      Text("Three fingers").tag(3)
+      Text("Four fingers").tag(4)
+    }
+      .settingsSearchTarget(.overviewGesture)
+    if input.overviewGesture { caption(input) }
+  }
+
+  @ViewBuilder
+  private func caption(_ input: InputConfig) -> some View {
+    let count = input.overviewGestureFingers == 3 ? "Three" : "Four"
+    if input.overviewSwipesMoveStrip {
+      Label("\(count)-finger swipes move the strip. Choose another number of fingers for one of them.",
+        systemImage: "exclamationmark.triangle")
+        .font(.caption)
+    } else if systemTrackpadSwipes(fingers: input.overviewGestureFingers).vertical {
+      HStack(alignment: .firstTextBaseline) {
+        Label("macOS already uses \(count.lowercased())-finger swipes up and down. Set Mission Control's gesture to Off or another number of fingers in More Gestures; Mission Control stays on its key.",
+          systemImage: "exclamationmark.triangle")
+          .font(.caption)
+        Spacer()
+        MoreGesturesButton()
+      }
+    } else {
+      Text("\(count) fingers up open the Overview, down close it.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
   }
 }
 

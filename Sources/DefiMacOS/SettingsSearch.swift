@@ -43,6 +43,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case scrollGestureModifier
   case scrollGestureSpeed
   case scrollGestureSnap
+  case overviewGesture
   case modKey
   case customShortcut
   case cheatsheet
@@ -99,6 +100,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .scrollGestureModifier: (.input, "Only while holding the modifier", "input.scroll_gesture_modifier trackpad swipe gesture wheel modifier")
     case .scrollGestureSnap: (.input, "Snap to columns", "input.scroll_gesture_snap trackpad swipe free position center")
     case .scrollGestureSpeed: (.input, "Swipe speed", "input.scroll_gesture_speed trackpad swipe gesture faster slower")
+    case .overviewGesture: (.input, "Overview swipe", "input.overview_gesture input.overview_gesture_fingers trackpad swipe gesture three four fingers mission control")
     case .modKey: (.input, "Mod key", "mod modifier keyboard hyper prefix")
     case .customShortcut: (.input, "Add Custom Shortcut…", "custom command keybinding keyboard binding")
     case .cheatsheet: (.input, "Show cheatsheet when holding the main modifier", "show_cheatsheet_on_modifier_hold shortcut guide cheatsheet")

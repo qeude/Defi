@@ -191,6 +191,24 @@ struct FingerSwipe {
 
   init(fingers: Int) { self.fingers = fingers }
 
+  private var takesMomentum = false
+
+  /// macOS also scrolls with fingers its swipes leave free: while they rest on the trackpad,
+  /// momentum included, that scroll belongs to the swipe, not to what lies under the pointer.
+  mutating func takesScroll(scrollPhase: Int64, momentumPhase: Int64) -> Bool {
+    if touches != nil {
+      takesMomentum = true
+      return true
+    }
+    // The scroll's own end may come after the lift reaches Defi; a new scroll or a wheel step ends the taking.
+    guard takesMomentum, momentumPhase != 0 || scrollPhase == 4 || scrollPhase == 8 else {
+      takesMomentum = false
+      return false
+    }
+    if momentumPhase == 3 { takesMomentum = false }
+    return true
+  }
+
   /// The scroll phase and travel since the previous event, or nil when nothing changed.
   /// `touches` are the identities and normalized positions (origin bottom-left) of the
   /// fingers on the trackpad.
@@ -212,11 +230,94 @@ struct FingerSwipe {
   }
 }
 
-/// The fingers touching the trackpad in a gesture event. AppKit returns no touches off the main thread.
-func trackpadTouches(_ event: CGEvent) -> [(id: Int, position: CGPoint)] {
+public enum OverviewSwipeEvent: Equatable, Sendable {
+  /// The swipe chose the vertical axis toward opening or closing the Overview.
+  case began(opening: Bool)
+  /// How far the fingers took the transition, from 0 to 1.
+  case changed(progress: Double)
+  case ended(commit: Bool)
+}
+
+/// Niri's four-finger vertical swipe: the Overview follows the fingers, and the release
+/// finishes the way they were moving, or past halfway when they had stopped.
+struct OverviewSwipe {
+  /// The travel of a whole transition: a little over a fifth of the trackpad's height.
+  static let travel = 650.0
+  /// Vertical travel before the Overview starts to follow, about two millimeters: a brushed trackpad shows nothing.
+  static let start = 80.0
+  /// Slower releases settle by distance alone.
+  static let flickSpeed = 500.0
+  /// A flick finishes only a swipe already this far along, so a twitch of the fingers opens nothing.
+  static let flickProgress = 0.15
+  /// How long a finger may slip off or join before the swipe counts as ended.
+  static let slip = 0.12
+  private enum Stage { case waiting, ignored, opening, closing }
+  private var swipe: FingerSwipe
+  private var x = 0.0, y = 0.0
+  private var velocity = 0.0, lastMove = 0.0
+  private var stage = Stage.ignored
+  private var slippedAt: TimeInterval?
+
+  init(fingers: Int) { swipe = FingerSwipe(fingers: fingers) }
+
+  var fingers: Int { swipe.fingers }
+
+  mutating func takesScroll(scrollPhase: Int64, momentumPhase: Int64) -> Bool {
+    swipe.takesScroll(scrollPhase: scrollPhase, momentumPhase: momentumPhase)
+  }
+
+  /// Leaves the rest of this swipe alone.
+  mutating func ignore() { stage = .ignored }
+
+  mutating func update(_ touches: [(id: Int, position: CGPoint)], time: TimeInterval,
+    overviewOpen: Bool) -> OverviewSwipeEvent? {
+    // A fast swipe drops a finger for a moment; only lifting them all ends it at once.
+    if stage == .opening || stage == .closing, !touches.isEmpty, touches.count != fingers {
+      let slippedAt = slippedAt ?? time
+      self.slippedAt = slippedAt
+      if time - slippedAt < Self.slip { return nil }
+    }
+    slippedAt = nil
+    guard let step = swipe.update(touches) else { return nil }
+    guard step.phase == 2 else {
+      defer { (x, y, velocity, stage) = (0, 0, 0, step.phase == 1 ? .waiting : .ignored) }
+      guard stage == .opening || stage == .closing else { return nil }
+      // Fingers that rested before lifting have no speed left.
+      let speed = time - lastMove > 0.05 ? 0 : (stage == .opening ? -velocity : velocity)
+      let flicked = abs(speed) >= Self.flickSpeed
+      return .ended(commit: flicked ? speed > 0 && progress >= Self.flickProgress : progress >= 0.5)
+    }
+    x += step.dx
+    y += step.dy
+    let elapsed = time - lastMove
+    if elapsed > 0 { velocity = elapsed > 0.05 ? 0 : velocity * 0.5 + step.dy / elapsed * 0.5 }
+    lastMove = time
+    switch stage {
+    case .waiting:
+      guard x * x + y * y >= Self.start * Self.start else { return nil }
+      // Like the strip's swipes, the first points pick the axis; up opens, down closes.
+      guard abs(y) > abs(x), (y < 0) != overviewOpen else {
+        stage = .ignored
+        return nil
+      }
+      stage = overviewOpen ? .closing : .opening
+      return .began(opening: !overviewOpen)
+    case .opening, .closing: return .changed(progress: progress)
+    case .ignored: return nil
+    }
+  }
+
+  private var progress: Double { min(max(((stage == .opening ? -y : y) - Self.start) / Self.travel, 0), 1) }
+}
+
+/// The fingers touching the trackpad in a gesture event, or nil for one about no touch at all,
+/// such as macOS starting its own scroll mid-swipe. Lifted fingers still come, as ended touches.
+/// AppKit returns no touches off the main thread.
+func trackpadTouches(_ event: CGEvent) -> [(id: Int, position: CGPoint)]? {
   precondition(Thread.isMainThread)
-  return NSEvent(cgEvent: event)?.touches(matching: .touching, in: nil)
-    .map { (($0.identity as AnyObject).hash, $0.normalizedPosition) } ?? []
+  guard let event = NSEvent(cgEvent: event), !event.touches(matching: .any, in: nil).isEmpty else { return nil }
+  return event.touches(matching: .touching, in: nil)
+    .map { (($0.identity as AnyObject).hash, $0.normalizedPosition) }
 }
 
 extension ScrollGestureInput {

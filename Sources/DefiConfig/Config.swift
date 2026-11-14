@@ -135,6 +135,9 @@ public struct Config: Equatable, Sendable {
     else {
       throw ConfigError.invalidValue("input.scroll_gesture_modifier")
     }
+    guard (3...4).contains(input.overviewGestureFingers) else {
+      throw ConfigError.invalidValue("input.overview_gesture_fingers")
+    }
     guard (0.25...4).contains(input.scrollGestureSpeed) else {
       throw ConfigError.invalidValue("input.scroll_gesture_speed")
     }
