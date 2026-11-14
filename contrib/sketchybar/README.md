@@ -76,7 +76,9 @@ The versioned JSON contains:
 - each workspace's stable ID, 1-based position, optional name, and kind
   (`named`, `ordinary`, or `trailing`)
 - each workspace's window count, occupied state, and the bundle IDs on it
-- the focused app of each active workspace
+- the focused app and selected window of each active workspace
+- each workspace's windows: ID, bundle ID, 1-based column and row (absent for
+  floating windows), and whether each is floating or selected
 
 Without `--json`, `defi list-workspaces` prints the labels per display.
 
@@ -85,5 +87,5 @@ On every change, Defi posts the same object as the distributed notification
 `defi_workspace_change` event with the JSON in `$INFO`. Tools that keep a
 connection open can use `defi subscribe --json` instead: it carries the same
 object in its `snapshot`, `workspaces-changed`, and `monitors-changed` events,
-plus focus and window events. See
+plus focus and window events with window titles. See
 [Event stream](../../CONFIGURATION.md#event-stream).

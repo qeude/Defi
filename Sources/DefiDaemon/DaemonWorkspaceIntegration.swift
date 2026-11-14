@@ -9,8 +9,10 @@ let workspaceStateNotification = Notification.Name(
   "com.qeude.defi.workspaceChanged"
 )
 
-func postWorkspaceStateNotification(_ data: Data) {
-  DispatchQueue.main.async {
+@MainActor private let workspaceStateNotificationThrottle = LatestWinsThrottle<Data>(
+  interval: 0.05,
+  schedule: { DispatchQueue.main.asyncAfter(deadline: .now() + $0, execute: $1) },
+  deliver: { data in
     guard let userInfo = try? JSONSerialization.jsonObject(with: data)
       as? [AnyHashable: Any] else { return }
     DistributedNotificationCenter.default().postNotificationName(
@@ -19,6 +21,52 @@ func postWorkspaceStateNotification(_ data: Data) {
       userInfo: userInfo,
       deliverImmediately: true
     )
+  }
+)
+
+func postWorkspaceStateNotification(_ data: Data) {
+  DispatchQueue.main.async {
+    MainActor.assumeIsolated { workspaceStateNotificationThrottle.submit(data) }
+  }
+}
+
+/// Delivers the first value at once, then at most one per interval, always ending on the latest.
+@MainActor
+final class LatestWinsThrottle<Value> {
+  private let interval: TimeInterval
+  private let schedule: (TimeInterval, @escaping @MainActor () -> Void) -> Void
+  private let deliver: (Value) -> Void
+  private var pending: Value?
+  private var coolingDown = false
+
+  init(
+    interval: TimeInterval,
+    schedule: @escaping (TimeInterval, @escaping @MainActor () -> Void) -> Void,
+    deliver: @escaping (Value) -> Void
+  ) {
+    self.interval = interval
+    self.schedule = schedule
+    self.deliver = deliver
+  }
+
+  func submit(_ value: Value) {
+    guard !coolingDown else {
+      pending = value
+      return
+    }
+    send(value)
+  }
+
+  private func send(_ value: Value) {
+    deliver(value)
+    coolingDown = true
+    schedule(interval) { [self] in
+      coolingDown = false
+      if let value = pending {
+        pending = nil
+        send(value)
+      }
+    }
   }
 }
 
