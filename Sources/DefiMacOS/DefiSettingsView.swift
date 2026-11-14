@@ -2190,7 +2190,7 @@ private struct TriageRow: View {
   var body: some View {
     if let cliURL, FileManager.default.isExecutableFile(atPath: cliURL.path) {
       HStack(spacing: 12) {
-        Text(failure ?? "Let your own Claude or Codex investigate a problem in Terminal and draft an issue. It asks before it fixes or posts anything.")
+        Text(failure ?? "Let your own coding agent investigate a problem in Terminal and draft an issue. It asks before it fixes or posts anything.")
           .foregroundStyle(.secondary)
         Spacer(minLength: 12)
         Button("Start Triage") {

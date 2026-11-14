@@ -1,16 +1,17 @@
 import DefiIPC
 import Foundation
 
-enum TriageAgent: String, CaseIterable {
-  case claude
-  case codex
+enum TriageAgent {
+  /// Agents that take the opening message as their first argument. Any other command starts bare
+  /// and finds its instructions in the session's AGENTS.md.
+  static let known = ["claude", "codex"]
 }
 
 enum TriageAgentChoice: Equatable {
-  case use(TriageAgent)
-  case ask([TriageAgent])
+  case use(String)
+  case ask([String])
   case noneInstalled
-  case requestedMissing(TriageAgent)
+  case requestedMissing(String)
   case needsTerminal
 }
 
@@ -30,7 +31,7 @@ struct TriageContext {
 }
 
 enum TriageError: Error, CustomStringConvertible {
-  case requestedAgentMissing(TriageAgent)
+  case requestedAgentMissing(String)
   case choiceNeedsTerminal
   case noChoiceMade
   case setupFailed(String)
@@ -39,7 +40,7 @@ enum TriageError: Error, CustomStringConvertible {
   var description: String {
     switch self {
     case let .requestedAgentMissing(agent):
-      "\(agent.rawValue) was not found on PATH"
+      "\(agent) was not found on PATH"
     case .choiceNeedsTerminal:
       "claude and codex are both installed; pass --agent claude or --agent codex"
     case .noChoiceMade:
@@ -53,17 +54,19 @@ enum TriageError: Error, CustomStringConvertible {
 }
 
 func selectTriageAgent(
-  requested: TriageAgent?,
-  installed: [TriageAgent],
+  requested: String?,
+  installed: [String],
   isInteractive: Bool
 ) -> TriageAgentChoice {
   if let requested {
     return installed.contains(requested) ? .use(requested) : .requestedMissing(requested)
   }
+  // On a terminal, always ask so another agent can be named.
+  if isInteractive { return .ask(installed) }
   switch installed.count {
   case 0: return .noneInstalled
   case 1: return .use(installed[0])
-  default: return isInteractive ? .ask(installed) : .needsTerminal
+  default: return .needsTerminal
   }
 }
 
@@ -130,14 +133,24 @@ func renderTriagePrompt(contextPath: String, playbook: String?) -> String {
     """
 }
 
+func renderTriageAgentsFile(promptPath: String) -> String {
+  """
+  # Defi triage session
+
+  This directory is a Defi triage session. Before you answer the user, read
+  `\(promptPath)` and follow its instructions exactly: it is your triage playbook.
+
+  """
+}
+
 enum Triage {
   static let playbookURL = "https://raw.githubusercontent.com/qeude/Defi/main/.github/triage/PLAYBOOK.md"
 
-  static func run(agent requested: TriageAgent?, socketURL: URL) throws {
-    let installed = TriageAgent.allCases.filter {
-      executablePath(named: $0.rawValue, searching: ProcessInfo.processInfo.environment["PATH"]) != nil
+  static func run(agent requested: String?, socketURL: URL) throws {
+    let installed = (TriageAgent.known + [requested].compactMap { $0 }).filter {
+      executablePath(named: $0, searching: ProcessInfo.processInfo.environment["PATH"]) != nil
     }
-    let agent: TriageAgent?
+    let agent: String?
     switch selectTriageAgent(
       requested: requested, installed: installed,
       isInteractive: isatty(STDIN_FILENO) != 0 && isatty(STDOUT_FILENO) != 0)
@@ -159,6 +172,7 @@ enum Triage {
         directoryHint: .isDirectory)
     let contextURL = session.appending(path: "context.md")
     let promptURL = session.appending(path: "prompt.md")
+    let agentsURL = session.appending(path: "AGENTS.md")
 
     let context = TriageContext(
       generatedAt: now,
@@ -185,6 +199,8 @@ enum Triage {
       try renderTriageContext(context).write(to: contextURL, atomically: true, encoding: .utf8)
       try renderTriagePrompt(contextPath: contextURL.path, playbook: playbook)
         .write(to: promptURL, atomically: true, encoding: .utf8)
+      try renderTriageAgentsFile(promptPath: promptURL.path)
+        .write(to: agentsURL, atomically: true, encoding: .utf8)
     } catch {
       throw TriageError.setupFailed("could not write \(session.path): \(error.localizedDescription)")
     }
@@ -193,10 +209,17 @@ enum Triage {
       print("No coding agent (claude or codex) found on PATH.")
       print("Context: \(contextURL.path)")
       print("Prompt: \(promptURL.path)")
-      print("Paste the prompt into any coding agent to start the triage.")
+      print("Run defi triage --agent <command> to start another agent, or paste the prompt into one.")
       return
     }
-    print("Starting \(agent.rawValue) in \(session.path)")
+    let takesMessage = TriageAgent.known.contains(URL(filePath: agent).lastPathComponent)
+    // Resolve a relative path before chdir moves the working directory.
+    let program = agent.contains("/") ? URL(filePath: agent).standardizedFileURL.path : agent
+    print("Starting \(agent) in \(session.path)")
+    if !takesMessage {
+      print("Describe the problem to \(agent); its instructions are in AGENTS.md.")
+      print("If it does not follow them, ask it to read \(promptURL.path).")
+    }
     fflush(stdout)
     guard chdir(session.path) == 0 else {
       throw TriageError.setupFailed(
@@ -208,9 +231,10 @@ enum Triage {
     }
     let message =
       "Read the file \"\(promptURL.path)\" and follow its instructions exactly: it is your Defi triage playbook, and it starts with asking the user what went wrong."
-    var arguments: [UnsafeMutablePointer<CChar>?] = [strdup(agent.rawValue), strdup(message), nil]
-    execvp(agent.rawValue, &arguments)
-    throw TriageError.execFailed(agent: agent.rawValue, errno: errno, promptPath: promptURL.path)
+    var arguments: [UnsafeMutablePointer<CChar>?] =
+      takesMessage ? [strdup(program), strdup(message), nil] : [strdup(program), nil]
+    execvp(program, &arguments)
+    throw TriageError.execFailed(agent: agent, errno: errno, promptPath: promptURL.path)
   }
 
   private static var architecture: String {
@@ -241,21 +265,42 @@ enum Triage {
   }
 
   private static func executablePath(named name: String, searching path: String?) -> String? {
-    (path ?? "").split(separator: ":")
+    if name.contains("/") { return access(name, X_OK) == 0 ? name : nil }
+    return (path ?? "").split(separator: ":")
       .map { "\($0)/\(name)" }
       .first { access($0, X_OK) == 0 }
   }
 
-  private static func prompt(among choices: [TriageAgent]) throws -> TriageAgent {
-    print("Choose a coding agent:")
-    for (offset, choice) in choices.enumerated() { print("  \(offset + 1)) \(choice.rawValue)") }
+  /// Returns nil when the user leaves the command empty with no agent installed, to print the prompt.
+  private static func prompt(among choices: [String]) throws -> String? {
     while true {
-      print("Agent [1-\(choices.count)]: ", terminator: "")
-      fflush(stdout)
-      guard let line = readLine() else { throw TriageError.noChoiceMade }
-      let answer = line.trimmingCharacters(in: .whitespaces)
-      if let number = Int(answer), choices.indices.contains(number - 1) { return choices[number - 1] }
-      if let named = choices.first(where: { $0.rawValue == answer }) { return named }
+      var command: String
+      if choices.isEmpty {
+        command = try ask("No claude or codex on PATH. Agent command (empty to print the prompt): ")
+        if command.isEmpty { return nil }
+      } else {
+        print("Choose a coding agent:")
+        for (offset, choice) in choices.enumerated() { print("  \(offset + 1)) \(choice)") }
+        print("  \(choices.count + 1)) another agent")
+        command = try ask("Agent [1-\(choices.count + 1)] or a command: ")
+        if let number = Int(command) {
+          if choices.indices.contains(number - 1) { return choices[number - 1] }
+          guard number == choices.count + 1 else { continue }
+          command = try ask("Agent command: ")
+        }
+        if command.isEmpty { continue }
+      }
+      if executablePath(named: command, searching: ProcessInfo.processInfo.environment["PATH"]) != nil {
+        return command
+      }
+      print("\(command) was not found on PATH.")
     }
+  }
+
+  private static func ask(_ question: String) throws -> String {
+    print(question, terminator: "")
+    fflush(stdout)
+    guard let line = readLine() else { throw TriageError.noChoiceMade }
+    return line.trimmingCharacters(in: .whitespaces)
   }
 }

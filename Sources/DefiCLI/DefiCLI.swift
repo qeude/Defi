@@ -48,7 +48,7 @@ struct Options {
       defi [--socket <path>] [--monitor <index>] <command> [arguments]
       defi service enable|disable|start|stop|restart|status
       defi uninstall --purge
-      defi triage [--agent claude|codex]
+      defi triage [--agent <command>]
 
     examples:
       defi focus-column left
@@ -69,7 +69,7 @@ struct Options {
   let service: String?
   let purge: Bool
   let triage: Bool
-  let triageAgent: TriageAgent?
+  let triageAgent: String?
 
   init(arguments: [String]) throws {
     var socketURL = SocketPath.defaultURL
@@ -95,7 +95,7 @@ struct Options {
       index += 1
     }
     var triage = false
-    var triageAgent: TriageAgent?
+    var triageAgent: String?
     if remaining == ["uninstall", "--purge"] {
       purge = true
       service = nil
@@ -109,8 +109,8 @@ struct Options {
       switch remaining.count {
       case 1: break
       case 3 where remaining[1] == "--agent":
-        guard let agent = TriageAgent(rawValue: remaining[2]) else { throw CLIError.usage }
-        triageAgent = agent
+        guard !remaining[2].isEmpty, !remaining[2].hasPrefix("-") else { throw CLIError.usage }
+        triageAgent = remaining[2]
       default: throw CLIError.usage
       }
       triage = true
