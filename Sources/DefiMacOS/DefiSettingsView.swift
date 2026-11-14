@@ -658,12 +658,12 @@ private struct InputSettingsView: View {
         )
           .settingsSearchTarget(.modSymbol)
       }
-      Section("Shortcut guide") {
-        Toggle(SettingsOption.shortcutGuide.title, isOn: Binding(
+      Section("Cheatsheet") {
+        Toggle(SettingsOption.cheatsheet.title, isOn: Binding(
           get: { model.config.showCheatsheetOnModifierHold },
           set: { model.set(table: "", key: "show_cheatsheet_on_modifier_hold", value: $0 ? "true" : "false") }
         ))
-        .settingsSearchTarget(.shortcutGuide)
+        .settingsSearchTarget(.cheatsheet)
       }
       Section {
         ForEach(visibleCommands, id: \.self) { command in
