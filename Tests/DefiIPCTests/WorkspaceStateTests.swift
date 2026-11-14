@@ -87,6 +87,7 @@ struct WorkspaceStateTests {
     let tiled = try #require((encodedWeb["windows"] as? [[String: Any]])?.first)
     #expect(tiled["id"] as? UInt64 == 7)
     #expect(tiled["appID"] as? String == "com.apple.Safari")
+    #expect(tiled["title"] as? String == "Web")
     #expect(tiled["column"] as? Int == 1)
     #expect(tiled["row"] as? Int == 1)
     #expect(tiled["floating"] as? Bool == false)

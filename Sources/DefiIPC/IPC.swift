@@ -97,6 +97,7 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
 public struct WorkspaceWindowSnapshot: Codable, Equatable, Sendable {
   public let id: UInt64
   public let appID: String
+  public let title: String?
   /// 1-based column and row in the strip; nil for floating windows.
   public let column: Int?
   public let row: Int?
@@ -127,7 +128,8 @@ public func makeWorkspaceStateSnapshot(
           forEachWorkspaceWindow(in: workspace) { windowID, column, row in
             guard let window = windows[windowID] else { return }
             workspaceWindows.append(WorkspaceWindowSnapshot(
-              id: windowID.rawValue, appID: window.appID, column: column, row: row,
+              id: windowID.rawValue, appID: window.appID, title: window.title,
+              column: column, row: row,
               floating: column == nil, selected: windowID == selectedWindow?.id
             ))
           }

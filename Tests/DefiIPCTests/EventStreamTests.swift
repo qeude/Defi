@@ -90,6 +90,14 @@ struct EventStreamTests {
   }
 
   @Test
+  func `A title change updates the workspace snapshot`() {
+    let events = streamEvents(from: makeState(), to: makeState(titles: [1: "Renamed"]))
+
+    #expect(events.map(\.event) == ["workspaces-changed", "window-changed"])
+    #expect(events.first?.workspaces?.monitors.first?.workspaces.first?.windows?.first?.title == "Renamed")
+  }
+
+  @Test
   func `Diff reports windows whose workspace position changed as moved`() {
     let old = makeState()
     let reordered = old.windows.map { window in
