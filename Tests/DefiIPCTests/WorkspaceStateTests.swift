@@ -91,6 +91,8 @@ struct WorkspaceStateTests {
     #expect(tiled["row"] as? Int == 1)
     #expect(tiled["floating"] as? Bool == false)
     #expect(tiled["selected"] as? Bool == true)
+    // Any process in the session can read the distributed notification.
+    #expect(tiled["title"] == nil)
 
     let otherWorkspace = try #require(
       (encodedMonitors[1]["workspaces"] as? [[String: Any]])?.first
