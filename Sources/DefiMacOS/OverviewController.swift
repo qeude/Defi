@@ -231,6 +231,15 @@ public final class OverviewController: NSObject {
 
   public var scrollOffsets: [MonitorID: [WorkspaceID: Double]] { viewports.mapValues(\.horizontalOffsets) }
   private var nativeExitCanZoom = true
+  private struct OverviewSwipeState {
+    let opening: Bool
+    var progress = 0.0
+    /// The zoom follows the fingers; otherwise the release only decides.
+    var interactive = false
+  }
+  private var swipe: OverviewSwipeState?
+  private var skipsOpeningUntil: CFTimeInterval = 0
+  private var zoomBackDuration: TimeInterval = 0.22
   public private(set) var isOpen = false
   public private(set) var usesWorkspaceParking = false
   public var panelCount: Int { isOpen ? panels.count : 0 }
@@ -443,6 +452,11 @@ public final class OverviewController: NSObject {
     windowCornerRadius: Double = 12,
     windowPreviewsEnabled: Bool = true
   ) {
+    // The swipe that asked for it went back before it could open.
+    guard CACurrentMediaTime() >= skipsOpeningUntil else {
+      skipsOpeningUntil = 0
+      return
+    }
     idlePreparationRetry?.cancel(); idlePreparationRetry = nil
     sessionGeneration &+= 1
     self.snapshot = snapshot
@@ -537,9 +551,14 @@ public final class OverviewController: NSObject {
     let commitStart = CACurrentMediaTime()
     CATransaction.flush()
     let commitMs = Int((CACurrentMediaTime() - commitStart) * 1_000)
+    if let swipe, swipe.opening, !zooming.isEmpty { self.swipe?.interactive = true }
     for (monitorID, panel) in zooming {
       recordOpeningTransition("zoom(commitMs:\(commitMs))", monitorID: monitorID)
-      panel.startSurfaceSceneWhenPresented(duration: 0.22)
+      if let swipe, swipe.opening {
+        panel.setSurfaceProgress(swipe.progress)
+      } else {
+        panel.startSurfaceSceneWhenPresented(duration: 0.22)
+      }
     }
     schedulePreviewsIfNeeded()
   }
@@ -761,8 +780,74 @@ public final class OverviewController: NSObject {
     close(commitScrollOffsets: false)
   }
 
+  /// The windows can zoom back to the desktop they left: nothing scrolled or chose another place.
+  private var canZoomBack: Bool {
+    nativeExitCanZoom && animationsEnabled
+      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+      && snapshot?.monitors.allSatisfy({ monitor in
+        let viewport = viewports[monitor.id] ?? OverviewViewport()
+        return viewport.workspaceOffset == 0 && monitor.workspaces.allSatisfy {
+          viewport.horizontalOffsets[$0.id, default: $0.scrollOffset] == $0.scrollOffset
+        }
+      }) == true
+  }
+
+  /// A trackpad swipe drives the opening or closing zoom while its fingers rest.
+  public func handleSwipe(_ event: OverviewSwipeEvent) {
+    switch event {
+    case .began(let opening):
+      for monitorID in panels.keys { recordOpeningTransition("swipe(\(opening ? "open" : "close"))", monitorID: monitorID) }
+      swipe = OverviewSwipeState(opening: opening)
+      guard !opening, isOpen, !selectionCommitPending, canZoomBack else { return }
+      swipe?.interactive = panels.values.map { $0.beginSurfaceClosing() }.allSatisfy { $0 }
+    case .changed(let progress):
+      guard swipe != nil else { return }
+      swipe?.progress = progress
+      guard let swipe, swipe.interactive else { return }
+      for panel in panels.values { panel.setSurfaceProgress(swipe.opening ? progress : 1 - progress) }
+    case .ended(let commit):
+      guard let swipe else { return }
+      self.swipe = nil
+      for monitorID in panels.keys {
+        recordOpeningTransition("swipe-end(progress:\(Int(swipe.progress * 100)),commit:\(commit),follows:\(swipe.interactive))", monitorID: monitorID)
+      }
+      // Layouts that arrived while the fingers held the zoom apply once it lets go.
+      for panel in panels.values { panel.surfaceHeld = false }
+      // The rest of the zoom takes the time the whole one would take for that distance.
+      let remaining = max(0.22 * (commit ? 1 - swipe.progress : swipe.progress), 0.08)
+      let generation = sessionGeneration
+      DispatchQueue.main.asyncAfter(deadline: .now() + remaining) { [weak self] in
+        guard let self, isOpen, sessionGeneration == generation else { return }
+        updatePanels(scheduleCaptures: false)
+      }
+      switch (swipe.opening, commit) {
+      case (true, true):
+        for panel in panels.values where swipe.interactive { panel.finishSurfaceOpening(duration: remaining) }
+      case (true, false):
+        guard isOpen else {
+          // The opening it asked for is still on its way.
+          skipsOpeningUntil = CACurrentMediaTime() + 0.5
+          return
+        }
+        close(duration: remaining)
+      case (false, true):
+        close(duration: swipe.interactive ? remaining : 0.22)
+      case (false, false):
+        for panel in panels.values where swipe.interactive && isOpen { panel.restoreSurfaceScene(duration: remaining) }
+      }
+    }
+  }
+
+  private func close(duration: TimeInterval) {
+    zoomBackDuration = duration
+    defer { zoomBackDuration = 0.22 }
+    close()
+  }
+
   private func close(commitScrollOffsets: Bool) {
     guard isOpen else { return }
+    // A swipe still on the trackpad no longer drives this Overview's zoom.
+    swipe = nil
     let closingPreviews = previews
     let closingProjections = projections
     isOpen = false
@@ -798,16 +883,9 @@ public final class OverviewController: NSObject {
     let closingPanels = Array(panels.values)
     // Selection already commits focus/layout through the daemon. Whether this
     // close commits viewport offsets must not disable a safe visual handoff.
-    let canZoomBack = nativeExitCanZoom && animationsEnabled
-      && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-      && snapshot?.monitors.allSatisfy({ monitor in
-        let viewport = viewports[monitor.id] ?? OverviewViewport()
-        return viewport.workspaceOffset == 0 && monitor.workspaces.allSatisfy {
-          viewport.horizontalOffsets[$0.id, default: $0.scrollOffset] == $0.scrollOffset
-        }
-      }) == true
+    let canZoomBack = self.canZoomBack
     for panel in closingPanels {
-      if canZoomBack && panel.hideSurfaceSceneIfUnchanged(duration: 0.22) { continue }
+      if canZoomBack && panel.hideSurfaceSceneIfUnchanged(duration: zoomBackDuration) { continue }
       let committedOffsets = commitScrollOffsets ? viewports[panel.monitorID]?.horizontalOffsets : nil
       if nativeExitCanZoom, animationsEnabled,
         !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,

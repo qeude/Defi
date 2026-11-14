@@ -196,6 +196,13 @@ extension Daemon {
     }
   }
 
+  @MainActor func handleOverviewSwipe(_ swipe: OverviewSwipeEvent) {
+    let controller = overviewController ?? makeOverviewController()
+    overviewController = controller
+    controller.handleSwipe(swipe)
+    publishOverviewState()
+  }
+
   @MainActor private func makeOverviewController() -> OverviewController {
     OverviewController(
       focusWindow: { [weak self] windowID, appID, monitorID, workspaceID in

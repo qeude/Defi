@@ -53,11 +53,13 @@ public final class HotKeyManager {
   private let closeIntentHandler: CloseIntentHandler
   private let overviewHandler: OverviewHandler
   private let overviewCancelHandler: (@Sendable () -> Void)?
+  private let overviewSwipeHandler: @Sendable (OverviewSwipeEvent) -> Void
   private let cheatsheetHandler: @NavigationActor @Sendable (CheatsheetInput) -> Void
   private let cheatsheetModifierBits: UInt64?
   private let scrollGestureHandler: ScrollGestureHandler?
   private let scrollGestureModifierBits: UInt64
   private let scrollGestureFingers: Int
+  private let overviewGestureFingers: Int?
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
@@ -103,6 +105,7 @@ public final class HotKeyManager {
     closeIntentHandler: @escaping CloseIntentHandler = { _, _ in },
     overviewHandler: @escaping OverviewHandler = { _ in },
     overviewCancelHandler: (@Sendable () -> Void)? = nil,
+    overviewSwipeHandler: @escaping @Sendable (OverviewSwipeEvent) -> Void = { _ in },
     cheatsheetHandler: @escaping @NavigationActor @Sendable (CheatsheetInput) -> Void = { _ in },
     scrollGestureHandler: ScrollGestureHandler? = nil,
     registrationHandler: @escaping @NavigationActor @Sendable (Bool, HotKeyError?, [String]) -> Void = { _, _, _ in },
@@ -119,12 +122,14 @@ public final class HotKeyManager {
     self.closeIntentHandler = closeIntentHandler
     self.overviewHandler = overviewHandler
     self.overviewCancelHandler = overviewCancelHandler
+    self.overviewSwipeHandler = overviewSwipeHandler
     self.cheatsheetHandler = cheatsheetHandler
     cheatsheetModifierBits = try? Key(
       accelerator: "mod-a",
       aliases: config.modifierAliases
     ).modifierBits
     scrollGestureFingers = config.input.scrollGestureFingers
+    overviewGestureFingers = config.input.overviewGestureActive ? config.input.overviewGestureFingers : nil
     let gestureModifierBits = config.scrollGestureModifier == "none" ? 0 : try? Key(
       accelerator: "\(config.scrollGestureModifier)-a",
       aliases: config.modifierAliases
@@ -167,7 +172,7 @@ public final class HotKeyManager {
     mask |= CGEventMask(1 << CGEventType.flagsChanged.rawValue)
     // Swipes with three or four fingers arrive only as gesture events, with their touches;
     // the passive tap reads them, so no touch on the trackpad waits for Defi.
-    if scrollGestureHandler != nil && scrollGestureFingers >= 3 {
+    if scrollGestureHandler != nil && scrollGestureFingers >= 3 || overviewGestureFingers != nil {
       mask |= CGEventMask(1 << gestureEventType)
     }
     if tracksPointerMotion {
@@ -211,6 +216,9 @@ public final class HotKeyManager {
       },
       scrollGestureModifierBits: scrollGestureHandler == nil ? nil : scrollGestureModifierBits,
       scrollGestureFingers: scrollGestureFingers,
+      overviewGestureFingers: overviewGestureFingers,
+      // Off the navigation queue: the Overview follows the fingers while layout work waits.
+      deliverOverviewSwipe: overviewSwipeHandler,
       deliverScrollGesture: { action in
         NavigationActor.enqueue { scrollGestureHandler?(action) }
       }
@@ -245,7 +253,7 @@ public final class HotKeyManager {
     // Install interception first so passive observation sees routed pointer events.
     // Ordinary shortcuts always pass through the filtering callback unchanged.
     // Scrolling crosses the active tap only when gestures may consume it.
-    let scrollIntercepted = scrollGestureHandler != nil && scrollGestureModifierBits != 0
+    let scrollIntercepted = scrollGestureHandler != nil || overviewGestureFingers != nil
     let passive: CGEventMask = (1 << CGEventMask(CGEventType.flagsChanged.rawValue))
       | (1 << CGEventMask(CGEventType.leftMouseDown.rawValue))
       | (1 << CGEventMask(CGEventType.rightMouseDown.rawValue))
@@ -384,6 +392,9 @@ final class InputMonitor: @unchecked Sendable {
   /// Two for scroll events; three or four for swipes read from the touches.
   private let scrollGestureFingers: Int
   private var fingerSwipe: FingerSwipe
+  private var overviewSwipe: OverviewSwipe?
+  private let deliverOverviewSwipe: @Sendable (OverviewSwipeEvent) -> Void
+  private var stripSwipeHeld = false
   /// Modifiers the latest key or flags event announced. A Hyper key remapped in software
   /// announces them only there: the trackpad's scroll events never carry them.
   private var announcedModifierBits: UInt64 = 0
@@ -400,6 +411,8 @@ final class InputMonitor: @unchecked Sendable {
     deliverCheatsheet: @escaping @Sendable (CheatsheetInput) -> Void = { _ in },
     scrollGestureModifierBits: UInt64? = nil,
     scrollGestureFingers: Int = 2,
+    overviewGestureFingers: Int? = nil,
+    deliverOverviewSwipe: @escaping @Sendable (OverviewSwipeEvent) -> Void = { _ in },
     deliverScrollGesture: @escaping @Sendable (ScrollGestureAction) -> Void = { _ in },
     deliver: @escaping @Sendable (HotKeyInvocation) -> Void,
     deliverOverview: @escaping @Sendable (OverviewKeyAction) -> Void,
@@ -418,6 +431,8 @@ final class InputMonitor: @unchecked Sendable {
     self.deliverScrollGesture = deliverScrollGesture
     self.scrollGestureFingers = scrollGestureFingers
     fingerSwipe = FingerSwipe(fingers: scrollGestureFingers)
+    overviewSwipe = overviewGestureFingers.map(OverviewSwipe.init(fingers:))
+    self.deliverOverviewSwipe = deliverOverviewSwipe
     scrollGestures = ScrollGestureRecognizer(
       modifierIncludesShift: (scrollGestureModifierBits ?? 0) & CGEventFlags.maskShift.rawValue != 0)
     self.userInputTracker = userInputTracker
@@ -510,15 +525,19 @@ final class InputMonitor: @unchecked Sendable {
     type: CGEventType,
     event: CGEvent
   ) -> Unmanaged<CGEvent>? {
-    if type.rawValue == gestureEventType, let bits = scrollGestureModifierBits, scrollGestureFingers >= 3 {
+    let swipeBits = scrollGestureFingers >= 3 ? scrollGestureModifierBits : nil
+    if type.rawValue == gestureEventType, swipeBits != nil || overviewSwipe != nil {
       let announced = lock.withLock { announcedModifierBits }
       // Touches are read on the main thread, the only one AppKit gives them on; the swipe stays on this one.
       if let event = event.copy() {
         let runLoop = CFRunLoopGetCurrent()!, main = CFRunLoopGetMain()!
         CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
-          let touches = trackpadTouches(event)
+          guard let touches = trackpadTouches(event) else { return }
           CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) {
-            self.swipe(event, touches: touches, modifierBits: bits, announcedModifierBits: announced)
+            if let swipeBits {
+              self.swipe(event, touches: touches, modifierBits: swipeBits, announcedModifierBits: announced)
+            }
+            self.swipeOverview(event, touches: touches)
           }
           CFRunLoopWakeUp(runLoop)
         }
@@ -733,6 +752,7 @@ final class InputMonitor: @unchecked Sendable {
       }
       return Unmanaged.passUnretained(event)
     }
+    if type == .scrollWheel, swipeTakesScroll(event) { return nil }
     if type == .scrollWheel, let bits = scrollGestureModifierBits, bits != 0 {
       return interceptScroll(event, modifierBits: bits)
     }
@@ -779,6 +799,19 @@ final class InputMonitor: @unchecked Sendable {
     return Unmanaged.passUnretained(event)
   }
 
+  private func swipeTakesScroll(_ event: CGEvent) -> Bool {
+    let momentumPhase = event.getIntegerValueField(.scrollWheelEventMomentumPhase)
+    let scrollPhase = event.getIntegerValueField(.scrollWheelEventScrollPhase)
+    if overviewSwipe?.takesScroll(scrollPhase: scrollPhase, momentumPhase: momentumPhase) == true { return true }
+    guard scrollGestureFingers >= 3, let bits = scrollGestureModifierBits else { return false }
+    // The modifier counts where the scroll begins, so its momentum stays with the swipe after a release.
+    if bits != 0, [1, 128].contains(scrollPhase) {
+      let announced = lock.withLock { announcedModifierBits }
+      stripSwipeHeld = ScrollGestureInput(event, modifierBits: bits, announcedModifierBits: announced).modifierHeld
+    }
+    return (bits == 0 || stripSwipeHeld) && fingerSwipe.takesScroll(scrollPhase: scrollPhase, momentumPhase: momentumPhase)
+  }
+
   /// Runs on the tap thread for every scroll: it must stay cheap.
   private func interceptScroll(_ event: CGEvent, modifierBits: UInt64) -> Unmanaged<CGEvent>? {
     let announced = lock.withLock { announcedModifierBits }
@@ -801,6 +834,22 @@ final class InputMonitor: @unchecked Sendable {
       scrollGestures.vertical = !system.vertical
     }
     _ = route(input)
+  }
+
+  private func swipeOverview(_ event: CGEvent, touches: [(id: Int, position: CGPoint)]) {
+    guard let fingers = overviewSwipe?.fingers, let swipe = overviewSwipe?.update(
+      touches, time: eventSeconds(event.timestamp), overviewOpen: lock.withLock { overviewModeEnabled })
+    else { return }
+    // Mission Control already answers this swipe.
+    if case .began = swipe, systemTrackpadSwipes(fingers: fingers).vertical {
+      overviewSwipe?.ignore()
+      return
+    }
+    // The Overview hears of the swipe before it opens, so it opens on the fingers.
+    deliverOverviewSwipe(swipe)
+    if swipe == .began(opening: true) {
+      deliver(HotKeyInvocation(command: "toggle-overview", timestamp: Double(event.timestamp) / 1_000_000_000))
+    }
   }
 
   /// Returns whether the gesture took the input.

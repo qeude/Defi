@@ -48,6 +48,10 @@ final class OverviewPanel {
     }
   }
   private var surfaceStartPending = false
+  /// The fingers hold the zoom: a newer layout waits for them to let go.
+  var surfaceHeld = false
+  /// While the zoom runs, the menu bar and Dock show through the panel as much as the desktop does.
+  private var chromeMask: (mask: CALayer, strips: [CALayer])?
   private lazy var presentationProbe = OverviewPresentationProbe(host: rootView.layer)
   // The captured desktop shown, forgotten with the images so a reopen shows it again.
   var capturedDesktop: CGImage?
@@ -159,8 +163,8 @@ final class OverviewPanel {
   }
 
   func hide() {
-    cancelSurfaceTransition(reason: "hide")
     orderOut()
+    cancelSurfaceTransition(reason: "hide")
     discardImages()
   }
 
@@ -173,6 +177,7 @@ final class OverviewPanel {
     openingTransitionChanged?("started(\(scene.openingContentDescription))")
     view.suppressedSurfaceWindowIDs = windowIDs
     glassView.alphaValue = 0
+    coverChrome(0, duration: 0)
     rootView.layer?.addSublayer(scene.layer)
     window.alphaValue = 1
     window.orderFrontRegardless()
@@ -198,15 +203,38 @@ final class OverviewPanel {
   }
 
   private func startSurfaceScene(duration: TimeInterval, generation: UInt64, requested: CFTimeInterval) {
-    guard surfaceStartPending, surfaceGeneration == generation, let scene = surfaceScene else { return }
+    guard surfaceStartPending, surfaceGeneration == generation else { return }
+    openingTransitionChanged?("presented(ms:\(Int((CACurrentMediaTime() - requested) * 1_000)))")
+    finishSurfaceOpening(duration: duration)
+  }
+
+  /// Holds the zoom where the fingers put it, `progress` of the way into the Overview.
+  func setSurfaceProgress(_ progress: Double) {
+    guard let scene = surfaceScene else { return }
+    surfaceHeld = true
     surfaceStartPending = false
     surfaceTask?.cancel()
-    openingTransitionChanged?("presented(ms:\(Int((CACurrentMediaTime() - requested) * 1_000)))")
+    surfaceTask = nil
+    // About two trackpad samples: smooth at 120 Hz without trailing the fingers.
+    let glide = 0.05
+    scene.setProgress(progress, glide: glide)
+    fadeGlass(to: progress, duration: glide)
+    coverChrome(progress, duration: glide)
+  }
+
+  /// Plays the rest of the opening from the pose on screen.
+  func finishSurfaceOpening(duration: TimeInterval) {
+    guard openingTransitionInProgress, let scene = surfaceScene else { return }
+    let generation = surfaceGeneration
+    surfaceStartPending = false
+    surfaceTask?.cancel()
     scene.animate(opening: true, duration: duration)
     fadeGlass(to: 1, duration: duration)
+    coverChrome(1, duration: duration)
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
+      uncoverChrome()
       openingTransitionInProgress = false
       openingTransitionChanged?("completed")
       glassView.alphaValue = 1
@@ -216,6 +244,30 @@ final class OverviewPanel {
         surfaceScene = nil
       }
       surfaceTask = nil
+    }
+  }
+
+  /// Lifts the open Overview's windows above its cards, so the fingers can zoom them back.
+  func beginSurfaceClosing() -> Bool {
+    guard !openingTransitionInProgress, let surfaceScene, let screen = window.screen,
+      surfaceScene.matchesNativeFrames(screen: screen) else { return false }
+    view.suppressedSurfaceWindowIDs = Set(surfaceScene.nativeFrames.keys)
+    rootView.layer?.addSublayer(surfaceScene.layer)
+    coverChrome(1, duration: 0)
+    return true
+  }
+
+  /// Returns a zoom the fingers took back toward the desktop to the open Overview.
+  func restoreSurfaceScene(duration: TimeInterval) {
+    guard !openingTransitionInProgress, let surfaceScene else { return }
+    surfaceScene.animate(opening: true, duration: duration)
+    fadeGlass(to: 1, duration: duration)
+    coverChrome(1, duration: duration)
+    let generation = surfaceGeneration
+    surfaceTask = Task { [weak self] in
+      do { try await Task.sleep(for: .seconds(duration)) } catch { return }
+      guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
+      uncoverChrome()
     }
   }
 
@@ -233,6 +285,7 @@ final class OverviewPanel {
     rootView.layer?.addSublayer(surfaceScene.layer)
     surfaceScene.animate(opening: false, duration: duration)
     fadeGlass(to: 0, duration: duration)
+    coverChrome(0, duration: duration)
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
@@ -295,7 +348,67 @@ final class OverviewPanel {
     CATransaction.commit()
   }
 
+  /// Covers the menu bar and Dock `coverage` of the way, from 0 where they show as on the desktop.
+  private func coverChrome(_ coverage: Double, duration: TimeInterval) {
+    guard let rootLayer = rootView.layer, let screen = window.screen else { return }
+    let chrome = chromeMask ?? {
+      let frame = screen.frame, visible = screen.visibleFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
+      let bounds = CGRect(origin: .zero, size: frame.size)
+      let strips = [
+        CGRect(x: 0, y: visible.maxY, width: bounds.width, height: bounds.maxY - visible.maxY),
+        CGRect(x: 0, y: 0, width: bounds.width, height: visible.minY),
+        CGRect(x: 0, y: visible.minY, width: visible.minX, height: visible.height),
+        CGRect(x: visible.maxX, y: visible.minY, width: bounds.maxX - visible.maxX, height: visible.height),
+      ].filter { $0.width > 0 && $0.height > 0 }.map { rect in
+        let strip = CALayer()
+        strip.frame = rect
+        strip.backgroundColor = NSColor.black.cgColor
+        return strip
+      }
+      let mask = CALayer()
+      mask.frame = bounds
+      let body = CALayer()
+      body.frame = visible
+      body.backgroundColor = NSColor.black.cgColor
+      mask.addSublayer(body)
+      strips.forEach(mask.addSublayer)
+      return (mask, strips)
+    }()
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    if chromeMask == nil {
+      chromeMask = chrome
+      // The menu bar and Dock show only through a window that is not opaque.
+      window.isOpaque = false
+      window.backgroundColor = .clear
+      rootLayer.mask = chrome.mask
+    }
+    for strip in chrome.strips {
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = (strip.presentation() ?? strip).opacity
+      fade.duration = duration
+      fade.preferredFrameRateRange = overviewAnimationFrameRate
+      strip.opacity = Float(coverage)
+      if duration > 0 { strip.add(fade, forKey: "overview-chrome") } else { strip.removeAllAnimations() }
+    }
+    CATransaction.commit()
+  }
+
+  /// Drops the mask once the panel covers the menu bar and Dock again, or before it shows.
+  private func uncoverChrome() {
+    guard let chromeMask else { return }
+    self.chromeMask = nil
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    if rootView.layer?.mask === chromeMask.mask { rootView.layer?.mask = nil }
+    let hasWallpaper = usesCapturedDesktop && desktopView.layer?.contents != nil
+    window.isOpaque = hasWallpaper
+    window.backgroundColor = hasWallpaper ? .black : .clear
+    CATransaction.commit()
+  }
+
   private func cancelSurfaceTransition(reason: String = "replaced") {
+    surfaceHeld = false
     if openingTransitionInProgress {
       openingTransitionInProgress = false
       openingTransitionChanged?("interrupted(\(reason))")
@@ -315,6 +428,7 @@ final class OverviewPanel {
 
   // Reset only before ordering front; resetting while visible would flash the panel.
   private func restoreWallpaperFade() {
+    uncoverChrome()
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     rootView.layer?.removeAnimation(forKey: "overview-wallpaper-fade")
@@ -332,6 +446,7 @@ final class OverviewPanel {
 
   @discardableResult
   func invalidateSurfaceScene(ifProjectionChanged projection: OverviewProjection) -> Set<WindowID> {
+    guard !surfaceHeld else { return [] }
     var ids = invalidatedSurfaceWindowIDs
     invalidatedSurfaceWindowIDs = []
     if let surfaceScene, surfaceScene.projection != projection {

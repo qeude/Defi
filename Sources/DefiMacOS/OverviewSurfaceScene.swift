@@ -117,6 +117,36 @@ final class OverviewSurfaceScene {
     return released
   }
 
+  /// Takes the zoom `progress` of the way from the desktop to the Overview. Core Animation
+  /// glides between the fingers' samples at the display's rate rather than the trackpad's.
+  func setProgress(_ progress: Double, glide: TimeInterval) {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    for (_, item, source, target) in entries {
+      let lerp = { (from: CGFloat, to: CGFloat) in from + (to - from) * progress }
+      let frame = CGRect(x: lerp(source.minX, target.minX), y: lerp(source.minY, target.minY),
+        width: lerp(source.width, target.width), height: lerp(source.height, target.height))
+      let presented = item.presentation() ?? item
+      let from = (presented.position, presented.transform, presented.cornerRadius)
+      item.position = frame.origin
+      item.transform = CATransform3DMakeScale(frame.width / source.width, frame.height / source.height, 1)
+      item.cornerRadius = cornerRadius * source.width / frame.width
+      let position = CABasicAnimation(keyPath: "position")
+      position.fromValue = NSValue(point: from.0)
+      let transform = CABasicAnimation(keyPath: "transform")
+      transform.fromValue = NSValue(caTransform3D: from.1)
+      let radius = CABasicAnimation(keyPath: "cornerRadius")
+      radius.fromValue = from.2
+      let group = CAAnimationGroup()
+      group.animations = [position, transform, radius]
+      group.duration = glide
+      group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+      group.preferredFrameRateRange = overviewAnimationFrameRate
+      item.add(group, forKey: "overview-surface")
+    }
+    CATransaction.commit()
+  }
+
   func animate(opening: Bool, duration: TimeInterval) {
     CATransaction.begin()
     CATransaction.setDisableActions(true)

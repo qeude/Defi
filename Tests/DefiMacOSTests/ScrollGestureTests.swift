@@ -57,6 +57,99 @@ struct ScrollGestureTests {
     #expect(swipe.update(at(0.1, [1])) == nil)
   }
 
+  @Test
+  func `The Overview follows fingers up and down, and the release finishes their way`() {
+    let at = { (y: Double, x: Double, count: Int) in
+      (1...count).map { (id: $0, position: CGPoint(x: x, y: y)) } }
+    var swipe = OverviewSwipe(fingers: 4)
+    var time = 0.0
+    func move(_ y: Double, _ x: Double = 0.5, count: Int = 4, open: Bool = false, after: Double = 0.01)
+      -> OverviewSwipeEvent? {
+      time += after
+      return swipe.update(at(y, x, count), time: time, overviewOpen: open)
+    }
+    func progress(_ event: OverviewSwipeEvent?) -> Double? {
+      if case .changed(let progress) = event { progress } else { nil }
+    }
+    func lift(open: Bool = false, after: Double = 0.01) -> OverviewSwipeEvent? {
+      time += after
+      return swipe.update([], time: time, overviewOpen: open)
+    }
+    let along = { (travel: Double) in (travel - OverviewSwipe.start) / OverviewSwipe.travel }
+    // Up begins opening once the axis is picked, then follows the fingers.
+    #expect(move(0.5) == nil)
+    #expect(move(0.502) == nil)
+    #expect(move(0.51) == nil)
+    #expect(move(0.53) == .began(opening: true))
+    #expect(progress(move(0.55)).map { abs($0 - along(150)) < 1e-9 } == true)
+    #expect(move(0.9) == .changed(progress: 1))
+    // Still moving up: a flick finishes it.
+    #expect(lift() == .ended(commit: true))
+    // A short swipe up that stops before halfway goes back.
+    _ = move(0.5); _ = move(0.53); _ = move(0.55)
+    #expect(lift(after: 0.2) == .ended(commit: false))
+    // A twitch flicked up goes back too: too little of the swipe to finish.
+    _ = move(0.5); _ = move(0.53); _ = move(0.535)
+    #expect(lift() == .ended(commit: false))
+    // Even past the end, fingers flicked back down go back.
+    for y in [0.5, 0.53, 0.75, 0.73, 0.71, 0.69, 0.67] { _ = move(y) }
+    #expect(lift() == .ended(commit: false))
+    // A finger slipping off for a moment keeps the swipe; one gone for longer ends it.
+    _ = move(0.5); _ = move(0.53); _ = move(0.6)
+    #expect(move(0.62, count: 2) == nil)
+    #expect(progress(move(0.64)).map { abs($0 - along(420)) < 1e-9 } == true)
+    #expect(progress(move(0.66)).map { abs($0 - along(480)) < 1e-9 } == true)
+    #expect(move(0.68, count: 2, after: 0.01) == nil)
+    #expect(move(0.7, count: 2, after: OverviewSwipe.slip + 0.01) == .ended(commit: true))
+    _ = lift()
+    // Down closes an open Overview; down while closed asks nothing.
+    _ = move(0.5, open: true)
+    #expect(move(0.47, open: true) == .began(opening: false))
+    #expect(progress(move(0.4, open: true)).map { abs($0 - along(300)) < 1e-9 } == true)
+    #expect(lift(open: true) == .ended(commit: true))
+    _ = move(0.5)
+    #expect(move(0.48) == nil)
+    #expect(lift() == nil)
+    // A sideways swipe asks nothing, even if it later turns vertical.
+    _ = move(0.5)
+    #expect(move(0.5, 0.53) == nil)
+    #expect(move(0.7, 0.53) == nil)
+    #expect(lift() == nil)
+    // Three fingers are not the Overview's, unless it is set to three.
+    #expect(move(0.5, count: 3) == nil)
+    #expect(move(0.7, count: 3) == nil)
+    var three = OverviewSwipe(fingers: 3)
+    _ = three.update(at(0.5, 0.5, 3), time: 0, overviewOpen: false)
+    #expect(three.update(at(0.6, 0.5, 3), time: 0.01, overviewOpen: false) == .began(opening: true))
+  }
+
+  @Test
+  func `A three- or four-finger swipe keeps its scroll and momentum from what lies under the pointer`() {
+    let at = { (count: Int) in (1...count).map { (id: $0, position: CGPoint(x: 0.5, y: 0.5)) } }
+    var swipe = FingerSwipe(fingers: 3)
+    func takes(_ momentumPhase: Int64, phase: Int64 = 0) -> Bool {
+      swipe.takesScroll(scrollPhase: phase, momentumPhase: momentumPhase)
+    }
+    #expect(!takes(0))
+    _ = swipe.update(at(2))
+    #expect(!takes(0))
+    _ = swipe.update(at(3))
+    #expect(takes(0, phase: 2))
+    _ = swipe.update([])
+    // The scroll's end can reach Defi after the lift; its momentum stays the swipe's.
+    #expect(takes(0, phase: 4))
+    #expect(takes(1))
+    #expect(takes(3))
+    #expect(!takes(2))
+    // A new scroll, or a wheel step, after a swipe without momentum reaches the app again.
+    _ = swipe.update(at(3))
+    _ = swipe.update([])
+    #expect(!takes(0, phase: 128))
+    _ = swipe.update(at(3))
+    _ = swipe.update([])
+    #expect(!takes(0))
+  }
+
   /// The input monitor's tap runs on its own thread; AppKit gives a gesture's touches only on the main one.
   @MainActor
   @Test(.enabled(if: TrackpadGesture.freeAxis != nil, "needs a trackpad with a three-finger axis left free"))
@@ -87,6 +180,59 @@ struct ScrollGestureTests {
       return
     }
     #expect(travel != 0)
+  }
+
+  /// The Overview hears of the swipe before the toggle that opens it, then follows it to the lift.
+  @MainActor
+  @Test(.enabled(if: TrackpadGesture() != nil && !systemTrackpadSwipes(fingers: 3).vertical,
+    "needs a trackpad with the three-finger vertical swipe left free"))
+  func `Three fingers swiped up open the Overview, follow it, and settle by the lift`() throws {
+    let trackpad = try #require(TrackpadGesture())
+    let seen = Mutex<[String]>([])
+    let monitor = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(), pointerMotionTracker: PointerMotionTracker(),
+      tracksPointerWindowTransitions: false, overviewGestureFingers: 3,
+      deliverOverviewSwipe: { swipe in
+        let name = switch swipe {
+        case .began(let opening): "began(\(opening))"
+        case .changed: "changed"
+        case .ended(let commit): "ended(\(commit))"
+        }
+        seen.withLock { $0.append(name) }
+      },
+      deliver: { invocation in seen.withLock { $0.append(invocation.command) } },
+      deliverOverview: { _ in }, deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+    let type = try #require(CGEventType(rawValue: gestureEventType))
+    // Fingers up a third of the way, 10 ms apart, then lifted after resting 200 ms. The digitizer's
+    // origin is at the top, AppKit's at the bottom. Stamped in mach ticks, like the trackpad's events.
+    var timebase = mach_timebase_info()
+    mach_timebase_info(&timebase)
+    let start = mach_absolute_time(), nanosecondsPerTick = Double(timebase.numer) / Double(timebase.denom)
+    let ticks = { (seconds: Double) in start + UInt64(seconds * 1e9 / nanosecondsPerTick) }
+    nonisolated(unsafe) let events = (0...10).compactMap { step -> CGEvent? in
+      let event = trackpad.event(at: CGPoint(x: 0.3, y: 0.7 - Double(step) * 0.01), flags: [])
+      event?.timestamp = ticks(Double(step) * 0.01)
+      return event
+    } + [trackpad.event(at: CGPoint(x: 0.3, y: 0.6), touching: false, flags: [])].compactMap { event -> CGEvent? in
+      event?.timestamp = ticks(0.3)
+      return event
+    }
+    let done: @Sendable () -> Bool = { seen.withLock { $0.last?.hasPrefix("ended") == true } }
+    let tap = Thread {
+      for event in events { _ = monitor.handle(type: type, event: event) }
+      let deadline = Date().addingTimeInterval(2)
+      RunLoop.current.add(Timer(timeInterval: 2, repeats: false) { _ in }, forMode: .common)
+      while !done(), Date() < deadline { RunLoop.current.run(until: Date() + 0.01) }
+    }
+    tap.start()
+    let deadline = Date().addingTimeInterval(2)
+    while !done(), Date() < deadline { RunLoop.main.run(until: Date() + 0.01) }
+    let names = seen.withLock { $0 }
+    #expect(names.first == "began(true)")
+    #expect(names.dropFirst().first == "toggle-overview")
+    #expect(names.contains("changed"))
+    // Stopped short of halfway: it goes back.
+    #expect(names.last == "ended(false)")
   }
 
   @Test

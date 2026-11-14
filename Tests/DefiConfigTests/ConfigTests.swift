@@ -155,6 +155,7 @@ struct ConfigTests {
     ("[input]\nscroll_gesture_modifier = \"\"", .invalidValue("input.scroll_gesture_modifier")),
     ("[input]\nscroll_gesture_speed = 0", .invalidValue("input.scroll_gesture_speed")),
     ("[input]\nscroll_gesture_fingers = 5", .invalidValue("input.scroll_gesture_fingers")),
+    ("[input]\noverview_gesture_fingers = 2", .invalidValue("input.overview_gesture_fingers")),
     ("[input]\nscroll_gesture_modifier = \"none\"", .invalidValue("input.scroll_gesture_modifier")),
     ("[input]\nscroll_gesture_speed = 5.0", .invalidValue("input.scroll_gesture_speed")),
     ("[layout]\nouter_top_gap = 257", .invalidValue("layout.outer_top_gap")),
@@ -251,6 +252,17 @@ struct ConfigTests {
     #expect(Config().input.scrollGestureFingers == 2)
     #expect(Config().input.scrollGestureSnap)
     #expect(try !Config.decode(Data("[input]\nscroll_gesture_snap = false".utf8)).input.scrollGestureSnap)
+    #expect(!Config().input.overviewGesture)
+    #expect(Config().input.overviewGestureFingers == 4)
+    let overview = try Config.decode(Data("[input]\noverview_gesture = true\noverview_gesture_fingers = 3".utf8))
+    #expect(overview.input.overviewGestureActive && overview.input.overviewGestureFingers == 3)
+    // Swipes that move the strip keep their vertical axis for the workspaces.
+    #expect(!InputConfig(scrollGestures: true, scrollGestureFingers: 4, overviewGesture: true).overviewGestureActive)
+    #expect(InputConfig(scrollGestures: true, scrollGestureFingers: 3, overviewGesture: true).overviewGestureActive)
+    #expect(!InputConfig(scrollGestures: true, scrollGestureFingers: 3, overviewGesture: true,
+      overviewGestureFingers: 3).overviewGestureActive)
+    #expect(InputConfig(scrollGestures: false, scrollGestureFingers: 3, overviewGesture: true,
+      overviewGestureFingers: 3).overviewGestureActive)
     #expect(!config.overview.windowPreviews)
     #expect(config.overview.windowCornerRadius == 18)
     #expect(config.decorations.borders.width == 3.5)

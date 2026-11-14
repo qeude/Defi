@@ -736,6 +736,8 @@ scroll_gestures = false
 scroll_gesture_fingers = 2
 scroll_gesture_speed = 1.0
 scroll_gesture_snap = true
+overview_gesture = false
+overview_gesture_fingers = 4
 ```
 
 | Setting | Default | Values | Description |
@@ -749,6 +751,8 @@ scroll_gesture_snap = true
 | `scroll_gesture_fingers` | `2` | `2`, `3`, `4` | Fingers that swipe the strip. Two-finger swipes are scrolls, so they need the modifier. |
 | `scroll_gesture_snap` | `true` | boolean | Settles a sideways swipe on a column. `false` leaves the strip where the swipe stops. |
 | `scroll_gesture_speed` | `1.0` | `0.25` to `4` | Multiplies how far a swipe moves the strip and the workspaces. |
+| `overview_gesture` | `false` | boolean | Opens the Overview with a swipe up and closes it with one down. Needs Mission Control's swipe elsewhere; see [Overview gesture](#overview-gesture). |
+| `overview_gesture_fingers` | `4` | `3`, `4` | Fingers that swipe the Overview open and closed. |
 
 Pointer-driven focus never moves the pointer, and CLI commands and native app
 focus changes never do either, so the two options can run together without
@@ -790,7 +794,9 @@ starts with the modifier held works on the display under the pointer:
   direction macOS gives them in Trackpad settings (Mission Control, Spaces,
   three-finger drag), read again at the start of each swipe. Three- and
   four-finger swipes move the strip with the fingers, whatever the scrolling
-  direction setting.
+  direction setting. macOS also scrolls with fingers its swipes leave free;
+  Defi keeps that scroll, momentum included, so the app under the pointer does
+  not scroll during the swipe. The same holds for the Overview swipe.
 - Without Screen Recording permission or with animations off, the strip moves
   once the fingers lift.
 - Moving the pointer uses a CoreGraphics API that emits no mouse-moved event.
@@ -798,6 +804,32 @@ starts with the modifier held works on the display under the pointer:
   keyboard command.
 
 </details>
+
+### Overview gesture
+
+With `overview_gesture`, `overview_gesture_fingers` fingers swiped up open the
+Overview and swiped down close it, without a modifier. Four fingers match
+Niri. About the first two millimeters of the swipe pick its axis; a sideways
+swipe does nothing. The zoom follows the fingers, and lifting them finishes it the
+way they were moving, or, if they had stopped, when they had gone past
+halfway. A flick needs 15% of the way, so a twitch of the fingers opens
+nothing.
+Once the Overview has changed since it opened, for example after scrolling,
+or with animations off, closing waits for the fingers to lift.
+
+macOS opens Mission Control with a three- or four-finger swipe up by default,
+and Defi leaves a swipe macOS uses to it. To give it to Defi, set the Mission
+Control gesture (and App Exposé's, if on) to Off or to the other number of
+fingers in System Settings › Trackpad › More Gestures. Mission Control itself
+stays: its key, the Dock, and a hot corner still open it. Three-finger drag, in
+Accessibility › Pointer Control, takes every three-finger swipe. Settings shows
+a button that opens More Gestures while macOS keeps the swipe. Defi reads these
+settings again for each swipe, so no restart is needed.
+
+When `scroll_gestures = true` and `scroll_gesture_fingers` equals
+`overview_gesture_fingers`, those swipes up and down switch workspaces, and the
+Overview swipe does nothing until one of them uses another number of fingers.
+Neither setting is rejected, so changing one never invalidates the other.
 
 ## Mouse reordering
 
@@ -1199,6 +1231,8 @@ scroll_gestures = false
 scroll_gesture_fingers = 2
 scroll_gesture_speed = 1.0
 scroll_gesture_snap = true
+overview_gesture = false
+overview_gesture_fingers = 4
 
 [menu_bar]
 enabled = true
