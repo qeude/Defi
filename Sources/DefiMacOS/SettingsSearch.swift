@@ -45,7 +45,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case scrollGestureSnap
   case modKey
   case customShortcut
-  case shortcutGuide
+  case cheatsheet
   case keyboardShortcuts
   case focusedBorder
   case borderWidth
@@ -101,7 +101,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .scrollGestureSpeed: (.input, "Swipe speed", "input.scroll_gesture_speed trackpad swipe gesture faster slower")
     case .modKey: (.input, "Mod key", "mod modifier keyboard hyper prefix")
     case .customShortcut: (.input, "Add Custom Shortcut…", "custom command keybinding keyboard binding")
-    case .shortcutGuide: (.input, "Show guide when holding the main modifier", "show_cheatsheet_on_modifier_hold shortcut guide cheatsheet")
+    case .cheatsheet: (.input, "Show cheatsheet when holding the main modifier", "show_cheatsheet_on_modifier_hold shortcut guide cheatsheet")
     case .keyboardShortcuts: (.input, "Keyboard shortcuts", "keys keybinding bindings record reset actions")
     case .focusedBorder: (.appearance, "Show focused window border", "decorations.borders.enabled")
     case .borderWidth: (.appearance, "Border width", "decorations.borders.width")
