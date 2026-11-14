@@ -52,7 +52,8 @@ struct EventStreamTests {
 
   @Test
   func `Window list reports placement and focus`() {
-    let windows = makeState().windows
+    let state = makeState()
+    let windows = state.windows
     #expect(windows.map(\.id) == [1, 2, 3, 4])
     #expect(windows.map(\.column) == [1, 1, 2, nil])
     #expect(windows.map(\.row) == [1, 2, 1, nil])
@@ -61,6 +62,13 @@ struct EventStreamTests {
     #expect(windows[3].workspace == .init(id: "web", name: "web", position: 2))
     #expect(windows[0].appName == "Example")
     #expect(windows[0].display == 1)
+
+    let workspaces = state.workspaces.monitors[0].workspaces
+    #expect(workspaces[0].windows.map(\.column) == [1, 1, 2])
+    #expect(workspaces[0].windows.map(\.row) == [1, 2, 1])
+    #expect(workspaces[0].windows.map(\.selected) == [true, false, false])
+    #expect(workspaces[1].selectedWindowID == nil)
+    #expect(workspaces[1].windows.map(\.selected) == [false])
   }
 
   @Test
@@ -71,13 +79,14 @@ struct EventStreamTests {
     let events = streamEvents(from: old, to: new)
 
     #expect(events.map(\.event) == [
-      "window-closed", "window-moved", "window-opened", "window-changed", "focus-changed",
+      "workspaces-changed", "window-closed", "window-moved", "window-opened",
+      "window-changed", "focus-changed",
     ])
-    #expect(events[0].windowID == 1)
-    #expect(events[1].window?.id == 2)
-    #expect(events[2].window?.id == 5)
-    #expect(events[3].window?.title == "Renamed")
-    #expect(events[4].windowID == 3)
+    #expect(events[1].windowID == 1)
+    #expect(events[2].window?.id == 2)
+    #expect(events[3].window?.id == 5)
+    #expect(events[4].window?.title == "Renamed")
+    #expect(events[5].windowID == 3)
   }
 
   @Test
@@ -128,8 +137,8 @@ struct EventStreamTests {
     // Two quick changes reach the subscriber as one diff from the snapshot.
     hub.publish(makeState(focusedColumn: 1))
     hub.publish(makeState(focusedColumn: 1, titles: [3: "Renamed"]))
-    let events = try readEvents(from: client, count: 2)
-    #expect(events.map(\.event) == ["window-changed", "focus-changed"])
+    let events = try readEvents(from: client, count: 3)
+    #expect(events.map(\.event) == ["workspaces-changed", "window-changed", "focus-changed"])
   }
 
   @Test
@@ -148,7 +157,8 @@ struct EventStreamTests {
     let joined = try readEvents(from: second, count: 1)
     #expect(joined.map(\.event) == ["snapshot"])
     #expect(joined.first?.windows?.first(where: \.focused)?.id == 3)
-    #expect(try readEvents(from: first, count: 1).map(\.event) == ["focus-changed"])
+    let events = try readEvents(from: first, count: 2)
+    #expect(events.map(\.event) == ["workspaces-changed", "focus-changed"])
   }
 
   @Test

@@ -61,6 +61,9 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
   public let occupied: Bool
   public let applications: [String]
   public let focusedApplication: String?
+  /// The selected window on an active workspace, if any.
+  public let selectedWindowID: UInt64?
+  public let windows: [WorkspaceWindowSnapshot]
 
   public init(
     id: String,
@@ -71,7 +74,9 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
     windowCount: Int,
     applications: [String],
     focusedApplication: String?,
-    icon: String? = nil
+    icon: String? = nil,
+    selectedWindowID: UInt64? = nil,
+    windows: [WorkspaceWindowSnapshot] = []
   ) {
     self.id = id
     self.position = position
@@ -83,7 +88,19 @@ public struct WorkspaceSnapshot: Codable, Equatable, Sendable {
     self.occupied = windowCount > 0
     self.applications = applications
     self.focusedApplication = focusedApplication
+    self.selectedWindowID = selectedWindowID
+    self.windows = windows
   }
+}
+
+public struct WorkspaceWindowSnapshot: Codable, Equatable, Sendable {
+  public let id: UInt64
+  public let appID: String
+  /// 1-based column and row in the strip; nil for floating windows.
+  public let column: Int?
+  public let row: Int?
+  public let floating: Bool
+  public let selected: Bool
 }
 
 public func makeWorkspaceStateSnapshot(
@@ -102,20 +119,29 @@ public func makeWorkspaceStateSnapshot(
         focused: monitor.id == focusedMonitorID,
         activeWorkspace: monitor.activeWorkspace.rawValue,
         workspaces: monitor.workspaces.enumerated().map { offset, workspace in
-          let windowIDs = workspace.columns.flatMap(\.windows) + workspace.floatingWindows
-          let workspaceWindows = windowIDs.compactMap { windows[$0] }
-          let focusedWindowID =
-            workspace.id == monitor.activeWorkspace ? selectedWindowID(in: workspace) : nil
+          let active = workspace.id == monitor.activeWorkspace
+          let selectedWindow =
+            active ? selectedWindowID(in: workspace).flatMap { windows[$0] } : nil
+          var workspaceWindows: [WorkspaceWindowSnapshot] = []
+          forEachWorkspaceWindow(in: workspace) { windowID, column, row in
+            guard let window = windows[windowID] else { return }
+            workspaceWindows.append(WorkspaceWindowSnapshot(
+              id: windowID.rawValue, appID: window.appID, column: column, row: row,
+              floating: column == nil, selected: windowID == selectedWindow?.id
+            ))
+          }
           return WorkspaceSnapshot(
             id: workspace.id.rawValue,
             position: offset + 1,
             name: workspace.name,
             kind: workspace.kind,
-            active: workspace.id == monitor.activeWorkspace,
+            active: active,
             windowCount: workspaceWindows.count,
             applications: Array(Set(workspaceWindows.map(\.appID))).sorted(),
-            focusedApplication: focusedWindowID.flatMap { windows[$0]?.appID },
-            icon: workspace.name.flatMap { workspaceIcons[$0] }
+            focusedApplication: selectedWindow?.appID,
+            icon: workspace.name.flatMap { workspaceIcons[$0] },
+            selectedWindowID: selectedWindow?.id.rawValue,
+            windows: workspaceWindows
           )
         }
       )
@@ -147,6 +173,20 @@ func selectedWindowID(in workspace: Workspace) -> WindowID? {
   let column = workspace.columns[workspace.focusedColumn]
   guard column.windows.indices.contains(column.focusedWindow) else { return nil }
   return column.windows[column.focusedWindow]
+}
+
+func forEachWorkspaceWindow(
+  in workspace: Workspace,
+  _ visit: (WindowID, Int?, Int?) -> Void
+) {
+  for (columnOffset, column) in workspace.columns.enumerated() {
+    for (rowOffset, windowID) in column.windows.enumerated() {
+      visit(windowID, columnOffset + 1, rowOffset + 1)
+    }
+  }
+  for windowID in workspace.floatingWindows {
+    visit(windowID, nil, nil)
+  }
 }
 
 public struct CommandResponse: Codable, Equatable, Sendable {
