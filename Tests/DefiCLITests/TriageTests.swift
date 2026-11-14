@@ -18,12 +18,13 @@ struct TriageTests {
     let options = try Options(arguments: ["--socket", "/tmp/x.sock", "triage", "--agent", "codex"])
 
     #expect(options.triage)
-    #expect(options.triageAgent == .codex)
+    #expect(options.triageAgent == "codex")
     #expect(options.socketURL.path == "/tmp/x.sock")
   }
 
   @Test(arguments: [
-    ["triage", "--agent", "gemini"],
+    ["triage", "--agent", ""],
+    ["triage", "--agent", "--help"],
     ["triage", "--agent"],
     ["triage", "extra"],
     ["triage", "--agent", "claude", "extra"],
@@ -37,35 +38,49 @@ struct TriageTests {
   @Test
   func requestedAgentIsUsedOnlyWhenInstalled() {
     #expect(
-      selectTriageAgent(requested: .codex, installed: [.claude, .codex], isInteractive: false)
-        == .use(.codex))
+      selectTriageAgent(requested: "codex", installed: ["claude", "codex"], isInteractive: false)
+        == .use("codex"))
     #expect(
-      selectTriageAgent(requested: .codex, installed: [.claude], isInteractive: true)
-        == .requestedMissing(.codex))
+      selectTriageAgent(requested: "codex", installed: ["claude"], isInteractive: true)
+        == .requestedMissing("codex"))
     #expect(
-      selectTriageAgent(requested: .claude, installed: [], isInteractive: true)
-        == .requestedMissing(.claude))
+      selectTriageAgent(requested: "claude", installed: [], isInteractive: true)
+        == .requestedMissing("claude"))
+  }
+
+  @Test
+  func parsesAnyAgentCommand() throws {
+    #expect(try Options(arguments: ["triage", "--agent", "gemini"]).triageAgent == "gemini")
+    #expect(
+      try Options(arguments: ["triage", "--agent", "/opt/bin/agent"]).triageAgent == "/opt/bin/agent")
   }
 
   @Test
   func singleInstalledAgentIsUsedWithoutAsking() {
     #expect(
-      selectTriageAgent(requested: nil, installed: [.codex], isInteractive: false) == .use(.codex))
+      selectTriageAgent(requested: nil, installed: ["codex"], isInteractive: false) == .use("codex"))
   }
 
   @Test
   func noInstalledAgentFallsBackToPasting() {
     #expect(
-      selectTriageAgent(requested: nil, installed: [], isInteractive: true) == .noneInstalled)
+      selectTriageAgent(requested: nil, installed: [], isInteractive: false) == .noneInstalled)
+  }
+
+  @Test
+  func terminalAlwaysAsksSoAnotherAgentCanBeNamed() {
+    #expect(selectTriageAgent(requested: nil, installed: [], isInteractive: true) == .ask([]))
+    #expect(
+      selectTriageAgent(requested: nil, installed: ["codex"], isInteractive: true) == .ask(["codex"]))
   }
 
   @Test
   func bothInstalledAsksOnATerminalAndFailsWithoutOne() {
     #expect(
-      selectTriageAgent(requested: nil, installed: [.claude, .codex], isInteractive: true)
-        == .ask([.claude, .codex]))
+      selectTriageAgent(requested: nil, installed: ["claude", "codex"], isInteractive: true)
+        == .ask(["claude", "codex"]))
     #expect(
-      selectTriageAgent(requested: nil, installed: [.claude, .codex], isInteractive: false)
+      selectTriageAgent(requested: nil, installed: ["claude", "codex"], isInteractive: false)
         == .needsTerminal)
   }
 

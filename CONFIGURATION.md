@@ -1111,7 +1111,7 @@ CLI-only:
 | `--monitor <index> <command>` | Run a command on a display, by its 1-based `NSScreen.screens` / SketchyBar index. |
 | `set-reserved-area top\|bottom <points>` | Override the reserved edge on every display, or on one with `--monitor`. |
 | `clear-reserved-area` | Restore the configured reserved edges. |
-| `triage [--agent claude\|codex]` | Write machine facts and a support playbook to `~/Library/Application Support/Defi/triage/`, then start `claude` or `codex` to investigate a problem and draft an issue. Never sent to the daemon. |
+| `triage [--agent <command>]` | Write machine facts and a support playbook to `~/Library/Application Support/Defi/triage/`, then start `claude` or `codex` to investigate a problem and draft an issue. Any other agent command starts in the session directory without a prompt and finds its instructions in `AGENTS.md` there. Never sent to the daemon. |
 
 In `list-workspaces --json`, each workspace has a `windows` array (empty when
 unoccupied). Each entry has `id`, `appID`, `floating`, and `selected`. Tiled

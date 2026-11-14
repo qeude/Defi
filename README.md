@@ -203,8 +203,9 @@ Activity Monitor.
 Run `defi triage`, or choose **Start Triage** in Settings › General ›
 Diagnostics. It collects your machine facts, then starts your own `claude` or
 `codex` to investigate and draft the issue with you. It asks before it fixes or
-posts anything. Without an agent, it prints a prompt you can paste into any
-coding agent.
+posts anything. To use another agent, pick **another agent** in the menu or run
+`defi triage --agent <command>`; it reads its instructions from `AGENTS.md`. Without an agent, it prints a prompt
+you can paste into any coding agent.
 
 To report by hand, include your Defi and macOS versions, the affected apps, your
 monitor setup, and steps to reproduce. `defi status` and `defi trace` help.
