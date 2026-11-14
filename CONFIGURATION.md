@@ -1104,7 +1104,7 @@ CLI-only:
 | Command | Description |
 | --- | --- |
 | `status` | Print Defi's current state. |
-| `list-workspaces` | Print workspace labels per display. Add `--json` for versioned identity, position, name, icon, kind, and app state. `icon` is the configured SF Symbol name, absent when none is set. |
+| `list-workspaces` | Print workspace labels per display. Add `--json` for versioned identity, position, name, icon, kind, app state, and window layout. `icon` is the configured SF Symbol name, absent when none is set. |
 | `list-windows` | Print one managed window per line: ID, app name, and title. Add `--json` for bundle ID, workspace, display, column, row, floating, and focus. |
 | `focus-window-id <id>` | Focus a window by its `list-windows` ID, switching its display to its workspace. |
 | `subscribe --json` | Keep the connection open and print one JSON event per line. See [Event stream](#event-stream). |
@@ -1112,6 +1112,15 @@ CLI-only:
 | `set-reserved-area top\|bottom <points>` | Override the reserved edge on every display, or on one with `--monitor`. |
 | `clear-reserved-area` | Restore the configured reserved edges. |
 | `triage [--agent claude\|codex]` | Write machine facts and a support playbook to `~/Library/Application Support/Defi/triage/`, then start `claude` or `codex` to investigate a problem and draft an issue. Never sent to the daemon. |
+
+In `list-workspaces --json`, each workspace has a `windows` array (empty when
+unoccupied). Each entry has `id`, `appID`, `floating`, and `selected`. Tiled
+windows have 1-based `column` and `row` values. Floating windows follow tiled
+windows and omit both fields. On each display, the active workspace reports
+`selectedWindowID` if it has a selected window. Only that window has
+`selected: true`. Follow `focusedMonitorID`, `activeWorkspace`, and
+`selectedWindowID` to find the focused window. The `workspaceChanged` distributed
+notification uses the same JSON fields.
 
 `list-windows` and the event stream include window titles. They are served only
 over the per-user Unix socket and never written to diagnostics files. See the
@@ -1128,7 +1137,7 @@ over the per-user Unix socket and never written to diagnostics files. See the
 | --- | --- | --- |
 | `snapshot` | `workspaces`, `windows` | on connect |
 | `monitors-changed` | `workspaces` | a display connects, disconnects, or changes order |
-| `workspaces-changed` | `workspaces` | any workspace state changes, including activation, names, icons, order, and occupancy |
+| `workspaces-changed` | `workspaces` | any workspace state changes, including activation, names, icons, order, occupancy, window layout, and selection |
 | `workspace-activated` | `monitorID`, `display`, `workspace` | a display shows another workspace |
 | `window-opened` | `window` | Defi starts managing a window |
 | `window-closed` | `windowID` | Defi stops managing a window |
