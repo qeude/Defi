@@ -57,7 +57,7 @@ public func makeWindowListSnapshot(
       let focusedWindowID =
         monitor.id == focusedMonitorID && workspace.id == monitor.activeWorkspace
         ? selectedWindowID(in: workspace) : nil
-      func append(_ windowID: WindowID, column: Int?, row: Int?) {
+      forEachWorkspaceWindow(in: workspace) { windowID, column, row in
         guard let window = windows[windowID] else { return }
         result.append(WindowSnapshot(
           id: windowID.rawValue, appID: window.appID, appName: appName(window),
@@ -66,14 +66,6 @@ public func makeWindowListSnapshot(
           column: column, row: row, floating: column == nil,
           focused: windowID == focusedWindowID
         ))
-      }
-      for (columnOffset, column) in workspace.columns.enumerated() {
-        for (rowOffset, windowID) in column.windows.enumerated() {
-          append(windowID, column: columnOffset + 1, row: rowOffset + 1)
-        }
-      }
-      for windowID in workspace.floatingWindows {
-        append(windowID, column: nil, row: nil)
       }
     }
   }
