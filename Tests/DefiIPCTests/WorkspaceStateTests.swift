@@ -54,7 +54,8 @@ struct WorkspaceStateTests {
       windows: windows,
       displayOrder: [secondMonitor, firstMonitor],
       focusedMonitorID: secondMonitor,
-      workspaceIcons: ["web": "globe"]
+      workspaceIcons: ["web": "globe"],
+      nativeFullscreenWindowIDs: [windowID]
     )
 
     #expect(snapshot.monitors.map(\.id) == [20, 10])
@@ -91,6 +92,7 @@ struct WorkspaceStateTests {
     #expect(tiled["row"] as? Int == 1)
     #expect(tiled["floating"] as? Bool == false)
     #expect(tiled["selected"] as? Bool == true)
+    #expect(tiled["nativeFullscreen"] as? Bool == true)
     // Any process in the session can read the distributed notification.
     #expect(tiled["title"] == nil)
 
@@ -101,6 +103,7 @@ struct WorkspaceStateTests {
     let floating = try #require((otherWorkspace["windows"] as? [[String: Any]])?.first)
     #expect(floating["floating"] as? Bool == true)
     #expect(floating["selected"] as? Bool == true)
+    #expect(floating["nativeFullscreen"] as? Bool == false)
     #expect(floating["column"] == nil)
     #expect(floating["row"] == nil)
 

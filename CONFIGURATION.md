@@ -1146,9 +1146,11 @@ CLI-only:
 | `triage [--agent <command>]` | Write machine facts and a support playbook to `~/Library/Application Support/Defi/triage/`, then start `claude` or `codex` to investigate a problem and draft an issue. Any other agent command starts in the session directory without a prompt and finds its instructions in `AGENTS.md` there. Never sent to the daemon. |
 
 In `list-workspaces --json`, each workspace has a `windows` array (empty when
-unoccupied). Each entry has `id`, `appID`, `floating`, and `selected`. Tiled
-windows have 1-based `column` and `row` values. Floating windows follow tiled
-windows and omit both fields. On each display, the active workspace reports
+unoccupied). Each entry has `id`, `appID`, `floating`, `selected`, and
+`nativeFullscreen`. A native fullscreen window, tiled or floating, is reported
+as a tiled window at its placeholder column at the end of the strip, with
+`nativeFullscreen: true`. Tiled windows have 1-based `column` and `row` values.
+Floating windows follow tiled windows and omit both fields. On each display, the active workspace reports
 `selectedWindowID` if it has a selected window. Only that window has
 `selected: true`. Follow `focusedMonitorID`, `activeWorkspace`, and
 `selectedWindowID` to find the focused window. The `workspaceChanged` distributed

@@ -78,7 +78,8 @@ The versioned JSON contains:
 - each workspace's window count, occupied state, and the bundle IDs on it
 - the focused app and selected window of each active workspace
 - each workspace's windows: ID, bundle ID, 1-based column and row (absent for
-  floating windows), and whether each is floating or selected
+  floating windows), and whether each is floating, selected, or in native
+  fullscreen
 
 Without `--json`, `defi list-workspaces` prints the labels per display.
 
