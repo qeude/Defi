@@ -963,10 +963,10 @@ public final class OverviewController: NSObject {
       return
     }
     // macOS slides to the chosen window's Space on its own; the Overview must not ride the
-    // slide. It stays open, hidden, until the daemon commits the focus.
+    // slide. It fades out and stays open until the daemon commits the focus.
     if selectionIsOnAnotherSpace(selection, in: snapshot) {
       nativeExitCanZoom = false
-      for panel in panels.values { panel.hide() }
+      for panel in panels.values { panel.fadeOut() }
     }
     closeAfterSelectionAlignment()
   }

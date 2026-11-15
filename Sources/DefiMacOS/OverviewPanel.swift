@@ -309,6 +309,29 @@ final class OverviewPanel {
     }
   }
 
+  /// Fades the whole panel out, wallpaper included, ahead of a macOS Space slide it must not ride.
+  func fadeOut() {
+    cancelSurfaceTransition(reason: "fade-out")
+    let generation = surfaceGeneration
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = 1
+    fade.duration = Self.wallpaperFadeDuration
+    fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+    fade.preferredFrameRateRange = overviewAnimationFrameRate
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    window.isOpaque = false
+    window.backgroundColor = .clear
+    rootView.layer?.opacity = 0
+    rootView.layer?.add(fade, forKey: "overview-wallpaper-fade")
+    CATransaction.commit()
+    surfaceTask = Task { [weak self] in
+      do { try await Task.sleep(for: .seconds(Self.wallpaperFadeDuration)) } catch { return }
+      guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
+      hide()
+    }
+  }
+
   /// The panel covers the menu bar and Dock; cross-fade them in instead of popping.
   /// Core Animation keeps the fade smooth while the main thread is busy.
   private func fadeRevealingDesktop(generation: UInt64) async {
