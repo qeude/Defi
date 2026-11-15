@@ -401,9 +401,8 @@ final class OverviewPanel {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     if rootView.layer?.mask === chromeMask.mask { rootView.layer?.mask = nil }
-    let hasWallpaper = usesCapturedDesktop && desktopView.layer?.contents != nil
-    window.isOpaque = hasWallpaper
-    window.backgroundColor = hasWallpaper ? .black : .clear
+    // The window stays non-opaque: turning it opaque and back while shown lets one frame
+    // show the windows beneath, seen at closing over a full-screen window.
     CATransaction.commit()
   }
 
