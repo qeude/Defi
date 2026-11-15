@@ -436,17 +436,6 @@ struct ScrollGestureSnapTests {
   }
 
   @Test
-  func `A swipe never lands on a native fullscreen column`() throws {
-    let hidden: Set<WindowID> = [WindowID(rawValue: 4)]
-    let snap = try #require(scrollGestureSnap(workspace: workspace(), viewport: viewport,
-      settings: LayoutSettings(), excludingWindowIDs: hidden, rest: 0, current: 0.6, projected: 9))
-    #expect(snap.column == 2)
-    let free = try #require(scrollGestureFreeRest(workspace: workspace(), viewport: viewport,
-      settings: LayoutSettings(), excludingWindowIDs: hidden, current: 0.6, projected: 9))
-    #expect(free.column == 2)
-  }
-
-  @Test
   func `A free position holds against the centring policy until focus leaves the column`() {
     let settings = LayoutSettings(centerFocusedColumn: .always)
     var free = workspace(focusedColumn: 1)

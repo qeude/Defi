@@ -123,9 +123,9 @@ extension Daemon {
       moving.formUnion(neighbors.keys)
     } else {
       guard !workspace.columns.isEmpty else { return }
+      // The native fullscreen placeholders end the strip, as for key presses.
       let extents = scrollGestureExtents(workspace: workspace, viewport: viewport,
-        windows: tiled.compactMap { state.windows[$0] }, settings: state.layout,
-        excludingWindowIDs: state.nativeFullscreenWindowIDs)
+        windows: tiled.compactMap { state.windows[$0] }, settings: state.layout)
       guard let lowest = extents.map(\.lowerBound).min(), let highest = extents.map(\.upperBound).max()
       else { return }
       let rest = workspace.targetScrollOffset
@@ -180,11 +180,10 @@ extension Daemon {
     let windows = workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] }
     guard let snap = config.input.scrollGestureSnap
       ? scrollGestureSnap(workspace: workspace, viewport: pan.viewport, windows: windows,
-        settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs,
-        rest: pan.rest, current: offset, projected: pan.rest - projected / pan.stripWidth)
+        settings: state.layout, rest: pan.rest, current: offset,
+        projected: pan.rest - projected / pan.stripWidth)
       : scrollGestureFreeRest(workspace: workspace, viewport: pan.viewport, windows: windows,
-        settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs,
-        current: offset, projected: pan.rest - projected / pan.stripWidth),
+        settings: state.layout, current: offset, projected: pan.rest - projected / pan.stripWidth),
       settleScrollGesture(monitorID: pan.monitorID, workspaceID: pan.workspaceID,
         column: snap.column, offset: snap.offset, focus: snap.focus, state: &state)
     else {
@@ -198,7 +197,10 @@ extension Daemon {
     commandGeneration &+= 1
     activeMonitorID = pan.monitorID
     settleScrollPan(on: pan.monitorID)
-    if let selected = state.selectedWindowID(on: pan.monitorID) {
+    // A swipe only selects a placeholder: focusing its window would switch to its Space.
+    if let selected = state.selectedWindowID(on: pan.monitorID),
+      !state.nativeFullscreenWindowIDs.contains(selected)
+    {
       focus.queueCommand(PendingAnimatedFocus(
         windowID: selected,
         previousSelectedWindowID: previouslySelectedWindowID,
