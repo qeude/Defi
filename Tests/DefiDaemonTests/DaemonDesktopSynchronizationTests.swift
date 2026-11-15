@@ -1,5 +1,4 @@
 import DefiConfig
-import DefiMacOS
 import DefiModel
 import DefiRuntime
 import Foundation
@@ -7,6 +6,7 @@ import Synchronization
 import Testing
 
 @testable import DefiDaemon
+@testable import DefiMacOS
 
 struct DaemonDesktopSynchronizationTests {
   @Test(arguments: [
@@ -188,5 +188,68 @@ struct DaemonDesktopSynchronizationTests {
     #expect(immediate.workspaceID == WorkspaceID(rawValue: "web") || immediate.monitorID == MonitorID(rawValue: 2))
     let late = try open(late: true)
     #expect(late == immediate)
+  }
+
+  /// A floating window an app opens on another display, such as Settings where the app last
+  /// left it, moves to its app's display or else to the active one, frame included, unless
+  /// the active display shows a native fullscreen Space.
+  @Test(arguments: [("editor", false, true), ("settings", false, true), ("settings", true, false)])
+  @NavigationActor
+  func newFloatingWindowOpensOnTheActiveDisplay(
+    appID: String, activeDisplayIsFullscreen: Bool, moves: Bool
+  ) async throws {
+    let directory = URL(filePath: "/tmp/defi-floating-open-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let configURL = directory.appending(path: "config.toml")
+    try "[animation]\nenabled = false\n".write(to: configURL, atomically: true, encoding: .utf8)
+    let menuBar = await MainActor.run { MenuBarState(accessibilityTrusted: { false }) }
+    let daemon = try Daemon(
+      options: DaemonOptions(arguments: [
+        "--config", configURL.path, "--socket", directory.appending(path: "daemon.sock").path,
+      ]),
+      menuBar: menuBar,
+      instanceLockURL: directory.appending(path: "daemon.lock"),
+      topologyStore: WorkspaceTopologyStore(url: directory.appending(path: "topology.json")),
+      workspaceStatePublisher: { _ in },
+      desktopSnapshotOverviewUpdater: { _ in }
+    )
+    defer { daemon.flushPendingTopologyWrite() }
+    daemon.restorationInFlight = true
+    let first = MonitorSnapshot(id: MonitorID(rawValue: 1), frame: Rect(x: 0, y: 0, width: 1_000, height: 700))
+    let second = MonitorSnapshot(
+      id: MonitorID(rawValue: 2), frame: Rect(x: 1_000, y: 0, width: 1_000, height: 700))
+    let editor = Window(id: WindowID(rawValue: 1), appID: "editor", title: "Editor",
+      frame: Rect(x: 1_000, y: 0, width: 800, height: 700), processID: 1, monitorID: second.id)
+    let settings = Window(id: WindowID(rawValue: 2), appID: appID, title: "Settings",
+      frame: Rect(x: 100, y: 100, width: 400, height: 300), processID: appID == "editor" ? 1 : 2,
+      monitorID: first.id, floating: true, floatingOrigin: .automatic)
+    func apply(_ windows: [Window], focused: WindowID) {
+      daemon.applyDesktopSnapshot(
+        DesktopSnapshot(monitors: [first, second], windows: windows,
+          activeNativeFullscreenWindowIDs: activeDisplayIsFullscreen ? [editor.id] : [],
+          focusedWindowID: focused, nativeFocusChanged: true,
+          frontmostProcessID: windows.last?.processID),
+        nativeFocusWasPending: false, forceFullWindowRefresh: false, forceWindowListRefresh: false,
+        forceApplicationInventoryRefresh: false, targetedWindowRetryRefresh: false,
+        consumePeriodicWindowRefresh: false
+      )
+    }
+    apply([editor], focused: editor.id)
+    daemon.activeMonitorID = second.id
+
+    apply([editor, settings], focused: settings.id)
+
+    #expect(daemon.state.monitorID(containing: settings.id) == (moves ? second.id : first.id))
+    #expect(daemon.floatingWindowFrames[settings.id] == Rect(x: moves ? 1_100 : 100, y: 100, width: 400, height: 300))
+
+    // The app grows the window once it has moved (Finder's Settings): its size is the app's.
+    var grown = settings
+    grown.frame = Rect(x: moves ? 1_100 : 100, y: 100, width: 400, height: 310)
+    grown.monitorID = moves ? second.id : first.id
+    // The move's write still waits on a commit that the grown height never matches.
+    if moves { daemon.platform.targetFrames[settings.id] = Rect(x: 1_100, y: 100, width: 400, height: 300) }
+    apply([editor, grown], focused: settings.id)
+    #expect(daemon.floatingWindowFrames[settings.id] == grown.frame)
   }
 }

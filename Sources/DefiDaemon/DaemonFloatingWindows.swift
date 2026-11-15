@@ -23,6 +23,7 @@ func updateFloatingWindowFrames(
     floatingWindowFrames = floatingWindowFrames.filter {
       trackedFloatingIDs.contains($0.key)
     }
+    displayMovedFloatingWindowIDs.formIntersection(trackedFloatingIDs)
     for window in windows where trackedFloatingIDs.contains(window.id) {
       if !displayGeometryChanged,
         mouseResizeGestureActive,
@@ -53,6 +54,15 @@ func updateFloatingWindowFrames(
       }
       guard floatingWindowFrames[window.id] != nil else {
         floatingWindowFrames[window.id] = window.frame
+        continue
+      }
+      // Once the move lands, the size is the app's: Finder grows its Settings after they move.
+      if displayMovedFloatingWindowIDs.contains(window.id), let target = floatingWindowFrames[window.id],
+        abs(target.x - window.frame.x) < 2, abs(target.y - window.frame.y) < 2
+      {
+        displayMovedFloatingWindowIDs.remove(window.id)
+        floatingWindowFrames[window.id] = window.frame
+        platform.acceptObservedFrame(window.frame, for: window.id)
         continue
       }
       guard !platform.isWindowHidden(window.id),

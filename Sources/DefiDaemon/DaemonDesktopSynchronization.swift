@@ -369,6 +369,12 @@ extension Daemon {
       invalidateSubmittedCommandFocus()
     }
     let lateTitleRuleCandidateIDs = Set(state.lateTitleRuleCandidates.keys)
+    let latestWindowIDBeforeSnapshot = state.latestWindowID?.rawValue ?? 0
+    // A window cannot show over another app's native fullscreen Space.
+    let openingMonitorID = activeMonitorID.flatMap { monitorID in
+      snapshot.activeNativeFullscreenWindowIDs.contains { state.monitorID(containing: $0) == monitorID }
+        ? nil : monitorID
+    }
     let relocatedTransientIDs = reconcileWindows(
       snapshot.windows,
       config: config,
@@ -381,11 +387,12 @@ extension Daemon {
       frontmostProcessID: snapshot.frontmostProcessID,
       displays: latestMonitors.map { ($0.id, $0.name) },
       appliesOpenFocus: hasSynchronizedDesktop,
+      activeMonitorID: openingMonitorID,
       now: snapshotCompletedAt,
       state: &state
     )
     var forcedOpeningFocusWindowID: WindowID?
-    // Floating windows a rule sent to another display, by the display they opened on.
+    // New floating windows placed on another display than the one they opened on, by that display.
     var ruleRelocatedFloatingMonitorIDs: [WindowID: MonitorID] = [:]
     unfocusedOpenings = unfocusedOpenings.filter {
       state.windows[$0.key] != nil && snapshotCompletedAt - $0.value <= unfocusedOpeningGrace
@@ -397,7 +404,12 @@ extension Daemon {
     where !previouslyManagedWindowIDs.contains(windowID) || lateTitleRuledWindowIDs.contains(windowID) {
       guard let window = state.windows[windowID] else { continue }
       let decision = config.decision(for: window)
-      if decision.monitor != nil, window.floating, let observedMonitorID = window.monitorID,
+      // Windows already open when Defi starts, or returning from minimize or hide, stay where
+      // they are unless a rule moves them.
+      if decision.monitor != nil
+        || (hasSynchronizedDesktop && windowID.rawValue > latestWindowIDBeforeSnapshot),
+        window.floating,
+        let observedMonitorID = window.monitorID,
         state.monitorID(containing: windowID) != observedMonitorID
       {
         ruleRelocatedFloatingMonitorIDs[windowID] = observedMonitorID
@@ -485,6 +497,7 @@ extension Daemon {
       )
     }
     if !ruleRelocatedFloatingMonitorIDs.isEmpty {
+      displayMovedFloatingWindowIDs.formUnion(ruleRelocatedFloatingMonitorIDs.keys)
       rebaseFloatingWindowFrames(
         previousViewports: viewportsByMonitor,
         nextViewports: viewportsByMonitor,

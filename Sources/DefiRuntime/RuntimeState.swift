@@ -28,6 +28,7 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
   public var suspendedTiledPlacements: [WindowID: SuspendedTiledPlacement]
   // A new key: stores with the former single-entry history decode and start empty.
   public var recentWindowIDs: [WindowID]?
+  public var latestWindowID: WindowID?
 
   public init(state: RuntimeState) {
     monitorStableIDs = state.monitorStableIDs
@@ -44,6 +45,7 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
       state.pendingNativeFullscreenWidthResetWindowIDs
     suspendedTiledPlacements = state.suspendedTiledPlacements
     recentWindowIDs = state.recentWindowIDs
+    latestWindowID = state.latestWindowID
   }
 }
 
@@ -73,6 +75,9 @@ public struct RuntimeState: Equatable, Sendable {
   public var recentWindowIDs: [WindowID] = []
   /// Windows opened moments ago whose rules may still match a title the app sets late.
   public var lateTitleRuleCandidates: [WindowID: LateTitleRuleCandidate] = [:]
+  /// The highest window ID discovered this login session. WindowServer numbers windows in
+  /// increasing order, so a window returning from minimize, hide, or a restart is never above it.
+  public var latestWindowID: WindowID?
 
   public init(config: Config) {
     let names = config.workspaces.names.map(WorkspaceID.init(rawValue:))
@@ -120,6 +125,7 @@ public struct RuntimeState: Equatable, Sendable {
       topology.pendingNativeFullscreenWidthResetWindowIDs
     suspendedTiledPlacements = topology.suspendedTiledPlacements
     recentWindowIDs = topology.recentWindowIDs ?? []
+    latestWindowID = topology.latestWindowID
     clearChangedWorkspaceAffinities(
       previousIDs: topology.workspaceMonitorIDs ?? workspaceMonitorIDs,
       nextIDs: workspaceMonitorIDs,

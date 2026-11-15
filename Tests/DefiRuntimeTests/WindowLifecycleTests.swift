@@ -239,6 +239,71 @@ struct WindowLifecycleTests {
   }
 
   @Test
+  func `Only a floating window the app in use opens appears on the active monitor`() {
+    let second = MonitorID(rawValue: 2)
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    state.attachMonitor(second)
+    func window(
+      _ id: UInt64, app: Int32? = nil, floating: Bool = true, subrole: String? = nil, on monitor: MonitorID? = nil
+    ) -> Window {
+      Window(
+        id: WindowID(rawValue: id), appID: "app-\(app ?? Int32(id))", title: "Window \(id)",
+        frame: Rect(x: 0, y: 0, width: 400, height: 300), subrole: subrole, processID: app ?? Int32(id),
+        monitorID: monitor ?? monitorID, floating: floating, floatingOrigin: floating ? .automatic : nil
+      )
+    }
+    func open(_ windows: [Window], frontmost: Int32? = nil) {
+      reconcileWindows(
+        windows, config: config, frontmostProcessID: frontmost ?? windows.last?.processID,
+        activeMonitorID: second, state: &state)
+    }
+    func monitor(_ id: UInt64) -> MonitorID? { state.monitorID(containing: WindowID(rawValue: id)) }
+
+    let present = window(1)
+    reconcileWindows([present], config: config, appliesOpenFocus: false, activeMonitorID: second, state: &state)
+    #expect(monitor(1) == monitorID)
+
+    var windows = [present, window(2)]
+    open(windows)
+    #expect(monitor(2) == second)
+    windows.append(window(3, floating: false))
+    open(windows)
+    #expect(monitor(3) == monitorID)
+    // A background app's window, such as one macOS reopens at login, stays where it opens.
+    windows.append(window(4))
+    open(windows, frontmost: 3)
+    #expect(monitor(4) == monitorID)
+
+    // Minimizing removes a window from the snapshot; it returns with the same ID, even after a restart.
+    open(windows.filter { $0.id.rawValue != 1 })
+    state = RuntimeState(config: config, topology: WorkspaceTopology(state: state))
+    open(windows, frontmost: 1)
+    #expect(monitor(1) == monitorID)
+
+    // An app restoring a document with its palette keeps them together, whatever the discovery order.
+    windows += [window(5, app: 9), window(6, app: 9, floating: false)]
+    open(windows, frontmost: 9)
+    #expect(monitor(5) == monitorID)
+    #expect(monitor(6) == monitorID)
+    // An app that already shows a window on the active monitor opens its new floating window there.
+    windows.append(window(7, app: 9, floating: false, on: second))
+    open(windows)
+    windows.append(window(8, app: 9))
+    open(windows)
+    #expect(monitor(8) == second)
+    // A palette that shows before its document never crosses displays on its own.
+    windows.append(window(9, app: 10, subrole: "AXFloatingWindow"))
+    open(windows)
+    #expect(monitor(9) == monitorID)
+    windows.append(window(10, app: 10, floating: false))
+    open(windows)
+    #expect(monitor(9) == monitorID)
+    #expect(monitor(10) == monitorID)
+  }
+
+  @Test
   func `Transient inherits owners workspace without activating it`() throws {
     let config = Config(workspaces: WorkspacesConfig(names: ["dev", "web"]))
     var state = RuntimeState(config: config)
