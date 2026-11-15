@@ -729,7 +729,8 @@ Dock and reserved areas) is placed at its minimum, top-aligned, and listed in
 with `/bin/sh -c` in your home folder and does not wait for it. A script drives
 Defi with `defi` commands and reads its state with `defi list-workspaces --json`
 or `defi subscribe --json`. Its `PATH` starts with the folder holding `defi`,
-then `/opt/homebrew/bin` and `/usr/local/bin`.
+then `/opt/homebrew/bin` and `/usr/local/bin`. macOS treats the command as part
+of Defi, so it shares Defi's Accessibility and Screen Recording permissions.
 
 ```toml
 [keys]
