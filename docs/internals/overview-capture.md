@@ -1,6 +1,6 @@
 # Overview capture
 
-Defi builds each monitor's Overview from logical runtime state. Window previews
+Defi builds each monitor's Overview from the same runtime state as the strip. Window previews
 are on by default, refreshed once per Overview session, and never required for
 navigation, focus, or window movement. All committed focus and topology changes
 still pass through `DefiRuntime` (see [macOS authority](./macos-authority.md)).

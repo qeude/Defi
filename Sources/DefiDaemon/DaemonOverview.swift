@@ -340,9 +340,9 @@ extension Daemon {
     }
   }
 
-  private func makeOverviewSnapshot() -> OverviewSnapshot {
+  func makeOverviewSnapshot() -> OverviewSnapshot {
     OverviewSnapshot(
-      monitors: logicalOverviewMonitors(state: state),
+      monitors: state.monitors,
       monitorFrames: Dictionary(
         uniqueKeysWithValues: latestMonitors.map { ($0.id, $0.frame) }
       ),

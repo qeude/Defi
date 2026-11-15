@@ -354,49 +354,6 @@ struct OverviewRuntimeTests {
     )
   }
 
-  @Test
-  func `Logical overview restores fullscreen stacks without changing runtime state`() {
-    var state = makeState()
-    let first = WindowID(rawValue: 1)
-    let fullscreen = WindowID(rawValue: 2)
-    let removed = WindowID(rawValue: 3)
-    let floating = WindowID(rawValue: 4)
-    let column = Column(
-      windows: [first, fullscreen, removed], focusedWindow: 1,
-      width: .pixels(420), preMaximizedWidth: .fraction(0.5)
-    )
-    for id in [first, fullscreen, removed, floating] {
-      state.windows[id] = window(id, monitorID: firstMonitor)
-    }
-    state.windows[floating]?.floating = true
-    state.monitors[0].workspaces[0].columns = [column]
-    state.monitors[0].workspaces[0].floatingWindows = [floating]
-    let config = Config(workspaces: WorkspacesConfig(names: ["1", "2", "remote"]))
-    reconcileWindows(
-      [first, fullscreen, removed, floating].compactMap { state.windows[$0] },
-      config: config,
-      nativeFullscreenWindowIDs: [fullscreen, floating],
-      state: &state
-    )
-    state.windows[removed] = nil
-    state.monitors[0].workspaces[0].scrollOffset = 45
-    state.monitors[0].workspaces[0].targetScrollOffset = 80
-    let original = state
-    let projected = logicalOverviewMonitors(state: state)
-    let workspace = projected[0].workspaces[0]
-
-    #expect(workspace.columns.count == 1)
-    #expect(workspace.columns[0].windows == [first, fullscreen])
-    #expect(workspace.columns[0].width == .pixels(420))
-    #expect(workspace.columns[0].preMaximizedWidth == .fraction(0.5))
-    #expect(workspace.columns[0].focusedWindow == 1)
-    #expect(workspace.floatingWindows == [floating])
-    #expect(workspace.scrollOffset == 45)
-    #expect(workspace.targetScrollOffset == 80)
-    #expect(projected[1] == original.monitors[1])
-    #expect(state == original)
-  }
-
   private func makeState() -> RuntimeState {
     var state = RuntimeState(
       config: Config(
