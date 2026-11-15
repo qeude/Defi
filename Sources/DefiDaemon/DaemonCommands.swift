@@ -77,6 +77,9 @@ private func ipcEventHandler(
         let handled = try server.poll(
           on: clientQueue,
           handler: { request in
+            if refusedOverIPC(request.command) {
+              return .failure("spawn-sh runs only from a shortcut in config.toml")
+            }
             if DaemonReadResponseCache.isReadCommand(request.command),
               let cached = readResponseCache.response(
                 for: request.command,
@@ -430,6 +433,9 @@ extension Daemon {
       if parsedCommand == .openSettings {
         DispatchQueue.main.async { openDefiSettings() }
         return .success()
+      }
+      if case .spawnShell(let script) = parsedCommand {
+        return spawnShell(script)
       }
       if overviewState.isOpen, parsedCommand.editsSelectedLayout, monitorIndex == nil {
         let originatingSession = overviewToggleState.snapshot().sessionGeneration
@@ -1125,4 +1131,39 @@ private func monitorIDsByWindow(
     monitorIDs[windowID] = location.monitorID
   }
   return monitorIDs
+}
+
+/// Any local process can reach the socket, and the shell would inherit Defi's TCC grants.
+func refusedOverIPC(_ rawCommand: String) -> Bool {
+  if case .spawnShell = try? parseCommand(rawCommand) { return true }
+  return false
+}
+
+/// Runs a `spawn-sh` command line without waiting for it, as Niri does.
+func spawnShell(_ script: String) -> CommandResponse {
+  let process = Process()
+  process.executableURL = URL(filePath: "/bin/sh")
+  process.arguments = ["-c", script]
+  process.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+  process.standardInput = FileHandle.nullDevice
+  var environment = ProcessInfo.processInfo.environment
+  environment["PATH"] = spawnSearchPath(inherited: environment["PATH"])
+  process.environment = environment
+  do {
+    try process.run()
+    return .success()
+  } catch {
+    return .failure("spawn-sh failed: \(error.localizedDescription)")
+  }
+}
+
+/// launchd starts agents with a bare PATH, so put `defi` and Homebrew where scripts expect them.
+func spawnSearchPath(inherited: String?, executableDirectory: String? = Bundle.main.executableURL?
+  .deletingLastPathComponent().path) -> String {
+  var entries = [executableDirectory, "/opt/homebrew/bin", "/usr/local/bin"].compactMap { $0 }
+  for entry in (inherited ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
+  where !entries.contains(entry) {
+    entries.append(entry)
+  }
+  return entries.joined(separator: ":")
 }

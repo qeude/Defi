@@ -78,6 +78,7 @@ public enum Command: Equatable, Codable, Sendable {
   case toggleOverview
   case openSettings
   case runStartupCommands
+  case spawnShell(String)
 
   public var editsSelectedLayout: Bool {
     switch self {
