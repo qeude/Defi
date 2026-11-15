@@ -176,7 +176,9 @@ final class OverviewPanel {
     openingTransitionInProgress = true
     openingTransitionChanged?("started(\(scene.openingContentDescription))")
     view.suppressedSurfaceWindowIDs = windowIDs
-    glassView.alphaValue = 0
+    // Not 0: the glass and its cards render once during the still first pose, so the first
+    // moving frame of the zoom does not pay for them. The tint is invisible at this alpha.
+    glassView.alphaValue = 0.002
     coverChrome(0, duration: 0)
     rootView.layer?.addSublayer(scene.layer)
     window.alphaValue = 1
