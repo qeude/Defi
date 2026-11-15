@@ -127,18 +127,21 @@ final class OverviewSurfaceScene {
       let frame = CGRect(x: lerp(source.minX, target.minX), y: lerp(source.minY, target.minY),
         width: lerp(source.width, target.width), height: lerp(source.height, target.height))
       let presented = item.presentation() ?? item
-      let from = (presented.position, presented.transform, presented.cornerRadius)
+      let from = (presented.position, presented.transform, presented.cornerRadius, presented.contentsRect)
       item.position = frame.origin
       item.transform = CATransform3DMakeScale(frame.width / source.width, frame.height / source.height, 1)
       item.cornerRadius = cornerRadius * source.width / frame.width
+      item.contentsRect = overviewAspectFillContentsRect(for: source.size, in: frame.size)
       let position = CABasicAnimation(keyPath: "position")
       position.fromValue = NSValue(point: from.0)
       let transform = CABasicAnimation(keyPath: "transform")
       transform.fromValue = NSValue(caTransform3D: from.1)
       let radius = CABasicAnimation(keyPath: "cornerRadius")
       radius.fromValue = from.2
+      let crop = CABasicAnimation(keyPath: "contentsRect")
+      crop.fromValue = NSValue(rect: from.3)
       let group = CAAnimationGroup()
-      group.animations = [position, transform, radius]
+      group.animations = [position, transform, radius, crop]
       group.duration = glide
       group.timingFunction = CAMediaTimingFunction(name: .easeOut)
       group.preferredFrameRateRange = overviewAnimationFrameRate
@@ -168,6 +171,13 @@ final class OverviewSurfaceScene {
       radius.fromValue = presented?.cornerRadius ?? cornerRadius * source.width / start.width
       item.cornerRadius = cornerRadius * source.width / end.width
       radius.toValue = item.cornerRadius
+      // A card shaped unlike its window, such as a full-screen one, crops like the card
+      // instead of stretching.
+      let crop = CABasicAnimation(keyPath: "contentsRect")
+      crop.fromValue = NSValue(rect: presented?.contentsRect
+        ?? overviewAspectFillContentsRect(for: source.size, in: start.size))
+      item.contentsRect = overviewAspectFillContentsRect(for: source.size, in: end.size)
+      crop.toValue = NSValue(rect: item.contentsRect)
       let position = CABasicAnimation(keyPath: "position")
       position.fromValue = NSValue(point: startPosition)
       position.toValue = NSValue(point: end.origin)
@@ -175,7 +185,7 @@ final class OverviewSurfaceScene {
       transform.fromValue = NSValue(caTransform3D: startTransform)
       transform.toValue = NSValue(caTransform3D: item.transform)
       let group = CAAnimationGroup()
-      group.animations = [position, transform, radius]
+      group.animations = [position, transform, radius, crop]
       group.duration = duration
       group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       group.preferredFrameRateRange = overviewAnimationFrameRate
