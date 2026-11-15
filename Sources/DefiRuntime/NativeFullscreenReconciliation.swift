@@ -244,15 +244,10 @@ private func normalizeNativeFullscreenColumns(
       visible.focusedWindow = min(visible.focusedWindow, visibleWindowIDs.count - 1)
       visibleColumns.append(visible)
     }
+    // A full-screen window spans the display, so its column spans the viewport; the
+    // placement keeps the width it returns to.
     for windowID in column.windows where fullscreenWindowIDs.contains(windowID) {
-      let saved = placements[windowID]?.column
-      fullscreenColumns.append(
-        Column(
-          window: windowID,
-          width: saved?.width ?? column.width,
-          preMaximizedWidth: saved?.preMaximizedWidth ?? column.preMaximizedWidth
-        )
-      )
+      fullscreenColumns.append(Column(window: windowID, width: .fraction(1)))
     }
   }
   fullscreenColumns.sort {

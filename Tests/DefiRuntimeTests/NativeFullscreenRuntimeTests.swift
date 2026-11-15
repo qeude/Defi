@@ -27,6 +27,7 @@ struct NativeFullscreenRuntimeTests {
     #expect(state.windows[fullscreenID]?.minimumTiledWidth == nil)
     #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.columnIndex == 1)
     #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.column.width == .pixels(420))
+    #expect(state.monitors[0].workspaces[0].columns[2].width == .fraction(1))
     let layout = computeLayout(
       workspace: state.monitors[0].workspaces[0],
       viewport: Rect(x: 0, y: 0, width: 1_000, height: 800),
