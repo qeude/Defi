@@ -622,6 +622,7 @@ When a workspace is named `up` or `down`, use `move-column-to-workspace-name
 | `toggle-cheatsheet` | Open or close the shortcut help. | `mod-shift-slash` |
 | `open-settings` | Open Settings, even with the menu bar item hidden. | unset |
 | `diagnostic-mark` | Record the current status and recent trace, without changing windows. See [Diagnostics](#diagnostics). | unset |
+| `spawn-sh <command line>` | Run the rest of the line with `/bin/sh -c`. See [Scripts](#scripts). | unset |
 
 `previous` may be written `prev`. `focus-column` and `focus-window` also accept
 `previous`/`next`, and `focus-floating` accepts `left`/`right` and `up`/`down`.
@@ -721,6 +722,23 @@ Dock and reserved areas) is placed at its minimum, top-aligned, and listed in
 `oversized-stack-windows` of `defi status`.
 
 </details>
+
+### Scripts
+
+`spawn-sh` adds your own commands, as in Niri. Defi starts the command line
+with `/bin/sh -c` in your home folder and does not wait for it. A script drives
+Defi with `defi` commands and reads its state with `defi list-workspaces --json`
+or `defi subscribe --json`. Its `PATH` starts with the folder holding `defi`,
+then `/opt/homebrew/bin` and `/usr/local/bin`.
+
+```toml
+[keys]
+"mod-backspace" = "spawn-sh ~/.config/defi/swap.sh"
+"mod-shift-t" = "spawn-sh open -na Ghostty"
+```
+
+Each `defi` command in a script animates on its own, so a script that chains
+moves shows each step.
 
 ## `[input]`
 

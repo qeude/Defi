@@ -170,6 +170,10 @@ public func parseCommand(_ input: String) throws -> Command {
     return .openSettings
   case "run-startup-commands":
     return .runStartupCommands
+  case "spawn-sh":
+    let script = input.drop { $0.isWhitespace }.dropFirst(name.count).trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !script.isEmpty else { throw CommandParseError.missingArgument("command") }
+    return .spawnShell(script)
   default:
     throw CommandParseError.unknownCommand(name)
   }
