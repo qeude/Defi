@@ -240,7 +240,6 @@ public func scrollGestureSnap(
   viewport: Rect,
   windows: [Window] = [],
   settings: LayoutSettings,
-  excludingWindowIDs: Set<WindowID> = [],
   rest: Double,
   current: Double,
   projected: Double
@@ -258,7 +257,7 @@ public func scrollGestureSnap(
     if direction == 1 {
       let target = focusedColumnScrollTarget(
         workspace: stepped, viewport: viewport, windows: windows,
-        settings: settings, excludingWindowIDs: excludingWindowIDs)
+        settings: settings)
       rests.append((column, target.offset, target.focus))
     }
     while workspace.columns.indices.contains(column + direction) {
@@ -266,14 +265,12 @@ public func scrollGestureSnap(
       stepped.focusedColumn = column
       let target = focusedColumnScrollTarget(
         workspace: stepped, viewport: viewport, windows: windows,
-        settings: settings, excludingWindowIDs: excludingWindowIDs)
+        settings: settings)
       stepped.scrollOffset = target.offset
       stepped.scrollFocus = target.focus
       rests.append((column, target.offset, target.focus))
     }
   }
-  // A native fullscreen column rests where its neighbour does; it is never the landing.
-  rests.removeAll { isOutOfLayout(workspace.columns[$0.column], excludingWindowIDs) }
   rests.sort { $0.column < $1.column }
   let offsets = rests.map(\.offset).sorted()
   // A flick carries to the next resting place at most, never several columns at once:
@@ -303,7 +300,6 @@ public func scrollGestureFreeRest(
   viewport: Rect,
   windows: [Window] = [],
   settings: LayoutSettings,
-  excludingWindowIDs: Set<WindowID> = [],
   current: Double,
   projected: Double
 ) -> (column: Int, offset: Double, focus: ScrollFocus?)? {
@@ -312,36 +308,25 @@ public func scrollGestureFreeRest(
   revealing.centerFocusedColumn = .never
   revealing.alwaysCenterSingleColumn = false
   let extents = scrollGestureExtents(workspace: workspace, viewport: viewport, windows: windows,
-    settings: revealing, excludingWindowIDs: excludingWindowIDs)
-  // Columns in the layout, with their centres in strip widths.
-  let shown = workspace.columns.indices.filter { !isOutOfLayout(workspace.columns[$0], excludingWindowIDs) }
-  guard let lowest = shown.map({ extents[$0].lowerBound }).min(),
-    let highest = shown.map({ extents[$0].upperBound }).max()
+    settings: revealing)
+  guard let lowest = extents.map(\.lowerBound).min(), let highest = extents.map(\.upperBound).max()
   else { return nil }
   let wanted = min(max(projected, lowest), highest)
   let forward = projected >= current
-  let widths = columnWidthsInViewports(
-    workspaceForLayout(workspace, excludingWindowIDs: excludingWindowIDs).columns, viewport: viewport,
+  let widths = columnWidthsInViewports(workspace.columns, viewport: viewport,
     windowsByID: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) }), settings: settings)
-  guard shown.count == widths.count else { return nil }
-  let centers = Dictionary(uniqueKeysWithValues: shown.indices.map {
-    (shown[$0], widths.prefix($0).reduce(0, +) + widths[$0] / 2)
-  })
   let distance = { (column: Int) in
     (max(extents[column].lowerBound - wanted, wanted - extents[column].upperBound, 0),
-      abs(centers[column]! - (wanted + 0.5)), forward ? -column : column)
+      abs(widths.prefix(column).reduce(0, +) + widths[column] / 2 - (wanted + 0.5)),
+      forward ? -column : column)
   }
-  guard let column = shown.min(by: { distance($0) < distance($1) }) else { return nil }
+  guard let column = workspace.columns.indices.min(by: { distance($0) < distance($1) })
+  else { return nil }
   let extent = extents[column]
   let rows = workspace.columns[column]
   let windowID = rows.windows.indices.contains(rows.focusedWindow) ? rows.windows[rows.focusedWindow] : nil
   return (column, min(max(wanted, extent.lowerBound), extent.upperBound),
     windowID.map { ScrollFocus(windowID: $0, centered: false, free: true) })
-}
-
-/// Whether layout leaves the column out: every window in it is excluded (native fullscreen).
-private func isOutOfLayout(_ column: Column, _ excludingWindowIDs: Set<WindowID>) -> Bool {
-  column.windows.allSatisfy(excludingWindowIDs.contains)
 }
 
 /// Each column's resting offsets: the focus policy pushed from the right, then from the

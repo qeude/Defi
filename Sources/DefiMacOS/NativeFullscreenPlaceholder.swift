@@ -122,9 +122,8 @@ private final class NativeFullscreenPlaceholderPanel {
     panel.hasShadow = false
     panel.sharingType = .readOnly
     panel.level = .normal
-    panel.collectionBehavior = [
-      .ignoresCycle,
-    ]
+    // Like the borders: ordered in while the fullscreen Space is active, it would stay there.
+    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .transient]
     panel.hidesOnDeactivate = false
     panel.isReleasedWhenClosed = false
     panel.isExcludedFromWindowsMenu = true
@@ -191,52 +190,17 @@ private final class NativeFullscreenPlaceholderPanel {
 
 @MainActor
 private final class NativeFullscreenPlaceholderView: NSView {
-  private let iconView = NSImageView()
-  private let appLabel = NSTextField(labelWithString: "")
-  private let statusLabel = NSTextField(labelWithString: "macOS Full Screen")
-  private var selected: Bool?
-  private var accentColor: UInt32?
+  private var appID: String
+  private var title: String
+  private var selected = false
+  private var accentColor: UInt32 = 0
 
   init(appID: String, title: String) {
+    self.appID = appID
+    self.title = title
     super.init(frame: .zero)
     wantsLayer = true
-    layer?.backgroundColor = NSColor(
-      srgbRed: 15 / 255,
-      green: 15 / 255,
-      blue: 20 / 255,
-      alpha: 1
-    ).cgColor
-    layer?.cornerRadius = 10
-    layer?.borderWidth = 1
-    layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
-    layer?.masksToBounds = true
-
-    iconView.imageScaling = .scaleProportionallyUpOrDown
-    iconView.translatesAutoresizingMaskIntoConstraints = false
-    appLabel.font = .systemFont(ofSize: 17, weight: .semibold)
-    appLabel.textColor = .white
-    appLabel.alignment = .center
-    appLabel.lineBreakMode = .byTruncatingTail
-    statusLabel.font = .systemFont(ofSize: 12, weight: .regular)
-    statusLabel.textColor = NSColor.white.withAlphaComponent(0.68)
-    statusLabel.alignment = .center
-
-    let stack = NSStackView(views: [iconView, appLabel, statusLabel])
-    stack.orientation = .vertical
-    stack.alignment = .centerX
-    stack.spacing = 8
-    stack.translatesAutoresizingMaskIntoConstraints = false
-    addSubview(stack)
-    NSLayoutConstraint.activate([
-      iconView.widthAnchor.constraint(equalToConstant: 80),
-      iconView.heightAnchor.constraint(equalToConstant: 80),
-      stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-      stack.centerYAnchor.constraint(equalTo: centerYAnchor),
-      stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
-      stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
-      appLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
-      statusLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -48),
-    ])
+    layerContentsRedrawPolicy = .onSetNeedsDisplay
     update(appID: appID, title: title)
   }
 
@@ -245,22 +209,29 @@ private final class NativeFullscreenPlaceholderView: NSView {
     nil
   }
 
+  override var wantsUpdateLayer: Bool { true }
+
+  // The same picture the overlay carries during motions, so the handoff is invisible.
+  override func updateLayer() {
+    layer?.contents = nativeFullscreenPlaceholderImage(appID: appID, title: title, size: bounds.size,
+      scale: window?.backingScaleFactor ?? 2, selected: selected, accentColor: accentColor)
+  }
+
+  override func setFrameSize(_ newSize: NSSize) {
+    super.setFrameSize(newSize)
+    needsDisplay = true
+  }
+
+  override func viewDidChangeBackingProperties() {
+    super.viewDidChangeBackingProperties()
+    needsDisplay = true
+  }
+
   func update(appID: String, title: String) {
-    let application = NSRunningApplication.runningApplications(
-      withBundleIdentifier: appID
-    ).first
-    let applicationURL = NSWorkspace.shared.urlForApplication(
-      withBundleIdentifier: appID
-    )
-    let appName = application?.localizedName
-      ?? applicationURL?.deletingPathExtension().lastPathComponent
-      ?? appID
-    iconView.image = application?.icon
-      ?? applicationURL.map {
-        NSWorkspace.shared.icon(forFile: $0.path)
-      }
-      ?? NSImage(named: NSImage.applicationIconName)
-    appLabel.stringValue = title.isEmpty ? appName : title
+    self.appID = appID
+    self.title = title
+    needsDisplay = true
+    let appName = nativeFullscreenPlaceholderAppName(appID)
     toolTip = title.isEmpty ? appName : title
     setAccessibilityElement(true)
     setAccessibilityRole(.group)
@@ -272,22 +243,73 @@ private final class NativeFullscreenPlaceholderView: NSView {
   }
 
   func updateAppearance(selected: Bool, accentColor: UInt32) {
-    guard self.selected != selected || self.accentColor != accentColor else {
-      return
-    }
+    guard self.selected != selected || self.accentColor != accentColor else { return }
     self.selected = selected
     self.accentColor = accentColor
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    layer?.borderWidth = selected ? 2 : 1
-    layer?.borderColor = selected
-      ? NSColor(
-        srgbRed: CGFloat((accentColor >> 16) & 0xff) / 255,
-        green: CGFloat((accentColor >> 8) & 0xff) / 255,
-        blue: CGFloat(accentColor & 0xff) / 255,
-        alpha: 1
-      ).cgColor
-      : NSColor.white.withAlphaComponent(0.14).cgColor
-    CATransaction.commit()
+    needsDisplay = true
   }
+}
+
+private func nativeFullscreenPlaceholderAppName(_ appID: String) -> String {
+  NSRunningApplication.runningApplications(withBundleIdentifier: appID).first?.localizedName
+    ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: appID)?
+      .deletingPathExtension().lastPathComponent
+    ?? appID
+}
+
+/// The placeholder card: drawn by Defi, so the overlay never needs to capture it.
+func nativeFullscreenPlaceholderImage(appID: String, title: String, size: CGSize, scale: CGFloat,
+  selected: Bool, accentColor: UInt32) -> CGImage? {
+  let width = Int((size.width * scale).rounded()), height = Int((size.height * scale).rounded())
+  guard width > 0, height > 0,
+    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+  else { return nil }
+  context.scaleBy(x: scale, y: scale)
+  let previous = NSGraphicsContext.current
+  NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+  defer { NSGraphicsContext.current = previous }
+
+  let bounds = CGRect(origin: .zero, size: size)
+  let borderWidth: CGFloat = selected ? 2 : 1
+  NSColor(srgbRed: 15 / 255, green: 15 / 255, blue: 20 / 255, alpha: 1).setFill()
+  NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10).fill()
+  let border = NSBezierPath(roundedRect: bounds.insetBy(dx: borderWidth / 2, dy: borderWidth / 2),
+    xRadius: 10 - borderWidth / 2, yRadius: 10 - borderWidth / 2)
+  border.lineWidth = borderWidth
+  (selected
+    ? NSColor(srgbRed: CGFloat((accentColor >> 16) & 0xff) / 255, green: CGFloat((accentColor >> 8) & 0xff) / 255,
+      blue: CGFloat(accentColor & 0xff) / 255, alpha: 1)
+    : NSColor.white.withAlphaComponent(0.14)).setStroke()
+  border.stroke()
+
+  let application = NSRunningApplication.runningApplications(withBundleIdentifier: appID).first
+  let icon = application?.icon
+    ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: appID).map {
+      NSWorkspace.shared.icon(forFile: $0.path)
+    }
+    ?? NSImage(named: NSImage.applicationIconName)
+  let paragraph = NSMutableParagraphStyle()
+  paragraph.alignment = .center
+  paragraph.lineBreakMode = .byTruncatingTail
+  let name = NSAttributedString(string: title.isEmpty ? nativeFullscreenPlaceholderAppName(appID) : title,
+    attributes: [.font: NSFont.systemFont(ofSize: 17, weight: .semibold), .foregroundColor: NSColor.white,
+      .paragraphStyle: paragraph])
+  let status = NSAttributedString(string: "macOS Full Screen",
+    attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.white.withAlphaComponent(0.68),
+      .paragraphStyle: paragraph])
+  let textWidth = max(size.width - 48, 0)
+  let nameHeight = ceil(name.size().height), statusHeight = ceil(status.size().height)
+  let spacing: CGFloat = 8, iconSide: CGFloat = 80
+  var y = ((size.height + iconSide + spacing + nameHeight + spacing + statusHeight) / 2).rounded()
+  y -= iconSide
+  icon?.draw(in: CGRect(x: ((size.width - iconSide) / 2).rounded(), y: y, width: iconSide, height: iconSide))
+  y -= spacing + nameHeight
+  name.draw(with: CGRect(x: 24, y: y, width: textWidth, height: nameHeight),
+    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+  y -= spacing + statusHeight
+  status.draw(with: CGRect(x: 24, y: y, width: textWidth, height: statusHeight),
+    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+  return context.makeImage()
 }

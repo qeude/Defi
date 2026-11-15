@@ -51,6 +51,7 @@ extension Daemon {
     var ribbonFrames: [FrameAssignment] = []
     var borderAssignments: [FrameAssignment] = []
     var nativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
+    var nativeFullscreenRibbonFrames: [FrameAssignment] = []
     var hiddenWindowIDs = Set<WindowID>()
     var outOfScopeWindowIDs = Set<WindowID>()
     var cachedMonitorIDs = Set<MonitorID>()
@@ -71,6 +72,7 @@ extension Daemon {
         nativeFullscreenPlaceholderAssignments.append(
           contentsOf: cached.nativeFullscreenPlaceholderAssignments
         )
+        nativeFullscreenRibbonFrames.append(contentsOf: cached.nativeFullscreenRibbonFrames)
         hiddenWindowIDs.formUnion(cached.hiddenWindowIDs)
         outOfScopeWindowIDs.formUnion(cached.assignments.map(\.windowID))
         cachedMonitorIDs.insert(monitor.id)
@@ -97,6 +99,7 @@ extension Daemon {
       var monitorAssignments: [FrameAssignment] = []
       var monitorBorderAssignments: [FrameAssignment] = []
       var monitorNativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
+      var monitorNativeFullscreenRibbonFrames: [FrameAssignment] = []
       var monitorHiddenWindowIDs = Set<WindowID>()
       for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
         let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
@@ -124,14 +127,17 @@ extension Daemon {
           }
 
           if !state.nativeFullscreenWindowIDs.isEmpty {
+            let fullscreenLayout = computeLayout(
+              workspace: workspace,
+              viewport: viewport,
+              windows: workspaceWindows,
+              settings: state.layout
+            )
+            monitorNativeFullscreenRibbonFrames.append(contentsOf: fullscreenLayout.filter {
+              state.nativeFullscreenWindowIDs.contains($0.windowID)
+            })
             let fullscreenStrip = continuousStripFramesForActiveWorkspace(
-              computeLayout(
-                workspace: workspace,
-                viewport: viewport,
-                windows: workspaceWindows,
-                settings: state.layout
-              ),
-              viewport: viewport, park: park
+              fullscreenLayout, viewport: viewport, park: park
             )
             monitorNativeFullscreenPlaceholderAssignments.append(
               contentsOf: fullscreenStrip.frames.filter {
@@ -167,6 +173,7 @@ extension Daemon {
         borderAssignments: monitorBorderAssignments,
         nativeFullscreenPlaceholderAssignments:
           monitorNativeFullscreenPlaceholderAssignments,
+        nativeFullscreenRibbonFrames: monitorNativeFullscreenRibbonFrames,
         hiddenWindowIDs: monitorHiddenWindowIDs
       )
       layoutPlansByMonitor[monitor.id] = plan
@@ -182,6 +189,7 @@ extension Daemon {
       nativeFullscreenPlaceholderAssignments.append(
         contentsOf: plan.nativeFullscreenPlaceholderAssignments
       )
+      nativeFullscreenRibbonFrames.append(contentsOf: plan.nativeFullscreenRibbonFrames)
       hiddenWindowIDs.formUnion(plan.hiddenWindowIDs)
     }
     let skipped = additionalSkippedWindowIDs.union(outOfScopeWindowIDs)
@@ -221,6 +229,15 @@ extension Daemon {
           laidOut: !cachedMonitorIDs.contains(monitor.id))
       }
     }
+    platform.nativeFullscreenRibbonPlaceholders = Dictionary(
+      nativeFullscreenRibbonFrames.compactMap { assignment in
+        guard let window = state.windows[assignment.windowID],
+          let monitorID = state.monitorID(containing: assignment.windowID)
+        else { return nil }
+        return (window.id, NativeFullscreenPlaceholder(windowID: window.id, monitorID: monitorID,
+          appID: window.appID, title: window.title, frame: assignment.frame))
+      }
+    ) { first, _ in first }
     platform.apply(
       platformAssignments,
       ribbonFrames: ribbonFrames,

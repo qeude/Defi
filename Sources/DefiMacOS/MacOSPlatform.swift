@@ -230,7 +230,7 @@ public final class MacOSPlatform {
     // Visible windows start exactly where they are (the held one is already under the
     // pointer); only windows off screen take their logical place.
     return windows.compactMap { id, window -> RibbonProxyWindow? in
-      guard let processID = window.processID else { return nil }
+      guard let processID = window.processID, !nativeFullscreenWindowIDs.contains(id) else { return nil }
       let logical = previousLogicalRibbonFrames[id]
       // A window still on its way to or from its parking corner is not on the ribbon yet.
       if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01,
@@ -240,9 +240,34 @@ public final class MacOSPlatform {
       // Parked at a corner, its native y is the display's bottom: the ribbon place is logical.
       guard let logical else { return nil }
       return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: logical, to: logical)
-    }
+    } + nativeFullscreenProxies(monitor, from: previousNativeFullscreenRibbonFrames)
   }
   var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
+  /// Native fullscreen placeholders at their ribbon place, set before each layout.
+  public var nativeFullscreenRibbonPlaceholders: [WindowID: NativeFullscreenPlaceholder] = [:]
+  var previousNativeFullscreenRibbonFrames: [WindowID: Rect] = [:]
+  private var nativeFullscreenPictures: [WindowID: (key: String, image: CGImage)] = [:]
+
+  /// The placeholders of `monitor` as overlay windows, so they travel with the ribbon.
+  func nativeFullscreenProxies(_ monitor: WindowProxyMonitor, from previous: [WindowID: Rect])
+    -> [RibbonProxyWindow] {
+    nativeFullscreenPictures = nativeFullscreenPictures.filter { nativeFullscreenRibbonPlaceholders[$0.key] != nil }
+    return nativeFullscreenRibbonPlaceholders.compactMap { id, window -> RibbonProxyWindow? in
+      guard monitor.windowIDs.contains(id) else { return nil }
+      let to = window.frame
+      let scale = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.scale ?? 2
+      let selected = id == desiredSelectedWindowID
+      let accent = RibbonProxyPresenter.borderStyle?.activeColor ?? 0
+      let key = "\(window.appID)|\(window.title)|\(to.width)x\(to.height)@\(scale)|\(selected)|\(accent)"
+      let image = nativeFullscreenPictures[id].flatMap { $0.key == key ? $0.image : nil }
+        ?? nativeFullscreenPlaceholderImage(appID: window.appID, title: window.title,
+          size: CGSize(width: to.width, height: to.height), scale: scale, selected: selected, accentColor: accent)
+      guard let image else { return nil }
+      nativeFullscreenPictures[id] = (key, image)
+      return RibbonProxyWindow(id: id, appID: window.appID, processID: 0,
+        from: previous[id] ?? to, to: to, picture: image)
+    }
+  }
   /// Ribbon moves an animated layout could not write yet; the layout that writes them animates.
   var deferredRibbonMoves: Set<WindowID> = []
   /// When the latest window opening began holding the screen: only its check releases the hold.

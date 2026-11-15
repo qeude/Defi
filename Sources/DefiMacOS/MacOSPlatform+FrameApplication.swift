@@ -62,6 +62,8 @@ extension MacOSPlatform {
       previous: previousRibbonFrames, monitors: windowProxyMonitors)
     for id in deferredRibbonMoves.intersection(skippedWindowIDs) { history[id] = previousRibbonFrames[id] }
     previousLogicalRibbonFrames = history
+    let previousPlaceholderFrames = previousNativeFullscreenRibbonFrames
+    previousNativeFullscreenRibbonFrames = nativeFullscreenRibbonPlaceholders.mapValues(\.frame)
     deferredRibbonMoves.subtract(resumed)
     frameSubmissionGeneration &+= 1
     let submissionGeneration = frameSubmissionGeneration
@@ -70,7 +72,8 @@ extension MacOSPlatform {
     if windowProxiesEnabled {
       let resumes = !animates && !resumed.isEmpty
       applyWindowProxies(assignments: assignments, ribbonFrames: ribbonFrames,
-        previousRibbonFrames: previousRibbonFrames, skippedWindowIDs: skippedWindowIDs,
+        previousRibbonFrames: previousRibbonFrames, previousPlaceholderFrames: previousPlaceholderFrames,
+        skippedWindowIDs: skippedWindowIDs,
         hiddenWindowIDs: hiddenWindowIDs, source: resumes ? "native-focus-animation" : source,
         animated: animated || resumes)
     }
@@ -607,7 +610,8 @@ func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID:
 extension MacOSPlatform {
   // Runs entirely on the navigation actor: command intake never waits for the main thread.
   func applyWindowProxies(assignments: [FrameAssignment], ribbonFrames: [FrameAssignment],
-    previousRibbonFrames: [WindowID: Rect], skippedWindowIDs: Set<WindowID>,
+    previousRibbonFrames: [WindowID: Rect], previousPlaceholderFrames: [WindowID: Rect],
+    skippedWindowIDs: Set<WindowID>,
     hiddenWindowIDs: Set<WindowID>, source: String, animated: Bool) {
     let allWindows = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
     // Each display moves on its own overlay, exactly as a single display does.
@@ -627,8 +631,8 @@ extension MacOSPlatform {
       let ribbon = ribbonFrames.filter { owned.contains($0.windowID) }
       let shown = applyWindowProxies(on: monitor, presenter: presenter,
         assignments: assignments.filter { owned.contains($0.windowID) }, ribbonFrames: ribbon,
-        previousRibbonFrames: previousRibbonFrames, skippedWindowIDs: skippedWindowIDs,
-        hiddenWindowIDs: hiddenWindowIDs, allWindows: allWindows,
+        previousRibbonFrames: previousRibbonFrames, previousPlaceholderFrames: previousPlaceholderFrames,
+        skippedWindowIDs: skippedWindowIDs, hiddenWindowIDs: hiddenWindowIDs, allWindows: allWindows,
         motion: windowProxyMotionDuration(source: source, animated: animated,
           hasRibbon: !ribbon.isEmpty, workspaceShift: monitor.workspaceShift))
       if released, !shown { presenter.landDrop() }
@@ -637,8 +641,8 @@ extension MacOSPlatform {
 
   private func applyWindowProxies(on monitor: WindowProxyMonitor, presenter: RibbonProxyPresenter,
     assignments: [FrameAssignment], ribbonFrames: [FrameAssignment],
-    previousRibbonFrames: [WindowID: Rect], skippedWindowIDs: Set<WindowID>,
-    hiddenWindowIDs: Set<WindowID>, allWindows: [WindowID: Window],
+    previousRibbonFrames: [WindowID: Rect], previousPlaceholderFrames: [WindowID: Rect],
+    skippedWindowIDs: Set<WindowID>, hiddenWindowIDs: Set<WindowID>, allWindows: [WindowID: Window],
     motion duration: TimeInterval?) -> Bool {
     let viewport = monitor.viewport, workspaceShift = monitor.workspaceShift
     let windows = allWindows.filter { monitor.windowIDs.contains($0.key) }
@@ -709,10 +713,11 @@ extension MacOSPlatform {
       return RibbonProxyWindow(id: plan.id, appID: window.appID, processID: processID,
         from: from, to: plan.to, appears: appears)
     }
+    proxies += nativeFullscreenProxies(monitor, from: previousPlaceholderFrames)
     // Visible managed windows without a planned motion (skipped writes, floating
     // windows) are drawn still at their real place instead of blocking the overlay.
     let moving = Set(proxies.map(\.id))
-    for (id, window) in windows where !moving.contains(id) {
+    for (id, window) in windows where !moving.contains(id) && !nativeFullscreenWindowIDs.contains(id) {
       guard let processID = window.processID, let frame = observed[id],
         windowProxyVisibleOverlap(frame, viewport) > 1.01 else { continue }
       proxies.append(RibbonProxyWindow(id: id, appID: window.appID, processID: processID,

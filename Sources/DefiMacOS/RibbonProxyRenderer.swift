@@ -21,6 +21,8 @@ struct RibbonProxyWindow {
   let to: Rect
   /// Just opened: it grows in its slot while its app draws it there under the overlay.
   var appears = false
+  /// Drawn by Defi (a native fullscreen placeholder): never captured, no native window to land.
+  var picture: CGImage? = nil
 }
 
 /// Pictures stay valid only for the native size they were captured at.
@@ -637,7 +639,11 @@ final class RibbonProxyPresenter {
       }
       if styled.pictured { pictured += 1 }
       if styled.badged { badged += 1; veiled.insert(window.id) } else { veiled.remove(window.id) }
-      if pictures.picture(window.id)?.isReduced == true { standIns.insert(window.id) } else { standIns.remove(window.id) }
+      if window.picture == nil, pictures.picture(window.id)?.isReduced == true {
+        standIns.insert(window.id)
+      } else {
+        standIns.remove(window.id)
+      }
       // The active window travels above the windows it crosses, as in Niri.
       layer.zPosition = window.id == selectedWindowID ? 100_000 : depth[window.id] ?? 0
       let launched = ribbonProxyMove(layer, from: from, to: to, velocity: velocity)
@@ -696,7 +702,7 @@ final class RibbonProxyPresenter {
     expectedTargets = ribbonProxyLandingTargets(nativeTargets.filter { $0.key != draggedWindowID }, area: area)
     requestedTargets = requested.filter { expectedTargets[$0.key] != nil }
     presentedSubmission = submission
-    landedRefresh = windows.map {
+    landedRefresh = windows.filter { $0.picture == nil }.map {
       RibbonProxyRefresh(id: $0.id, appID: $0.appID, processID: $0.processID, frame: $0.to,
         distance: ribbonProxyDistance($0.to, area))
     }
@@ -707,7 +713,7 @@ final class RibbonProxyPresenter {
     standIns.formIntersection(shownIDs)
     veiledSince = CACurrentMediaTime()
     refreshing = Set(windows.filter { window in
-      window.appID != "" && !veiled.contains(window.id) && window.to.ribbonIntersects(area)
+      window.appID != "" && window.picture == nil && !veiled.contains(window.id) && window.to.ribbonIntersects(area)
         && pictures.picture(window.id).map { veiledSince - $0.capturedAt > ribbonProxyPictureFreshness } == true
     }.map(\.id))
     let unpictured = shown.filter { pictures.picture($0.id) == nil }.map(\.id.rawValue)
@@ -741,7 +747,7 @@ final class RibbonProxyPresenter {
     // Windows leaving the screen must be gone too, or a slow app's outgoing window
     // pops back into view when the overlay lifts.
     let leaving = Set(windows.filter {
-      $0.id != draggedWindowID && ribbonProxyLeaves(from: $0.from, to: $0.to, area: area)
+      $0.id != draggedWindowID && $0.picture == nil && ribbonProxyLeaves(from: $0.from, to: $0.to, area: area)
     }.map(\.id)).union(unsettledLeaving.subtracting(expected.keys).subtracting([draggedWindowID].compactMap { $0 }))
     unsettledLeaving = leaving
     let drawn = Set(shown.map(\.id) + [draggedWindowID].compactMap { $0 })
@@ -1583,6 +1589,18 @@ final class RibbonProxyPresenter {
     selected: Bool) -> (pictured: Bool, badged: Bool) {
     let sublayers = Dictionary((layer.sublayers ?? []).compactMap { sublayer in
       sublayer.name.map { ($0, sublayer) } }) { first, _ in first }
+    if let own = window.picture {
+      setContents(sublayers["content"], own)
+      sublayers["content"]?.contentsScale = CGFloat(own.width) / max(window.to.width, 1)
+      sublayers["content"]?.masksToBounds = false
+      sublayers["content"]?.backgroundColor = nil
+      setContents(sublayers["icon"], nil)
+      // Its own picture already draws its selection, and the panel has no shadow.
+      sublayers["border"]?.isHidden = true
+      sublayers["shadow"]?.isHidden = true
+      return (true, false)
+    }
+    sublayers["shadow"]?.isHidden = false
     let picture = WindowCaptureStore.shared.picture(window.id)
     // Any picture reads as the window: an icon popped over an old or reduced one at every
     // workspace switch, then faded. Only a window without a picture gets its icon.

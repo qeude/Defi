@@ -61,6 +61,8 @@ struct MonitorLayoutPlan {
   let assignments: [FrameAssignment]
   let borderAssignments: [FrameAssignment]
   let nativeFullscreenPlaceholderAssignments: [FrameAssignment]
+  /// Every placeholder of the active workspace at its ribbon place, on screen or not.
+  let nativeFullscreenRibbonFrames: [FrameAssignment]
   let hiddenWindowIDs: Set<WindowID>
 }
 
