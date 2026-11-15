@@ -77,6 +77,9 @@ private func ipcEventHandler(
         let handled = try server.poll(
           on: clientQueue,
           handler: { request in
+            if refusedOverIPC(request.command) {
+              return .failure("spawn-sh runs only from a shortcut in config.toml")
+            }
             if DaemonReadResponseCache.isReadCommand(request.command),
               let cached = readResponseCache.response(
                 for: request.command,
@@ -1128,6 +1131,12 @@ private func monitorIDsByWindow(
     monitorIDs[windowID] = location.monitorID
   }
   return monitorIDs
+}
+
+/// Any local process can reach the socket, and the shell would inherit Defi's TCC grants.
+func refusedOverIPC(_ rawCommand: String) -> Bool {
+  if case .spawnShell = try? parseCommand(rawCommand) { return true }
+  return false
 }
 
 /// Runs a `spawn-sh` command line without waiting for it, as Niri does.

@@ -622,7 +622,7 @@ When a workspace is named `up` or `down`, use `move-column-to-workspace-name
 | `toggle-cheatsheet` | Open or close the shortcut help. | `mod-shift-slash` |
 | `open-settings` | Open Settings, even with the menu bar item hidden. | unset |
 | `diagnostic-mark` | Record the current status and recent trace, without changing windows. See [Diagnostics](#diagnostics). | unset |
-| `spawn-sh <command line>` | Run the rest of the line with `/bin/sh -c`. See [Scripts](#scripts). | unset |
+| `spawn-sh <command line>` | Run the rest of the line with `/bin/sh -c`. Shortcuts only; the CLI refuses it. See [Scripts](#scripts). | unset |
 
 `previous` may be written `prev`. `focus-column` and `focus-window` also accept
 `previous`/`next`, and `focus-floating` accepts `left`/`right` and `up`/`down`.
@@ -731,6 +731,8 @@ Defi with `defi` commands and reads its state with `defi list-workspaces --json`
 or `defi subscribe --json`. Its `PATH` starts with the folder holding `defi`,
 then `/opt/homebrew/bin` and `/usr/local/bin`. macOS treats the command as part
 of Defi, so it shares Defi's Accessibility and Screen Recording permissions.
+That is why `spawn-sh` runs only from a shortcut: the `defi` CLI refuses it, so
+another program cannot borrow those permissions through Defi's socket.
 
 ```toml
 [keys]
