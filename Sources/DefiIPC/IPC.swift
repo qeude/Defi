@@ -101,6 +101,7 @@ public struct WorkspaceWindowSnapshot: Codable, Equatable, Sendable {
   public let row: Int?
   public let floating: Bool
   public let selected: Bool
+  public let nativeFullscreen: Bool
 }
 
 public func makeWorkspaceStateSnapshot(
@@ -108,7 +109,8 @@ public func makeWorkspaceStateSnapshot(
   windows: [WindowID: Window],
   displayOrder: [MonitorID],
   focusedMonitorID: MonitorID?,
-  workspaceIcons: [String: String] = [:]
+  workspaceIcons: [String: String] = [:],
+  nativeFullscreenWindowIDs: Set<WindowID> = []
 ) -> WorkspaceStateSnapshot {
   WorkspaceStateSnapshot(
     focusedMonitorID: focusedMonitorID?.rawValue,
@@ -127,7 +129,8 @@ public func makeWorkspaceStateSnapshot(
             guard let window = windows[windowID] else { return }
             workspaceWindows.append(WorkspaceWindowSnapshot(
               id: windowID.rawValue, appID: window.appID, column: column, row: row,
-              floating: column == nil, selected: windowID == selectedWindow?.id
+              floating: column == nil, selected: windowID == selectedWindow?.id,
+              nativeFullscreen: nativeFullscreenWindowIDs.contains(windowID)
             ))
           }
           return WorkspaceSnapshot(

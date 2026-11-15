@@ -78,7 +78,8 @@ extension Daemon {
       windows: state.windows,
       displayOrder: latestMonitors.map(\.id),
       focusedMonitorID: activeMonitorID,
-      workspaceIcons: config.workspaces.icons
+      workspaceIcons: config.workspaces.icons,
+      nativeFullscreenWindowIDs: state.nativeFullscreenWindowIDs
     )
   }
 
