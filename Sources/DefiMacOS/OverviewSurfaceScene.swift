@@ -59,7 +59,8 @@ final class OverviewSurfaceScene {
     var entries: [(WindowID, CALayer, CGRect, CGRect)] = []
     var cachedCount = 0
     let placed = workspace.windows.compactMap { card -> (id: WindowID, native: CGRect, target: CGRect)? in
-      guard let native = frames[card.windowID], native.width > 0, native.height > 0 else { return nil }
+      // A native full-screen window lives on its own Space, not on the desktop the zoom starts from.
+      guard !card.isNativeFullscreen, let native = frames[card.windowID], native.width > 0, native.height > 0 else { return nil }
       return (card.windowID, native, CGRect(x: card.frame.x, y: card.frame.y,
         width: card.frame.width, height: card.frame.height))
     }

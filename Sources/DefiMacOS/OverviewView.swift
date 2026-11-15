@@ -342,14 +342,18 @@ final class OverviewView: NSView {
     if let preview {
       let opacity = previewOpacities[card.windowID] ?? 1
       let outgoing = outgoingPreviews[card.windowID]
+      // A full-screen picture is a whole display; a column-shaped crop would hide most of it.
+      let fits = card.isNativeFullscreen
       if let outgoing {
-        show(layers.outgoing, outgoing.contents, in: bounds,
-          contentsRect: aspectFillContentsRect(for: outgoing.size, in: size))
+        show(layers.outgoing, outgoing.contents,
+          in: fits ? aspectFitFrame(for: outgoing.size, in: bounds) : bounds,
+          contentsRect: fits ? unitRect : aspectFillContentsRect(for: outgoing.size, in: size))
       } else {
         layers.outgoing.isHidden = true
       }
-      let contentsRect = aspectFillContentsRect(for: preview.size, in: size)
-      show(layers.preview, preview.contents, in: bounds, contentsRect: contentsRect)
+      let pictureFrame = fits ? aspectFitFrame(for: preview.size, in: bounds) : bounds
+      let contentsRect = fits ? unitRect : aspectFillContentsRect(for: preview.size, in: size)
+      show(layers.preview, preview.contents, in: pictureFrame, contentsRect: contentsRect)
       layers.preview.opacity = Float(opacity)
       let fadeHeight = overviewPreviewBlurFadeHeight(
         titleBandHeight: titleBandHeight, imageScale: 1, imageHeight: size.height)
@@ -362,8 +366,8 @@ final class OverviewView: NSView {
         reveal.preferredFrameRateRange = overviewAnimationFrameRate
         layers.blur.add(reveal, forKey: "reveal")
       }
-      show(layers.blur, blurred, in: bounds, contentsRect: contentsRect)
-      setFrame(layers.blurMask, CGRect(x: 0, y: 0, width: size.width, height: fadeHeight))
+      show(layers.blur, blurred, in: pictureFrame, contentsRect: contentsRect)
+      setFrame(layers.blurMask, CGRect(x: 0, y: -pictureFrame.minY, width: pictureFrame.width, height: fadeHeight))
       layers.blur.opacity = Float(outgoing == nil ? opacity : 1)
       show(layers.scrim, titleScrimImage,
         in: CGRect(x: 0, y: 0, width: size.width, height: fadeHeight))
@@ -581,7 +585,7 @@ final class OverviewView: NSView {
     _ layer: CALayer,
     _ image: AnyObject?,
     in frame: CGRect,
-    contentsRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    contentsRect: CGRect = unitRect
   ) {
     if (layer.contents as AnyObject?) !== image { layer.contents = image }
     setFrame(layer, frame)
@@ -600,6 +604,15 @@ final class OverviewView: NSView {
       || zip(current, sublayers).contains(where: { $0 !== $1 })
     else { return }
     layer.sublayers = sublayers
+  }
+
+  // The image's whole rectangle, centred at its own aspect ratio inside `bounds`.
+  private func aspectFitFrame(for imageSize: CGSize, in bounds: CGRect) -> CGRect {
+    guard imageSize.width > 0, imageSize.height > 0 else { return bounds }
+    let scale = min(bounds.width / imageSize.width, bounds.height / imageSize.height)
+    let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+    return CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
+      width: size.width, height: size.height)
   }
 
   // The unit rectangle of the image that fills `size`, anchored to the leading edge
@@ -836,6 +849,8 @@ private final class OverviewWorkspaceLayers {
     group.sublayers = [desktop, tiled, floating, tiledBorders, floatingBorders, leading, trailing]
   }
 }
+
+private let unitRect = CGRect(x: 0, y: 0, width: 1, height: 1)
 
 @MainActor
 private final class OverviewCardLayers {
