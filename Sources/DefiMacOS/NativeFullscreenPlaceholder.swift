@@ -122,9 +122,8 @@ private final class NativeFullscreenPlaceholderPanel {
     panel.hasShadow = false
     panel.sharingType = .readOnly
     panel.level = .normal
-    panel.collectionBehavior = [
-      .ignoresCycle,
-    ]
+    // Like the borders: ordered in while the fullscreen Space is active, it would stay there.
+    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .transient]
     panel.hidesOnDeactivate = false
     panel.isReleasedWhenClosed = false
     panel.isExcludedFromWindowsMenu = true
