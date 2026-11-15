@@ -10,6 +10,7 @@ public func discoverWindow(
   isNativelyFocused: Bool = false,
   isFrontmostAppSpawn: Bool = false,
   isNativeFullscreen: Bool = false,
+  activeMonitorID: MonitorID? = nil,
   state: inout RuntimeState
 ) throws {
   guard !state.monitors.isEmpty else {
@@ -38,6 +39,8 @@ public func discoverWindow(
     transientLocation?.monitorID
     ?? ruleLocation.map { state.monitors[$0.monitorIndex].id }
     ?? ruleMonitorID.flatMap { id in state.monitors.contains { $0.id == id } ? id : nil }
+    // A floating window opens on the display in use, not where its app last left it.
+    ?? (window.floating ? activeMonitorID.flatMap { id in state.monitors.contains { $0.id == id } ? id : nil } : nil)
     ?? window.monitorID
     ?? state.monitors[0].id
   let monitorIndex = state.monitors.firstIndex(where: { $0.id == monitorID }) ?? 0
@@ -170,11 +173,13 @@ public func reconcileWindows(
   frontmostProcessID: pid_t? = nil,
   displays: [(id: MonitorID, name: String?)] = [],
   appliesOpenFocus: Bool = true,
+  activeMonitorID: MonitorID? = nil,
   now: TimeInterval = 0,
   state: inout RuntimeState
 ) -> Set<WindowID> {
   var relocatedTransientIDs = Set<WindowID>()
   var openedWindowIDs: [WindowID] = []
+  let latestWindowID = state.latestWindowID?.rawValue ?? 0
   let discoveredIDs = Set(discovered.map(\.id))
   let fullscreenWindowIDs = nativeFullscreenWindowIDs.subtracting(
     explicitlyRemovedWindowIDs
@@ -217,14 +222,19 @@ public func reconcileWindows(
       } else {
         decision.openFocused = nil
       }
+      let isFrontmostAppSpawn = window.processID != nil && window.processID == frontmostProcessID
+      // Only a window the app in use opens now; background restores and pop-ups stay put.
+      let opensNow = appliesOpenFocus && isFrontmostAppSpawn && window.id.rawValue > latestWindowID
       try? discoverWindow(
         window,
         decision: decision,
         ruleMonitorID: decision.monitor.flatMap { ruleMonitorID($0, displays: displays) },
         isNativelyFocused: window.id == nativeFocusedWindowID,
-        isFrontmostAppSpawn: window.processID != nil
-          && window.processID == frontmostProcessID,
+        isFrontmostAppSpawn: isFrontmostAppSpawn,
         isNativeFullscreen: fullscreenWindowIDs.contains(window.id),
+        activeMonitorID: opensNow
+          ? activeMonitorID.flatMap { applicationReaches($0, opening: window, among: discovered, state: state) ? $0 : nil }
+          : nil,
         state: &state
       )
     } else {
@@ -324,7 +334,27 @@ public func reconcileWindows(
       expiresAt: now + lateTitleRuleGrace
     )
   }
+  if let newest = discoveredIDs.max(by: { $0.rawValue < $1.rawValue }), newest.rawValue > latestWindowID {
+    state.latestWindowID = newest
+  }
   return relocatedTransientIDs
+}
+
+/// Whether a window can open on the active monitor without leaving its application's other
+/// windows, such as a document an app restores with its palettes, on another display.
+private func applicationReaches(
+  _ monitorID: MonitorID, opening window: Window, among discovered: [Window], state: RuntimeState
+) -> Bool {
+  let siblingMonitorIDs = discovered.lazy
+    .filter { sibling in
+      sibling.id != window.id
+        && (window.processID.flatMap { pid in sibling.processID.map { $0 == pid } }
+          ?? (sibling.appID == window.appID))
+    }
+    .compactMap { state.monitorID(containing: $0.id) ?? $0.monitorID }
+  // A palette can show before its document, which would then pull it back to the other display.
+  return siblingMonitorIDs.isEmpty
+    ? window.subrole != "AXFloatingWindow" : siblingMonitorIDs.contains(monitorID)
 }
 
 /// How long after opening a window's first new title may still apply its rules,

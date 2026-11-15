@@ -217,7 +217,9 @@ workspace.
   disappears once you leave it. Named workspaces stay.
 - New windows open on the active workspace of their monitor, unless a rule
   sends them elsewhere. Defi does not remember an app's previous workspace after
-  its windows close. Transient windows stay with their owner.
+  its windows close. Transient windows stay with their owner. Another floating
+  window that the app in use opens appears on the focused monitor, not where the
+  app last left it, unless the app's other windows are all on another monitor.
 - Workspaces, focus, widths, and scroll positions survive a daemon restart
   within the same macOS login session.
 

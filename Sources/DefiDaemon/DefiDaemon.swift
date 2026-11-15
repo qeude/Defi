@@ -197,6 +197,8 @@ final class Daemon {
   var mouseGestureSettlement: MouseGestureSettlement?
   var mouseGesturePreempted = false
   var floatingWindowFrames: [WindowID: Rect] = [:]
+  /// Floating windows Defi moved to another display as they opened, until the move lands.
+  var displayMovedFloatingWindowIDs: Set<WindowID> = []
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
   var scrollPan: ScrollPan?
   var lastCommandDurationMS = 0.0
