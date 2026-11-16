@@ -293,6 +293,26 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
+  func `Exit returns the strip to its scroll before the entry`() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    let viewports = [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 800)]
+    _ = focusWindow(fullscreenID, state: &state)
+    synchronizeScrollOffsets(state: &state, viewports: viewports)
+    let scroll = state.monitors[0].workspaces[0].targetScrollOffset
+    reconcileWindows(
+      orderedWindows(in: state), config: Config(), nativeFullscreenWindowIDs: [fullscreenID], state: &state)
+    synchronizeScrollOffsets(state: &state, viewports: viewports)
+    #expect(state.monitors[0].workspaces[0].targetScrollOffset != scroll)
+
+    reconcileWindows(
+      orderedWindows(in: state), config: Config(), nativeFullscreenWindowIDs: [], state: &state)
+    synchronizeScrollOffsets(state: &state, viewports: viewports)
+
+    #expect(state.monitors[0].workspaces[0].targetScrollOffset == scroll)
+  }
+
+  @Test
   func `Exit restores exact slot and width without changing selection`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)

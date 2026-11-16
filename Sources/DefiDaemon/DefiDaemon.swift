@@ -211,6 +211,8 @@ final class Daemon {
   var unfocusedOpenings: [WindowID: TimeInterval] = [:]
   /// Windows found by the first sync already existed; rules' `open_focused` applies only after it.
   var hasSynchronizedDesktop = false
+  /// Until then, while macOS slides the desktop away from a window entering full screen, its windows stay put.
+  var nativeFullscreenEntrySlideDeadline: TimeInterval = 0
   var ignoredRedundantNativeFocusCount = 0
   var pendingWindowRemovalFocusGuard: WindowRemovalFocusGuard?
   var preservedWindowRemovalFocusCount = 0

@@ -462,6 +462,7 @@ struct PlatformEventTests {
     #expect(applicationLifecycleRefreshDelays(for: .applicationTerminated)
       == applicationLifecycleRefreshDelays(for: .application))
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
+    #expect(!applicationLifecycleRefreshDelays(for: .space).isEmpty)
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: nil) == .process(7))
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 0) == .process(7))
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: 1) == .full)

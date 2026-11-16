@@ -353,6 +353,9 @@ extension Daemon {
       })
     let enteringNativeFullscreenWindowIDs = snapshot.nativeFullscreenWindowIDs
       .subtracting(state.nativeFullscreenWindowIDs)
+    let exitsNativeFullscreen = !state.nativeFullscreenWindowIDs
+      .isSubset(of: snapshot.nativeFullscreenWindowIDs)
+    if !enteringNativeFullscreenWindowIDs.isEmpty { nativeFullscreenEntrySlideDeadline = snapshotCompletedAt + 1 }
     platform.updateNativeFullscreenWindowIDs(
       snapshot.nativeFullscreenWindowIDs,
       activeWindowIDs: snapshot.activeNativeFullscreenWindowIDs
@@ -1033,7 +1036,9 @@ extension Daemon {
     // Opened and closed windows reflow their neighbours on the overlay.
     let animatesLifecycle = !animatesNativeFocus
       && !nativelyActivatedWorkspace && !snapshot.leftMouseButtonDown && animationsEnabled
-      && Set(state.windows.keys) != previouslyManagedWindowIDs
+      && (Set(state.windows.keys) != previouslyManagedWindowIDs
+        // The app puts a window back from full screen where it likes; slide it home.
+        || exitsNativeFullscreen)
     snapScrollOffsetsToTargets()
     if animatesNativeFocus { beginFrameAnimationActivity() }
     let nativeFocusSkippedWindowIDs = nativeFocusPendingSkippedWindowIDs(
@@ -1048,6 +1053,19 @@ extension Daemon {
       }(),
       previouslyManagedWindowIDs: previouslyManagedWindowIDs
     )
+    // The Space change that ends the slide brings a fresh snapshot, which writes them unseen.
+    let desktopWindowIDs = Set(state.windows.keys).subtracting(state.nativeFullscreenWindowIDs)
+    let slidingMonitorIDs = Set(snapshot.nativeFullscreenWindowIDs.compactMap(state.monitorID(containing:)))
+    let slidingDesktopWindowIDs = snapshotCompletedAt < nativeFullscreenEntrySlideDeadline
+      && platform.anyWindowOnScreen(desktopWindowIDs) ? desktopWindowIDs.filter {
+        state.monitorID(containing: $0).map(slidingMonitorIDs.contains) == true
+      } : []
+    // Behind a full-screen Space the desk stays as the user left it, so the exit slide
+    // shows it unchanged and the window lands back in its slot without a move.
+    let fullscreenMonitorIDs = Set(platform.activeNativeFullscreenWindowIDs.compactMap(state.monitorID(containing:)))
+    let frozenDesktopWindowIDs = fullscreenMonitorIDs.isEmpty ? [] : desktopWindowIDs.filter {
+      state.monitorID(containing: $0).map(fullscreenMonitorIDs.contains) == true
+    }
     let nativeCursorWarpIsCurrentAfterCommit: (@NavigationActor @Sendable () -> Bool)?
     if let nativeCursorWarpWindowID {
       nativeCursorWarpIsCurrentAfterCommit = { [weak self] in
@@ -1069,7 +1087,7 @@ extension Daemon {
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
       animated: animatesNativeFocus || animatesLifecycle || animatesMouseDrop,
-      skipping: nativeFocusSkippedWindowIDs,
+      skipping: nativeFocusSkippedWindowIDs.union(slidingDesktopWindowIDs).union(frozenDesktopWindowIDs),
       positionsOnly: animatesNativeFocus,
       stagesVisibleBeforeParking: nativelyActivatedWorkspace,
       cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,

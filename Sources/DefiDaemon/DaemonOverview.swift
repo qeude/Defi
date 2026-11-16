@@ -519,7 +519,9 @@ extension Daemon {
     persistTopology()
     updateMenuBar()
     updateOverviewIfOpen()
-    let windowIDs = Set(state.monitors.filter { restoresAllMonitors || affectedMonitorIDs.contains($0.id) }.flatMap {
+    // A full-screen window shows alone on its Space: the others there are unreadable
+    // through Accessibility and would only time out, losing the zoom.
+    let windowIDs = selectedWindowID.map(state.nativeFullscreenWindowIDs.contains) == true ? [] : Set(state.monitors.filter { restoresAllMonitors || affectedMonitorIDs.contains($0.id) }.flatMap {
       $0.workspaces.flatMap { $0.columns.flatMap(\.windows) + $0.floatingWindows }
     })
     Task { @NavigationActor [weak self] in

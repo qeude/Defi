@@ -66,6 +66,9 @@ extension MacOSPlatform {
       let previousWindowCount = processID.flatMap {
         self?.applicationWindowCounts[$0]
       }
+      if kind == .space {
+        NavigationActor.enqueue { [weak self] in self?.holdWindowProxiesForFullscreenReturn() }
+      }
       let windowID = element.flatMap { element in
         self?.elements.first(where: { CFEqual($0.value, element) })?.key
       }
