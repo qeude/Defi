@@ -33,7 +33,7 @@ final class NativeFullscreenPlaceholderManager {
 
   private var anchors: [MonitorID: NSPanel] = [:]
   private var suppressedMonitorIDs: Set<MonitorID> = []
-  private var fullscreenWindowIDs: Set<WindowID> = []
+  private var fullscreenWindows: [WindowID: pid_t] = [:]
   private var selectedPlaceholderID: WindowID?
   private var pendingKey: (windowID: WindowID, requestedAt: TimeInterval)?
   private var keyObservers: [NSObjectProtocol] = []
@@ -43,7 +43,7 @@ final class NativeFullscreenPlaceholderManager {
     // Without a handler Return opens nothing.
     guard activationHandler != nil else { return }
     // On its own Space, a refocus must not pull the user out, nor let an older request do it.
-    guard monitorsShowingFullscreenSpace([windowID]).isEmpty else {
+    guard monitorsShowingFullscreenSpace([windowID: 0], matchingProcess: false).isEmpty else {
       pendingKey = nil
       return
     }
@@ -78,7 +78,7 @@ final class NativeFullscreenPlaceholderManager {
     let away = monitorsAwayFromDesktop(Set(anchors.keys).union(panels.values.map(\.monitorID)))
     // Only a fullscreen window really on screen sends Defi back through the anchor; a mismatch
     // alone is a switch in progress, or an anchor left on a fullscreen Space.
-    let showing = monitorsShowingFullscreenSpace(fullscreenWindowIDs)
+    let showing = monitorsShowingFullscreenSpace(fullscreenWindows)
     let panel = panels[pending.windowID]
     if let panel, !away.contains(panel.monitorID) {
       // Back from a fullscreen Space, the desktop is active from the start of the slide:
@@ -112,7 +112,7 @@ final class NativeFullscreenPlaceholderManager {
   /// reads as on the active Space while the fullscreen window is already on screen, and the
   /// reverse on the way back: either one means a panel ordered now could land there.
   private func monitorsAwayFromDesktop(_ monitorIDs: Set<MonitorID>) -> Set<MonitorID> {
-    let showing = monitorsShowingFullscreenSpace(fullscreenWindowIDs)
+    let showing = monitorsShowingFullscreenSpace(fullscreenWindows)
     let now = ProcessInfo.processInfo.systemUptime
     for (monitorID, anchor) in anchors {
       guard !showing.contains(monitorID), !anchor.isOnActiveSpace else {
@@ -181,10 +181,10 @@ final class NativeFullscreenPlaceholderManager {
     selectedWindowID: WindowID?,
     stackingWindowID: WindowID?,
     suppressedMonitorIDs: Set<MonitorID> = [],
-    fullscreenWindowIDs: Set<WindowID> = [],
+    fullscreenWindows: [WindowID: pid_t] = [:],
     accentColor: UInt32
   ) -> Bool {
-    self.fullscreenWindowIDs = fullscreenWindowIDs
+    self.fullscreenWindows = fullscreenWindows
     // The daemon learns of a Space switch a beat late, and a panel or anchor ordered in
     // meanwhile lands on the fullscreen Space: where an anchor exists it answers instead.
     let monitorIDs = Set(placeholders.map(\.monitorID))
@@ -240,18 +240,26 @@ final class NativeFullscreenPlaceholderManager {
   }
 }
 
-/// Monitors whose active Space is one of these fullscreen windows' Spaces.
-func monitorsShowingFullscreenSpace(_ windowIDs: Set<WindowID>) -> Set<MonitorID> {
-  guard !windowIDs.isEmpty else { return [] }
-  let infos = ribbonProxyWindowDescriptions(windowIDs.compactMap { CGWindowID(exactly: $0.rawValue) })
+/// Monitors whose active Space is one of these fullscreen windows' Spaces. Some apps show their
+/// fullscreen content in another window: with `matchingProcess`, one of theirs covering a display counts.
+func monitorsShowingFullscreenSpace(_ windows: [WindowID: pid_t], matchingProcess: Bool = true) -> Set<MonitorID> {
+  guard !windows.isEmpty,
+    let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+      as? [[String: Any]]
+  else { return [] }
+  let ids = Set(windows.keys.compactMap { CGWindowID(exactly: $0.rawValue) })
+  let processIDs = matchingProcess ? Set(windows.values) : []
   return Set(infos.compactMap { info -> MonitorID? in
-    guard (info[kCGWindowIsOnscreen as String] as? Bool) == true,
+    guard let number = info[kCGWindowNumber as String] as? CGWindowID,
       let bounds = info[kCGWindowBounds as String] as? [String: Any],
       let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return nil }
     var display: CGDirectDisplayID = 0, count: UInt32 = 0
     guard CGGetDisplaysWithPoint(CGPoint(x: frame.midX, y: frame.midY), 1, &display, &count) == .success,
       count == 1 else { return nil }
-    return MonitorID(rawValue: UInt64(display))
+    let surface = (info[kCGWindowLayer as String] as? Int) == 0
+      && (info[kCGWindowOwnerPID as String] as? pid_t).map(processIDs.contains) == true
+      && frame.integral == CGDisplayBounds(display).integral
+    return ids.contains(number) || surface ? MonitorID(rawValue: UInt64(display)) : nil
   })
 }
 

@@ -215,11 +215,12 @@ extension MacOSPlatform {
   /// A suppressed monitor shows a fullscreen Space, where an ordered-in placeholder would land.
   public func updateNativeFullscreenPlaceholders(_ placeholders: [NativeFullscreenPlaceholder],
     selectedWindowID: WindowID?, stackingWindowID: WindowID?, suppressedMonitorIDs: Set<MonitorID>) {
-    let fullscreenWindowIDs = nativeFullscreenWindowIDs
+    let processIDs = snapshotEngine.nativeFullscreenProcessIDsByWindowID
+    let fullscreenWindows = Dictionary(uniqueKeysWithValues: nativeFullscreenWindowIDs.map { ($0, processIDs[$0] ?? 0) })
     enqueuePresentation {
       $0.presentUpdateNativeFullscreenPlaceholders(placeholders, selectedWindowID: selectedWindowID,
         stackingWindowID: stackingWindowID, suppressedMonitorIDs: suppressedMonitorIDs,
-        fullscreenWindowIDs: fullscreenWindowIDs)
+        fullscreenWindows: fullscreenWindows)
     }
   }
   /// Called when Return is pressed on a focused placeholder.

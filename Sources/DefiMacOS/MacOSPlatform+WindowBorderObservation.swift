@@ -706,14 +706,14 @@ extension MacOSPlatform {
     selectedWindowID: WindowID?,
     stackingWindowID: WindowID?,
     suppressedMonitorIDs: Set<MonitorID>,
-    fullscreenWindowIDs: Set<WindowID> = []
+    fullscreenWindows: [WindowID: pid_t] = [:]
   ) {
     if nativeFullscreenPlaceholderManager.sync(
       placeholders,
       selectedWindowID: selectedWindowID,
       stackingWindowID: stackingWindowID,
       suppressedMonitorIDs: suppressedMonitorIDs,
-      fullscreenWindowIDs: fullscreenWindowIDs,
+      fullscreenWindows: fullscreenWindows,
       accentColor: borderStyle.activeColor
     ) {
       invalidatePointerCacheFromPresentation()
