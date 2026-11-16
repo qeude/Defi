@@ -770,7 +770,10 @@ final class WindowCaptureCache {
           ribbonProxyDesktopImage(CGRect(x: shown.frame.x, y: shown.frame.y,
             width: shown.frame.width, height: shown.frame.height), capture)
         }).value, image.width == Int(shown.frame.width * shown.scale) else { continue }
-        store.setBackground(image, for: shown.displayID)
+        // A black wallpaper stays black; a black capture of a lit one came from a full-screen Space.
+        let unlit = ribbonProxyImageIsBlack(image)
+          && store.background(shown.displayID).map(ribbonProxyImageIsBlack) == false
+        if !unlit { store.setBackground(image, for: shown.displayID) }
         backgroundCapturedAt[shown.displayID] = CACurrentMediaTime()
         displays.removeAll { $0.displayID == shown.displayID }
       }

@@ -771,7 +771,7 @@ public final class OverviewController: NSObject {
     guard generation == nil || generation == sessionGeneration,
       isOpen, selectionCommitPending else { return }
     selectionNativeReady = true
-    nativeExitCanZoom = nativeFramesReady
+    nativeExitCanZoom = nativeExitCanZoom && nativeFramesReady
     finishSelectionCloseIfReady()
   }
 
@@ -962,7 +962,34 @@ public final class OverviewController: NSObject {
       close(commitScrollOffsets: true)
       return
     }
+    // macOS slides to the chosen window's Space on its own; the Overview must not ride the
+    // slide. It fades out and stays open until the daemon commits the focus.
+    if selectionIsOnAnotherSpace(selection, in: snapshot) {
+      nativeExitCanZoom = false
+      for panel in panels.values { panel.fadeOut() }
+    }
     closeAfterSelectionAlignment()
+  }
+
+  private func selectionIsOnAnotherSpace(_ selection: OverviewSelection, in snapshot: OverviewSnapshot) -> Bool {
+    // Defi lays out one desktop Space; only native full-screen windows live on others.
+    guard !snapshot.nativeFullscreenWindowIDs.isEmpty else { return false }
+    let windowIDs: [WindowID]
+    switch selection {
+    case .window(let windowID, _, _):
+      windowIDs = [windowID]
+    case .workspace(let monitorID, let workspaceID):
+      let workspace = snapshot.monitors.first { $0.id == monitorID }?
+        .workspaces.first { $0.id == workspaceID }
+      windowIDs = (workspace?.columns.flatMap(\.windows) ?? []) + (workspace?.floatingWindows ?? [])
+    }
+    let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+      as? [[String: Any]] ?? []
+    // Windows on another Space are missing from the on-screen list.
+    let onScreen = Set(infos.compactMap {
+      ($0[kCGWindowNumber as String] as? NSNumber).map { WindowID(rawValue: $0.uint64Value) }
+    })
+    return !windowIDs.isEmpty && windowIDs.allSatisfy { !onScreen.contains($0) }
   }
 
   private func focusSelection(_ selection: OverviewSelection, in snapshot: OverviewSnapshot) -> Bool {

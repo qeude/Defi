@@ -513,7 +513,11 @@ final class RibbonProxyPresenter {
       $0.id != draggedWindowID
         && (keepsOffscreen || drawnOnScreen.contains($0.id) || $0.from.ribbonIntersects(area) || $0.to.ribbonIntersects(area))
     }
-    guard !shown.isEmpty || holds else { return fallback("no-visible-window") }
+    guard !shown.isEmpty || holds else {
+      // Windows moving off screen under a running hold stay hidden; the hold goes on.
+      if presenting, holdUntil > CACurrentMediaTime() { lastFallback = "held"; return false }
+      return fallback("no-visible-window")
+    }
     // Visible ordinary windows Defi does not manage stay still on the overlay,
     // drawn from their own picture so the handoff is invisible.
     let phaseScreen = CACurrentMediaTime()
@@ -1797,6 +1801,15 @@ func ribbonProxyDesktopImage(_ area: CGRect,
   guard scale >= 1, image.width == Int(area.width * scale), image.height == Int(area.height * scale)
   else { return nil }
   return image
+}
+
+/// A full-screen Space, or the slide to one, shows no wallpaper: captured then, it is all black.
+func ribbonProxyImageIsBlack(_ image: CGImage) -> Bool {
+  var pixels = [UInt8](repeating: 0, count: 8 * 8 * 4)
+  guard let context = CGContext(data: &pixels, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 32,
+    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+  context.draw(image, in: CGRect(x: 0, y: 0, width: 8, height: 8))
+  return pixels.enumerated().allSatisfy { $0.offset % 4 == 3 || $0.element < 8 }
 }
 
 func ribbonProxyWindowDescriptions(_ numbers: [CGWindowID]) -> [[String: Any]] {

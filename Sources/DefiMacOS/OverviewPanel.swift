@@ -176,7 +176,9 @@ final class OverviewPanel {
     openingTransitionInProgress = true
     openingTransitionChanged?("started(\(scene.openingContentDescription))")
     view.suppressedSurfaceWindowIDs = windowIDs
-    glassView.alphaValue = 0
+    // Not 0: the glass and its cards render once during the still first pose, so the first
+    // moving frame of the zoom does not pay for them. The tint is invisible at this alpha.
+    glassView.alphaValue = 0.002
     coverChrome(0, duration: 0)
     rootView.layer?.addSublayer(scene.layer)
     window.alphaValue = 1
@@ -309,6 +311,29 @@ final class OverviewPanel {
     }
   }
 
+  /// Fades the whole panel out, wallpaper included, ahead of a macOS Space slide it must not ride.
+  func fadeOut() {
+    cancelSurfaceTransition(reason: "fade-out")
+    let generation = surfaceGeneration
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = 1
+    fade.duration = Self.wallpaperFadeDuration
+    fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+    fade.preferredFrameRateRange = overviewAnimationFrameRate
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    window.isOpaque = false
+    window.backgroundColor = .clear
+    rootView.layer?.opacity = 0
+    rootView.layer?.add(fade, forKey: "overview-wallpaper-fade")
+    CATransaction.commit()
+    surfaceTask = Task { [weak self] in
+      do { try await Task.sleep(for: .seconds(Self.wallpaperFadeDuration)) } catch { return }
+      guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
+      hide()
+    }
+  }
+
   /// The panel covers the menu bar and Dock; cross-fade them in instead of popping.
   /// Core Animation keeps the fade smooth while the main thread is busy.
   private func fadeRevealingDesktop(generation: UInt64) async {
@@ -401,9 +426,8 @@ final class OverviewPanel {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     if rootView.layer?.mask === chromeMask.mask { rootView.layer?.mask = nil }
-    let hasWallpaper = usesCapturedDesktop && desktopView.layer?.contents != nil
-    window.isOpaque = hasWallpaper
-    window.backgroundColor = hasWallpaper ? .black : .clear
+    // The window stays non-opaque: turning it opaque and back while shown lets one frame
+    // show the windows beneath, seen at closing over a full-screen window.
     CATransaction.commit()
   }
 

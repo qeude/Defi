@@ -61,6 +61,10 @@ extension MacOSPlatform {
     var history = windowProxyRibbonHistory(ribbonFrames,
       previous: previousRibbonFrames, monitors: windowProxyMonitors)
     for id in deferredRibbonMoves.intersection(skippedWindowIDs) { history[id] = previousRibbonFrames[id] }
+    // Behind a full-screen Space nothing is written: the ribbon stays where the user left it.
+    let frozen = windowProxyMonitors.filter { !$0.windowIDs.isDisjoint(with: nativeFullscreenWindowIDs) }
+      .reduce(nativeFullscreenWindowIDs) { $0.union($1.windowIDs) }.intersection(skippedWindowIDs)
+    for id in frozen where previousRibbonFrames[id] != nil { history[id] = previousRibbonFrames[id] }
     previousLogicalRibbonFrames = history
     let previousPlaceholderFrames = previousNativeFullscreenRibbonFrames
     previousNativeFullscreenRibbonFrames = nativeFullscreenRibbonPlaceholders.mapValues(\.frame)
@@ -780,6 +784,41 @@ extension MacOSPlatform {
       generation: frameSubmissionGeneration, processID: processID,
       selectedWindowID: desiredSelectedWindowID, managedWindowIDs: Set(all.keys),
       borderWindowIDs: monitor.windowIDs)
+  }
+
+  /// Back from a full-screen Space, macOS draws parked windows on screen and the app puts
+  /// its window back where it likes: the screen keeps Defi's layout until the exit lands.
+  func holdWindowProxiesForFullscreenReturn() {
+    // The Space change lands before the desktop is back on screen.
+    guard !activeNativeFullscreenWindowIDs.isEmpty else { return }
+    // Arriving on a full-screen Space also lands here; the proxies would cover the window.
+    guard !activeNativeFullscreenWindowIDs.contains(where: { id in
+      guard let element = elements[id] else { return false }
+      var value: CFTypeRef?
+      // A busy full-screen app must not hold command intake.
+      return AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [element]) {
+        AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &value)
+      } == .success && value as? Bool == true
+    }) else { return }
+    // A snapshot on the full-screen Space sees none of the desk, so the windows come from
+    // the ribbon, which stayed where the user left it.
+    let all = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
+    let appIDs = applicationIDsByProcess
+    for monitor in windowProxyMonitors {
+      guard let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else { continue }
+      let shown = monitor.windowIDs.compactMap { id -> RibbonProxyWindow? in
+        guard let owner = processIDs[id], let frame = previousLogicalRibbonFrames[id],
+          windowProxyVisibleOverlap(frame, monitor.viewport) > 1.01 else { return nil }
+        return RibbonProxyWindow(id: id, appID: all[id]?.appID ?? appIDs[owner] ?? "", processID: owner,
+          from: frame, to: frame)
+      }
+      RibbonProxyPresenter.on(display).hold(windows: shown, viewport: monitor.viewport,
+        generation: frameSubmissionGeneration, processID: 0,
+        selectedWindowID: desiredSelectedWindowID, managedWindowIDs: Set(all.keys).union(monitor.windowIDs),
+        borderWindowIDs: monitor.windowIDs)
+    }
+    // The app reports its window back a few snapshots after the slide.
+    RibbonProxyPresenter.extendHolds()
   }
 
   /// `frame` is nil for a dialog, a panel or a tab. A new native tab can also show

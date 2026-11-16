@@ -792,6 +792,16 @@ public final class MacOSPlatform {
     }
   }
 
+  /// macOS lists a window on screen only while its Space is active, wherever it sits.
+  public func anyWindowOnScreen(_ windowIDs: Set<WindowID>) -> Bool {
+    guard !windowIDs.isEmpty else { return false }
+    let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+      as? [[String: Any]] ?? []
+    return infos.contains {
+      ($0[kCGWindowNumber as String] as? NSNumber).map { windowIDs.contains(WindowID(rawValue: $0.uint64Value)) } == true
+    }
+  }
+
   public func isInitialFrameSettlementActive(
     for windowID: WindowID,
     now: TimeInterval = ProcessInfo.processInfo.systemUptime

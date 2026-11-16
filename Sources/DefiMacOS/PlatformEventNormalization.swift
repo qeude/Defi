@@ -112,8 +112,11 @@ func applicationLifecycleRefreshDelays(for kind: PlatformEventKind) -> [Int] {
   switch kind {
   case .application, .applicationTerminated:
     return [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
-  case .focus, .frame, .windowCreated, .windows, .mouse, .mouseRelease, .screens,
-    .space:
+  case .space:
+    // Leaving a full-screen Space, apps put their window back a beat after the slide
+    // and report nothing Defi observes.
+    return [50, 150, 300, 500, 800]
+  case .focus, .frame, .windowCreated, .windows, .mouse, .mouseRelease, .screens:
     return []
   }
 }

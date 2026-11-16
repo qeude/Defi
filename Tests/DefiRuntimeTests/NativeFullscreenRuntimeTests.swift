@@ -27,6 +27,7 @@ struct NativeFullscreenRuntimeTests {
     #expect(state.windows[fullscreenID]?.minimumTiledWidth == nil)
     #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.columnIndex == 1)
     #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.column.width == .pixels(420))
+    #expect(state.monitors[0].workspaces[0].columns[2].width == .fraction(1))
     let layout = computeLayout(
       workspace: state.monitors[0].workspaces[0],
       viewport: Rect(x: 0, y: 0, width: 1_000, height: 800),
@@ -289,6 +290,26 @@ struct NativeFullscreenRuntimeTests {
     ).first { $0.windowID == fullscreenID }?.frame
     #expect(placeholderFrame.map { $0.x < viewport.width } == true)
     #expect(placeholderFrame.map { $0.x + $0.width > viewport.x } == true)
+  }
+
+  @Test
+  func `Exit returns the strip to its scroll before the entry`() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    let viewports = [monitorID: Rect(x: 0, y: 0, width: 1_000, height: 800)]
+    _ = focusWindow(fullscreenID, state: &state)
+    synchronizeScrollOffsets(state: &state, viewports: viewports)
+    let scroll = state.monitors[0].workspaces[0].targetScrollOffset
+    reconcileWindows(
+      orderedWindows(in: state), config: Config(), nativeFullscreenWindowIDs: [fullscreenID], state: &state)
+    synchronizeScrollOffsets(state: &state, viewports: viewports)
+    #expect(state.monitors[0].workspaces[0].targetScrollOffset != scroll)
+
+    reconcileWindows(
+      orderedWindows(in: state), config: Config(), nativeFullscreenWindowIDs: [], state: &state)
+    synchronizeScrollOffsets(state: &state, viewports: viewports)
+
+    #expect(state.monitors[0].workspaces[0].targetScrollOffset == scroll)
   }
 
   @Test

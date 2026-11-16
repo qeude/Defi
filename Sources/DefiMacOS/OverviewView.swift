@@ -344,11 +344,11 @@ final class OverviewView: NSView {
       let outgoing = outgoingPreviews[card.windowID]
       if let outgoing {
         show(layers.outgoing, outgoing.contents, in: bounds,
-          contentsRect: aspectFillContentsRect(for: outgoing.size, in: size))
+          contentsRect: overviewAspectFillContentsRect(for: outgoing.size, in: size))
       } else {
         layers.outgoing.isHidden = true
       }
-      let contentsRect = aspectFillContentsRect(for: preview.size, in: size)
+      let contentsRect = overviewAspectFillContentsRect(for: preview.size, in: size)
       show(layers.preview, preview.contents, in: bounds, contentsRect: contentsRect)
       layers.preview.opacity = Float(opacity)
       let fadeHeight = overviewPreviewBlurFadeHeight(
@@ -600,20 +600,6 @@ final class OverviewView: NSView {
       || zip(current, sublayers).contains(where: { $0 !== $1 })
     else { return }
     layer.sublayers = sublayers
-  }
-
-  // The unit rectangle of the image that fills `size`, anchored to the leading edge
-  // like the window's own content.
-  private func aspectFillContentsRect(for imageSize: CGSize, in size: CGSize) -> CGRect {
-    guard imageSize.width > 0, imageSize.height > 0, size.width > 0, size.height > 0
-    else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
-    let imageRatio = imageSize.width / imageSize.height
-    let frameRatio = size.width / size.height
-    if imageRatio > frameRatio {
-      return CGRect(x: 0, y: 0, width: frameRatio / imageRatio, height: 1)
-    }
-    let height = imageRatio / frameRatio
-    return CGRect(x: 0, y: (1 - height) / 2, width: 1, height: height)
   }
 
   private func contentScale(
@@ -919,4 +905,18 @@ private final class OverviewAccessibilityElement: NSAccessibilityElement {
     Task { @MainActor in press() }
     return true
   }
+}
+
+// The unit rectangle of the image that fills `size`, anchored to the leading edge
+// like the window's own content.
+func overviewAspectFillContentsRect(for imageSize: CGSize, in size: CGSize) -> CGRect {
+  guard imageSize.width > 0, imageSize.height > 0, size.width > 0, size.height > 0
+  else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
+  let imageRatio = imageSize.width / imageSize.height
+  let frameRatio = size.width / size.height
+  if imageRatio > frameRatio {
+    return CGRect(x: 0, y: 0, width: frameRatio / imageRatio, height: 1)
+  }
+  let height = imageRatio / frameRatio
+  return CGRect(x: 0, y: (1 - height) / 2, width: 1, height: height)
 }

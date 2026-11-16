@@ -876,6 +876,8 @@ public struct SuspendedTiledPlacement: Equatable, Codable, Sendable {
   public let columnIndex: Int
   public let windowIndex: Int
   public let column: Column
+  /// The strip's scroll before a native full-screen entry, so the exit lands on the same desk.
+  public var scrollOffset: Double? = nil
 
   fileprivate func scaled(by scale: Double) -> Self {
     var column = column
@@ -885,7 +887,8 @@ public struct SuspendedTiledPlacement: Equatable, Codable, Sendable {
       workspaceID: workspaceID,
       columnIndex: columnIndex,
       windowIndex: windowIndex,
-      column: column
+      column: column,
+      scrollOffset: scrollOffset
     )
   }
 }
