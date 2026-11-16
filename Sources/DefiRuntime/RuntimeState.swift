@@ -888,7 +888,7 @@ public struct SuspendedTiledPlacement: Equatable, Codable, Sendable {
       columnIndex: columnIndex,
       windowIndex: windowIndex,
       column: column,
-      scrollOffset: scrollOffset.map { $0 * scale }
+      scrollOffset: scrollOffset
     )
   }
 }
