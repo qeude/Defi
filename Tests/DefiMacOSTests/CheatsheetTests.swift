@@ -77,6 +77,7 @@ struct CheatsheetHotKeyTests {
         moved("1–9", "Workspace 1–9", "Move column to workspace 1–9"), row("O", "Overview"),
         row("I", "Reorder workspace up", modifiers: shift),
         row("U", "Reorder workspace down", modifiers: shift),
+        row("↩", "Activate window"),
       ]),
       ShortcutGroup(title: "Monitors", rows: [
         row("←↑↓→", "Focus monitor", "Move column to monitor",

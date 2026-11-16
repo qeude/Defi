@@ -54,7 +54,6 @@ extension Daemon {
         guard let self else { return false }
         return self.focus.commandCompletionIsCurrent(request, submission: submission)
       },
-      allowsNativeFullscreen: true,
       // A failed command focus keeps the requested selection, so native focus must not
       // fall back to the window the command left (issue #210).
       restoresPreviousFocusOnFailure: false,

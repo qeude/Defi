@@ -194,6 +194,17 @@ struct NativeFullscreenTests {
 
     #expect(requestID == nil)
     #expect(result == .completedWithoutMutation)
+
+    platform.nativeFullscreenActivationWindowID = WindowID(rawValue: 2)
+    #expect(platform.focus(windowID) == nil)
+    #expect(platform.nativeFullscreenActivationWindowID == WindowID(rawValue: 2))
+
+    platform.nativeFullscreenActivationWindowID = windowID
+    result = nil
+    // Past the fullscreen guard, an unobserved window fails on its missing AX element.
+    _ = platform.focus(windowID, completion: { result = $0 })
+    #expect(result == .failed)
+    #expect(platform.nativeFullscreenActivationWindowID == nil)
   }
 
   @NavigationActor
@@ -230,6 +241,23 @@ struct NativeFullscreenTests {
 
   @MainActor
   @Test
+  func placeholderPictureDrawsItsContentNotOnlyItsBackground() throws {
+    let image = try #require(nativeFullscreenPlaceholderImage(appID: "com.apple.finder", title: "Notes",
+      size: CGSize(width: 400, height: 300), scale: 2, selected: true, accentColor: 0x7aa2f7))
+    #expect(image.width == 800 && image.height == 600)
+    // The title and icon sit in the middle third; the background alone is one flat colour.
+    let middle = try #require(image.cropping(to: CGRect(x: 200, y: 200, width: 400, height: 200)))
+    let context = try #require(CGContext(data: nil, width: 400, height: 200, bitsPerComponent: 8,
+      bytesPerRow: 1_600, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    context.draw(middle, in: CGRect(x: 0, y: 0, width: 400, height: 200))
+    let pixels = try #require(context.data).assumingMemoryBound(to: UInt8.self)
+    let bright = (0..<(400 * 200)).filter { pixels[$0 * 4] > 128 }.count
+    #expect(bright > 200)
+  }
+
+  @MainActor
+  @Test
   func `Placeholder manager tracks only current fullscreen slots`() {
     let manager = NativeFullscreenPlaceholderManager()
     let windowID = WindowID(rawValue: 1)
@@ -258,6 +286,17 @@ struct NativeFullscreenTests {
         frame: Rect(x: 1_600, y: 100, width: 600, height: 700)
       ),
     ]
+    // A monitor showing a fullscreen Space orders nothing in: it would land on that Space.
+    manager.sync(
+      Array(placeholders.dropFirst()),
+      selectedWindowID: siblingWindowID,
+      stackingWindowID: nil,
+      suppressedMonitorIDs: [MonitorID(rawValue: 1)],
+      accentColor: 0xffc0_99ff
+    )
+
+    #expect(manager.visibleWindowIDs == [otherMonitorWindowID])
+
     manager.sync(
       placeholders,
       selectedWindowID: windowID,
@@ -267,15 +306,16 @@ struct NativeFullscreenTests {
 
     #expect(manager.visibleWindowIDs == Set(placeholders.map(\.windowID)))
 
+    // Panels already on the desktop stay there, out of sight, for the way back.
     manager.sync(
       placeholders,
       selectedWindowID: windowID,
       stackingWindowID: nil,
-      suppressedWindowIDs: [windowID],
+      suppressedMonitorIDs: [MonitorID(rawValue: 1)],
       accentColor: 0xffc0_99ff
     )
 
-    #expect(manager.visibleWindowIDs == [otherMonitorWindowID])
+    #expect(manager.visibleWindowIDs == Set(placeholders.map(\.windowID)))
 
     manager.sync(
       [],
@@ -285,6 +325,7 @@ struct NativeFullscreenTests {
     )
 
     #expect(manager.visibleWindowIDs.isEmpty)
+    manager.hide()
   }
 
   @Test

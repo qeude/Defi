@@ -56,6 +56,7 @@ struct ModelTests {
     ("center-visible-columns", Command.centerVisibleColumns),
     ("toggle-floating", Command.toggleFloating),
     ("activate-floating", Command.activateFloating),
+    ("activate-window", Command.activateWindow),
     ("toggle-overview", Command.toggleOverview),
     ("toggle-cheatsheet", Command.toggleCheatsheet),
     ("open-settings", Command.openSettings),

@@ -376,7 +376,6 @@ extension MacOSPlatform {
                 ),
               cursorWarpPrefersTargetFrame: true,
               cursorWarpIsCurrent: cursorWarpIsCurrentAfterCommit,
-              allowsNativeFullscreen: true,
               completion: focusCompletionAfterCommit
             )
             focusRequestIDAfterCommit?(requestID)
@@ -440,7 +439,6 @@ extension MacOSPlatform {
           cursorWarpInputTimestampAfterCommit,
           cursorWarpPrefersTargetFrame: true,
           cursorWarpIsCurrent: cursorWarpIsCurrentAfterCommit,
-          allowsNativeFullscreen: true,
           completion: focusCompletionAfterCommit
         )
         focusRequestIDAfterCommit?(requestID)
@@ -649,6 +647,11 @@ extension MacOSPlatform {
     skippedWindowIDs: Set<WindowID>, hiddenWindowIDs: Set<WindowID>, allWindows: [WindowID: Window],
     motion duration: TimeInterval?) -> Bool {
     let viewport = monitor.viewport, workspaceShift = monitor.workspaceShift
+    // A fullscreen Space hides this desktop: the layout lands at once, ready when it slides back.
+    guard monitor.windowIDs.isDisjoint(with: activeNativeFullscreenWindowIDs) else {
+      presenter.supersedeIfTargetsChanged(assignments, generation: frameSubmissionGeneration)
+      return false
+    }
     let windows = allWindows.filter { monitor.windowIDs.contains($0.key) }
     var observed = latestObservedFrames
     for (id, window) in windows where observed[id] == nil { observed[id] = window.frame }

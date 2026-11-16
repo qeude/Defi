@@ -420,7 +420,6 @@ extension Daemon {
         guard let self else { return false }
         return self.focus.workspaceCompletionIsCurrent(request, submission: submission)
       },
-      allowsNativeFullscreen: true,
       completion: { [weak self] result in
         self?.commitWorkspaceCommandFocus(result: result, request: request, submission: submission)
       }

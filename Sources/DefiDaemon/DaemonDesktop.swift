@@ -294,7 +294,10 @@ extension Daemon {
       selectedWindowID: selectedWindowID,
       stackingWindowID: assignments.first {
         !hiddenWindowIDs.contains($0.windowID)
-      }?.windowID ?? assignments.first?.windowID
+      }?.windowID ?? assignments.first?.windowID,
+      suppressedMonitorIDs: Set(platform.activeNativeFullscreenWindowIDs.compactMap {
+        state.monitorID(containing: $0)
+      })
     )
     if tracesWindowCreation {
       let elapsedMS =

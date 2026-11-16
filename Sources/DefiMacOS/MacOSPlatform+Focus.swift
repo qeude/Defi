@@ -93,11 +93,13 @@ extension MacOSPlatform {
     cursorWarpUnlessPointerMovedAfter cursorWarpInputTimestamp: TimeInterval? = nil,
     cursorWarpPrefersTargetFrame: Bool = false,
     cursorWarpIsCurrent: (@NavigationActor @Sendable () -> Bool)? = nil,
-    allowsNativeFullscreen: Bool = false,
     restoresPreviousFocusOnFailure: Bool = true,
     completion: (@NavigationActor @Sendable (NativeFocusResult) -> Void)? = nil
   ) -> NativeFocusRequestID? {
-    guard allowsNativeFullscreen || !nativeFullscreenWindowIDs.contains(windowID) else {
+    let activatesNativeFullscreen = nativeFullscreenActivationWindowID == windowID
+    if activatesNativeFullscreen { nativeFullscreenActivationWindowID = nil }
+    guard activatesNativeFullscreen || !nativeFullscreenWindowIDs.contains(windowID) else {
+      enqueuePresentation { $0.nativeFullscreenPlaceholderManager.focus(windowID) }
       completion?(.completedWithoutMutation)
       return nil
     }

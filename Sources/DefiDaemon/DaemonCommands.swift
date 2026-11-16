@@ -187,6 +187,18 @@ func workspaceTargetID(
   }
 }
 
+/// Strip navigation only selects a native fullscreen window; a request naming the window also enters its Space.
+func nativeFullscreenActivationTarget(
+  for command: Command, selectedWindowID: WindowID?, state: RuntimeState
+) -> WindowID? {
+  switch command {
+  case .focusWindowID(let windowID): windowID
+  case .focusWindowPrevious: state.previousFocusedWindowTarget
+  case .activateWindow: selectedWindowID
+  default: nil
+  }
+}
+
 /// Focusing a given window switches workspaces only when the window's workspace is inactive;
 /// otherwise it scrolls like any focus command.
 func commandActivatesWorkspace(_ command: Command, state: RuntimeState) -> Bool {
@@ -410,6 +422,7 @@ extension Daemon {
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
       let parsedCommand = try parseCommand(rawCommand)
+      platform.nativeFullscreenActivationWindowID = nil
       if parsedCommand == .toggleCheatsheet {
         guard desktopSessionActive, !state.monitors.isEmpty else {
           return .failure("cheatsheet unavailable before monitor discovery or during an inactive session")
@@ -436,6 +449,9 @@ extension Daemon {
       }
       if case .spawnShell(let script) = parsedCommand {
         return spawnShell(script)
+      }
+      if overviewState.isOpen, parsedCommand == .activateWindow {
+        return .failure("the overview is open; choose a window there instead")
       }
       if overviewState.isOpen, parsedCommand.editsSelectedLayout, monitorIndex == nil {
         let originatingSession = overviewToggleState.snapshot().sessionGeneration
@@ -522,6 +538,15 @@ extension Daemon {
       }
       let commandInputTimestamp = inputTimestamp ?? receivedAt ?? commandStartedAt
       platform.userInputTracker.record(timestamp: commandInputTimestamp)
+      platform.nativeFullscreenActivationWindowID = nativeFullscreenActivationTarget(
+        for: command, selectedWindowID: commandMonitorID.flatMap { state.selectedWindowID(on: $0) },
+        state: state)
+      if command == .activateWindow {
+        if let windowID = platform.nativeFullscreenActivationWindowID {
+          _ = platform.focus(windowID, unlessUserInputAfter: commandInputTimestamp)
+        }
+        return .success()
+      }
       let routingMonitorFrames = self.routingMonitorFrames
       let commandViewports = viewportsByMonitor
       if case .focusMonitor(let direction) = command {
@@ -550,8 +575,7 @@ extension Daemon {
         if let windowID = state.selectedWindowID(on: targetMonitorID) {
           _ = platform.focus(
             windowID,
-            unlessUserInputAfter: commandInputTimestamp,
-            allowsNativeFullscreen: true
+            unlessUserInputAfter: commandInputTimestamp
           )
         }
         updateMenuBar()
