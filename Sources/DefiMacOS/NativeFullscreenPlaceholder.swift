@@ -133,8 +133,11 @@ final class NativeFullscreenPlaceholderManager {
   }
   private var anchorMismatchSince: [MonitorID: TimeInterval] = [:]
 
-  private func ensureAnchor(on monitorID: MonitorID, screen: NSScreen?) {
-    guard anchors[monitorID] == nil, let screen else { return }
+  private func ensureAnchor(on monitorID: MonitorID) {
+    guard anchors[monitorID] == nil, let screen = NSScreen.screens.first(where: {
+      ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint64Value
+        == monitorID.rawValue
+    }) else { return }
     let anchor = KeyPanel(
       contentRect: CGRect(x: screen.frame.minX, y: screen.frame.minY, width: 1, height: 1),
       // Activating, so the Space switch it causes keeps Defi active instead of the desktop's last app.
@@ -218,7 +221,7 @@ final class NativeFullscreenPlaceholderManager {
         accentColor: accentColor
       ) || surfacesChanged
       if !suppressedMonitorIDs.contains(placeholder.monitorID) {
-        ensureAnchor(on: placeholder.monitorID, screen: panel.screen)
+        ensureAnchor(on: placeholder.monitorID)
       }
     }
     self.suppressedMonitorIDs = suppressedMonitorIDs
@@ -341,7 +344,6 @@ private final class NativeFullscreenPlaceholderPanel {
 
   var isKey: Bool { panel.isKeyWindow }
   var monitorID: MonitorID { placeholder.monitorID }
-  var screen: NSScreen? { panel.screen }
 
   private var desiredStackingWindowID: WindowID?
 
