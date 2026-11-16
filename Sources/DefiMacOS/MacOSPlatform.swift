@@ -679,6 +679,8 @@ public final class MacOSPlatform {
   @MainActor var borderHiddenWindowIDs = Set<WindowID>()
   @MainActor var borderLiveWindowID: WindowID?
   public private(set) var nativeFullscreenWindowIDs = Set<WindowID>()
+  /// Selecting a fullscreen window stays in the strip; only the next focus of this window switches to its Space.
+  public var nativeFullscreenActivationWindowID: WindowID?
   public private(set) var activeNativeFullscreenWindowIDs = Set<WindowID>()
   @MainActor var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
   @MainActor var borderStackingRefreshState = WindowBorderStackingRefreshState()
@@ -705,7 +707,6 @@ public final class MacOSPlatform {
   public var privateWindowConstraintLookupFallbackCount: Int { presentationStatus.constraintsFallbacks }
   public var windowBorderSyncStatus: String { presentationStatus.borderSync }
   @MainActor var presentedNativeFullscreenWindowIDs = Set<WindowID>()
-  @MainActor var presentedActiveNativeFullscreenWindowIDs = Set<WindowID>()
   @MainActor var presentedSelectedWindowID: WindowID?
   var plannedBorderFrames: [FrameAssignment] = []
 
@@ -773,10 +774,8 @@ public final class MacOSPlatform {
     for windowID in exited {
       initialFrameSettlementDeadlines[windowID] = now + 2.5
     }
-    let activeIDs = activeNativeFullscreenWindowIDs
     enqueuePresentation { platform in
       platform.presentedNativeFullscreenWindowIDs = windowIDs
-      platform.presentedActiveNativeFullscreenWindowIDs = activeIDs
       if let activeWindowID = platform.borderManager.activeWindowID,
         windowIDs.contains(activeWindowID) { platform.borderManager.hide() }
     }

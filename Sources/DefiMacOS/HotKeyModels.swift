@@ -82,6 +82,7 @@ func overviewKeyAction(
     case .focusWindow(.up): return .up
     case .focusWindow(.down): return .down
     case .focusMonitor(let direction): return .monitor(direction)
+    case .activateWindow: return .select
     // shortcut: the overview moves the selected window alone, even for move-column-to-monitor;
     // move whole columns once overview drops can carry a column.
     case .moveColumnToMonitor(let direction), .moveWindowToMonitor(let direction):

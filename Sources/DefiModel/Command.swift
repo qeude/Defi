@@ -70,6 +70,7 @@ public enum Command: Equatable, Codable, Sendable {
   case centerVisibleColumns
   case toggleFloating
   case activateFloating
+  case activateWindow
   case joinWindow(Direction)
   case unjoinWindows
   case consumeOrExpelWindow(Direction)

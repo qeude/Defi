@@ -375,6 +375,7 @@ extension Daemon {
       state.selectedWindowID(on: $0)
     }
     let inputTimestamp = ProcessInfo.processInfo.systemUptime
+    platform.nativeFullscreenActivationWindowID = windowID
     do {
       let focusedMonitorID = try focusOverviewWindow(
         OverviewWindowIntent(

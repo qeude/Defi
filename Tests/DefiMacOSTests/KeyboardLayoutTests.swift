@@ -74,6 +74,7 @@ private let defaultRows: [Row] = [
   ("mod-left", "ctrl-alt-123", "ctrl-alt-123", "ctrl-alt-123", "ctrl-alt-123"),
   ("mod-cmd-home", "ctrl-alt-cmd-115", "ctrl-alt-cmd-115", "ctrl-alt-cmd-115", "ctrl-alt-cmd-115"),
   ("mod-pagedown", "ctrl-alt-121", "ctrl-alt-121", "ctrl-alt-121", "ctrl-alt-121"),
+  ("mod-return", "ctrl-alt-36", "ctrl-alt-36", "ctrl-alt-36", "ctrl-alt-36"),
 ]
 
 // The former `\`, `,` and Shift-digit defaults still exercise the fallback search.

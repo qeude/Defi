@@ -524,6 +524,21 @@ final class WindowCaptureCache {
   private var forcedBackgrounds: Set<CGDirectDisplayID> = []
   private var agedBackgrounds: Set<CGDirectDisplayID> = []
   private var backgroundCapturedAt: [CGDirectDisplayID: CFTimeInterval] = [:]
+  /// Displays showing a fullscreen Space: their desktop is off screen and captures black.
+  private var fullscreenDisplays: Set<CGDirectDisplayID> = []
+
+  func setFullscreenDisplays(_ displays: Set<CGDirectDisplayID>) {
+    guard displays != fullscreenDisplays else { return }
+    let returned = fullscreenDisplays.subtracting(displays)
+    fullscreenDisplays = displays
+    guard !returned.isEmpty else { return }
+    // After the Space slide, so the capture shows the desktop and nothing in between.
+    for screen in RibbonProxyStore.shared.allScreens where returned.contains(screen.displayID) {
+      pendingDisplays[screen.displayID] = screen
+    }
+    forcedBackgrounds.formUnion(returned)
+    scheduleRefresh(after: 1, afterLanding: false)
+  }
 
   private init() {
     // Light and dark mode redraw every window and may swap the wallpaper: pictures
@@ -755,8 +770,9 @@ final class WindowCaptureCache {
     let screens = Dictionary(ribbon.allScreens.map { ($0.displayID, $0) }) { first, _ in first }
     pendingDisplays = pendingDisplays.compactMapValues { screens[$0.displayID] }
     var displays = pendingDisplays.values.filter { display in
-      forcedBackgrounds.contains(display.displayID) || agedBackgrounds.contains(display.displayID)
-        || store.background(display.displayID)?.width != Int(display.frame.width * display.scale)
+      !fullscreenDisplays.contains(display.displayID)
+        && (forcedBackgrounds.contains(display.displayID) || agedBackgrounds.contains(display.displayID)
+          || store.background(display.displayID)?.width != Int(display.frame.width * display.scale))
     }
     let aged = agedBackgrounds.subtracting(forcedBackgrounds)
     forcedBackgrounds.subtract(displays.map(\.displayID))

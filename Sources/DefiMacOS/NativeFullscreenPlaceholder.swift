@@ -24,9 +24,144 @@ public struct NativeFullscreenPlaceholder: Equatable, Sendable {
   }
 }
 
+let nativeFullscreenPlaceholderHint = "Press Return to open"
+
 @MainActor
 final class NativeFullscreenPlaceholderManager {
   private var panels: [WindowID: NativeFullscreenPlaceholderPanel] = [:]
+  var activationHandler: ((WindowID) -> Void)?
+
+  private var anchors: [MonitorID: NSPanel] = [:]
+  private var suppressedMonitorIDs: Set<MonitorID> = []
+  private var fullscreenWindows: [WindowID: pid_t] = [:]
+  private var selectedPlaceholderID: WindowID?
+  private var pendingKey: (windowID: WindowID, requestedAt: TimeInterval)?
+  private var keyObservers: [NSObjectProtocol] = []
+
+  /// The selected placeholder takes the keyboard, so Return reaches it instead of the window left behind.
+  func focus(_ windowID: WindowID) {
+    // Without a handler Return opens nothing.
+    guard activationHandler != nil else { return }
+    // On its own Space, a refocus must not pull the user out, nor let an older request do it.
+    guard monitorsShowingFullscreenSpace([windowID: 0], matchingProcess: false).isEmpty else {
+      pendingKey = nil
+      return
+    }
+    pendingKey = (windowID, ProcessInfo.processInfo.systemUptime)
+    if keyObservers.isEmpty {
+      // AX activation lands asynchronously, and a Space switch reactivates the desktop's last
+      // app, so the panel takes the keyboard again once either settles.
+      keyObservers = [
+        NotificationCenter.default.addObserver(
+          forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.keyPendingPanel() } },
+        NSWorkspace.shared.notificationCenter.addObserver(
+          forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in MainActor.assumeIsolated { self?.keyPendingPanel() } },
+      ]
+    }
+    keyPendingPanel()
+  }
+
+  private func keyPendingPanel() {
+    guard let pending = pendingKey,
+      ProcessInfo.processInfo.systemUptime - pending.requestedAt < 2
+    else {
+      pendingKey = nil
+      return
+    }
+    if !NSApplication.shared.isActive {
+      // Cooperative activate() reports success even when refused; AX frontmost takes effect.
+      AXUIElementSetAttributeValue(
+        AXUIElementCreateApplication(getpid()), kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+    }
+    let away = monitorsAwayFromDesktop(Set(anchors.keys).union(panels.values.map(\.monitorID)))
+    // Only a fullscreen window really on screen sends Defi back through the anchor; a mismatch
+    // alone is a switch in progress, or an anchor left on a fullscreen Space.
+    let showing = monitorsShowingFullscreenSpace(fullscreenWindows)
+    let panel = panels[pending.windowID]
+    if let panel, !away.contains(panel.monitorID) {
+      // Back from a fullscreen Space, the desktop is active from the start of the slide:
+      // a target off screen until now shows during it instead of after.
+      panel.orderIn()
+      panel.makeKey()
+      if NSApplication.shared.isActive, panel.isKey { pendingKey = nil }
+    } else if let monitorID = panel?.monitorID ?? showing.first, showing.contains(monitorID),
+      let anchor = anchors[monitorID]
+    {
+      // The strip is hidden behind a fullscreen Space; fronting the desktop anchor switches back.
+      // Only once Defi is active: otherwise the switch reactivates the desktop's last app.
+      // And once the target has its panel in the strip, so the desktop slides in laid out.
+      if NSApplication.shared.isActive, panels[pending.windowID] != nil {
+        anchor.makeKeyAndOrderFront(nil)
+      }
+    }
+    // Activation and Space switches land in no fixed order: try again until the panel holds the keyboard.
+    guard pendingKey != nil, !retryScheduled else { return }
+    retryScheduled = true
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+      MainActor.assumeIsolated {
+        self?.retryScheduled = false
+        self?.keyPendingPanel()
+      }
+    }
+  }
+  private var retryScheduled = false
+
+  /// Monitors that may be showing a fullscreen Space now. Mid-switch, the desktop anchor still
+  /// reads as on the active Space while the fullscreen window is already on screen, and the
+  /// reverse on the way back: either one means a panel ordered now could land there.
+  private func monitorsAwayFromDesktop(_ monitorIDs: Set<MonitorID>) -> Set<MonitorID> {
+    let showing = monitorsShowingFullscreenSpace(fullscreenWindows)
+    let now = ProcessInfo.processInfo.systemUptime
+    for (monitorID, anchor) in anchors {
+      guard !showing.contains(monitorID), !anchor.isOnActiveSpace else {
+        anchorMismatchSince[monitorID] = nil
+        continue
+      }
+      // No fullscreen window shows, yet the anchor is off the active Space for longer than any
+      // switch takes: it was ordered in on a fullscreen Space. Order it in again on the desktop.
+      let since = anchorMismatchSince[monitorID] ?? now
+      anchorMismatchSince[monitorID] = since
+      if now - since > 1 {
+        anchor.orderOut(nil)
+        anchor.orderBack(nil)
+        anchorMismatchSince[monitorID] = nil
+      }
+    }
+    return monitorIDs.filter { anchors[$0].map { !$0.isOnActiveSpace } == true || showing.contains($0) }
+  }
+  private var anchorMismatchSince: [MonitorID: TimeInterval] = [:]
+
+  private func ensureAnchor(on monitorID: MonitorID) {
+    guard anchors[monitorID] == nil, let screen = NSScreen.screens.first(where: {
+      ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint64Value
+        == monitorID.rawValue
+    }) else { return }
+    let anchor = KeyPanel(
+      contentRect: CGRect(x: screen.frame.minX, y: screen.frame.minY, width: 1, height: 1),
+      // Activating, so the Space switch it causes keeps Defi active instead of the desktop's last app.
+      styleMask: [.borderless], backing: .buffered, defer: false
+    )
+    anchor.isOpaque = false
+    anchor.backgroundColor = .clear
+    anchor.ignoresMouseEvents = true
+    anchor.hasShadow = false
+    anchor.collectionBehavior = [.ignoresCycle]
+    anchor.hidesOnDeactivate = false
+    anchor.isReleasedWhenClosed = false
+    anchor.isExcludedFromWindowsMenu = true
+    anchor.animationBehavior = .none
+    // macOS may hand the keyboard back to the anchor after a switch: Return there still opens
+    // the selected placeholder, and other keys are dropped as on the placeholder itself.
+    anchor.onActivate = { [weak self] in
+      guard let self, let windowID = self.selectedPlaceholderID else { return }
+      self.activationHandler?(windowID)
+    }
+    // Ordered in once from the desktop and never out, it stays on that Space.
+    anchor.orderBack(nil)
+    anchors[monitorID] = anchor
+  }
 
   var visibleWindowIDs: Set<WindowID> {
     Set(panels.compactMap { $0.value.isVisible ? $0.key : nil })
@@ -34,6 +169,7 @@ final class NativeFullscreenPlaceholderManager {
 
   var transparentSurfaceWindowIDs: Set<CGWindowID> {
     Set(panels.values.compactMap { $0.isVisible ? $0.windowID : nil })
+      .union(anchors.values.compactMap { $0.windowNumber > 0 ? CGWindowID($0.windowNumber) : nil })
   }
 
   var ownedSurfaceWindowID: WindowID? {
@@ -47,13 +183,17 @@ final class NativeFullscreenPlaceholderManager {
     _ placeholders: [NativeFullscreenPlaceholder],
     selectedWindowID: WindowID?,
     stackingWindowID: WindowID?,
-    suppressedWindowIDs: Set<WindowID> = [],
+    suppressedMonitorIDs: Set<MonitorID> = [],
+    fullscreenWindows: [WindowID: pid_t] = [:],
     accentColor: UInt32
   ) -> Bool {
+    self.fullscreenWindows = fullscreenWindows
+    // The daemon learns of a Space switch a beat late, and a panel or anchor ordered in
+    // meanwhile lands on the fullscreen Space: where an anchor exists it answers instead.
+    let monitorIDs = Set(placeholders.map(\.monitorID))
+    let suppressedMonitorIDs = monitorsAwayFromDesktop(monitorIDs)
+      .union(suppressedMonitorIDs.filter { anchors[$0] == nil })
     let desiredWindowIDs = Set(placeholders.map(\.windowID))
-    let suppressedMonitorIDs = Set(placeholders.compactMap {
-      suppressedWindowIDs.contains($0.windowID) ? $0.monitorID : nil
-    })
     let removedWindowIDs = panels.keys.filter {
       !desiredWindowIDs.contains($0)
     }
@@ -67,7 +207,9 @@ final class NativeFullscreenPlaceholderManager {
       if let existing = panels[placeholder.windowID] {
         panel = existing
       } else {
-        panel = NativeFullscreenPlaceholderPanel(placeholder: placeholder)
+        panel = NativeFullscreenPlaceholderPanel(placeholder: placeholder) { [weak self] in
+          self?.activationHandler?(placeholder.windowID)
+        }
         surfacesChanged = true
       }
       panels[placeholder.windowID] = panel
@@ -78,7 +220,16 @@ final class NativeFullscreenPlaceholderManager {
         suppressed: suppressedMonitorIDs.contains(placeholder.monitorID),
         accentColor: accentColor
       ) || surfacesChanged
+      if !suppressedMonitorIDs.contains(placeholder.monitorID) {
+        ensureAnchor(on: placeholder.monitorID)
+      }
     }
+    self.suppressedMonitorIDs = suppressedMonitorIDs
+    selectedPlaceholderID = selectedWindowID.flatMap { panels[$0] == nil ? nil : $0 }
+    WindowCaptureCache.shared.setFullscreenDisplays(
+      Set(suppressedMonitorIDs.compactMap { CGDirectDisplayID(exactly: $0.rawValue) }))
+    if pendingKey != nil, pendingKey?.windowID != selectedWindowID { pendingKey = nil }
+    if pendingKey != nil { keyPendingPanel() }
     return surfacesChanged
   }
 
@@ -87,12 +238,37 @@ final class NativeFullscreenPlaceholderManager {
       panel.close()
     }
     panels.removeAll(keepingCapacity: true)
+    anchors.values.forEach { $0.close() }
+    anchors.removeAll()
   }
+}
+
+/// Monitors whose active Space is one of these fullscreen windows' Spaces. Some apps show their
+/// fullscreen content in another window: with `matchingProcess`, one of theirs covering a display counts.
+func monitorsShowingFullscreenSpace(_ windows: [WindowID: pid_t], matchingProcess: Bool = true) -> Set<MonitorID> {
+  guard !windows.isEmpty,
+    let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+      as? [[String: Any]]
+  else { return [] }
+  let ids = Set(windows.keys.compactMap { CGWindowID(exactly: $0.rawValue) })
+  let processIDs = matchingProcess ? Set(windows.values) : []
+  return Set(infos.compactMap { info -> MonitorID? in
+    guard let number = info[kCGWindowNumber as String] as? CGWindowID,
+      let bounds = info[kCGWindowBounds as String] as? [String: Any],
+      let frame = CGRect(dictionaryRepresentation: bounds as CFDictionary) else { return nil }
+    var display: CGDirectDisplayID = 0, count: UInt32 = 0
+    guard CGGetDisplaysWithPoint(CGPoint(x: frame.midX, y: frame.midY), 1, &display, &count) == .success,
+      count == 1 else { return nil }
+    let surface = (info[kCGWindowLayer as String] as? Int) == 0
+      && (info[kCGWindowOwnerPID as String] as? pid_t).map(processIDs.contains) == true
+      && frame.integral == CGDisplayBounds(display).integral
+    return ids.contains(number) || surface ? MonitorID(rawValue: UInt64(display)) : nil
+  })
 }
 
 @MainActor
 private final class NativeFullscreenPlaceholderPanel {
-  private let panel: NSPanel
+  private let panel: KeyPanel
   private let placeholderView: NativeFullscreenPlaceholderView
   private var placeholder: NativeFullscreenPlaceholder
   private var stackingWindowID: WindowID?
@@ -104,26 +280,27 @@ private final class NativeFullscreenPlaceholderPanel {
     panel.windowNumber > 0 ? CGWindowID(panel.windowNumber) : nil
   }
 
-  init(placeholder: NativeFullscreenPlaceholder) {
+  init(placeholder: NativeFullscreenPlaceholder, onActivate: @escaping () -> Void) {
     self.placeholder = placeholder
     placeholderView = NativeFullscreenPlaceholderView(
       appID: placeholder.appID,
       title: placeholder.title
     )
-    panel = NSPanel(
+    panel = KeyPanel(
       contentRect: .zero,
       styleMask: [.borderless, .nonactivatingPanel],
       backing: .buffered,
       defer: false
     )
+    panel.onActivate = onActivate
     panel.isOpaque = false
     panel.backgroundColor = .clear
     panel.ignoresMouseEvents = true
     panel.hasShadow = false
     panel.sharingType = .readOnly
     panel.level = .normal
-    // Like the borders: ordered in while the fullscreen Space is active, it would stay there.
-    panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .transient]
+    // Not on all Spaces: that includes fullscreen ones. Sync orders it in only from the desktop.
+    panel.collectionBehavior = [.ignoresCycle]
     panel.hidesOnDeactivate = false
     panel.isReleasedWhenClosed = false
     panel.isExcludedFromWindowsMenu = true
@@ -138,28 +315,21 @@ private final class NativeFullscreenPlaceholderPanel {
     suppressed: Bool,
     accentColor: UInt32
   ) -> Bool {
-    let wasOrderedIn = orderedIn
-    if self.placeholder.frame != placeholder.frame {
-      panel.setFrame(appKitRect(for: placeholder.frame), display: false)
-    } else if !orderedIn {
-      panel.setFrame(appKitRect(for: placeholder.frame), display: false)
-    }
+    let wasVisible = isVisible
+    let target = appKitRect(for: placeholder.frame)
+    if panel.frame != target { panel.setFrame(target, display: false) }
     if self.placeholder.appID != placeholder.appID
       || self.placeholder.title != placeholder.title
     {
       placeholderView.update(appID: placeholder.appID, title: placeholder.title)
     }
-    placeholderView.updateAppearance(
-      selected: selected,
-      accentColor: accentColor
-    )
+    placeholderView.updateAppearance(selected: selected, accentColor: accentColor)
     self.placeholder = placeholder
-    if suppressed {
-      panel.orderOut(nil)
-      self.stackingWindowID = stackingWindowID
-      orderedIn = false
-      return wasOrderedIn
-    }
+    desiredStackingWindowID = stackingWindowID
+    // While a fullscreen Space shows, nothing is ordered in: it would land there. Panels
+    // already in stay on the desktop, out of sight, ready for the way back; ordering them out
+    // mid-switch showed the wallpaper in their slots.
+    if suppressed { return false }
     if !orderedIn || self.stackingWindowID != stackingWindowID {
       if let stackingWindowID {
         panel.order(.below, relativeTo: Int(stackingWindowID.rawValue))
@@ -169,7 +339,28 @@ private final class NativeFullscreenPlaceholderPanel {
       self.stackingWindowID = stackingWindowID
       orderedIn = true
     }
-    return orderedIn != wasOrderedIn
+    return isVisible != wasVisible
+  }
+
+  var isKey: Bool { panel.isKeyWindow }
+  var monitorID: MonitorID { placeholder.monitorID }
+
+  private var desiredStackingWindowID: WindowID?
+
+  func orderIn() {
+    guard !orderedIn else { return }
+    if let desiredStackingWindowID {
+      panel.order(.below, relativeTo: Int(desiredStackingWindowID.rawValue))
+    } else {
+      panel.orderBack(nil)
+    }
+    stackingWindowID = desiredStackingWindowID
+    orderedIn = true
+  }
+
+  func makeKey() {
+    guard orderedIn else { return }
+    panel.makeKey()
   }
 
   func close() {
@@ -186,6 +377,19 @@ private final class NativeFullscreenPlaceholderPanel {
       height: frame.height
     )
   }
+}
+
+/// Takes keys without activating Defi: Return opens the fullscreen window, every other key is dropped.
+private final class KeyPanel: NSPanel {
+  var onActivate: (() -> Void)?
+
+  override var canBecomeKey: Bool { true }
+
+  override func keyDown(with event: NSEvent) {
+    if event.keyCode == 36 || event.keyCode == 76 { onActivate?() }
+  }
+
+  override func performKeyEquivalent(with event: NSEvent) -> Bool { true }
 }
 
 @MainActor
@@ -244,6 +448,7 @@ private final class NativeFullscreenPlaceholderView: NSView {
 
   func updateAppearance(selected: Bool, accentColor: UInt32) {
     guard self.selected != selected || self.accentColor != accentColor else { return }
+    setAccessibilityHelp(selected ? nativeFullscreenPlaceholderHint : nil)
     self.selected = selected
     self.accentColor = accentColor
     needsDisplay = true
@@ -299,10 +504,15 @@ func nativeFullscreenPlaceholderImage(appID: String, title: String, size: CGSize
   let status = NSAttributedString(string: "macOS Full Screen",
     attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.white.withAlphaComponent(0.68),
       .paragraphStyle: paragraph])
+  let hint = NSAttributedString(string: selected ? nativeFullscreenPlaceholderHint : "",
+    attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.white,
+      .paragraphStyle: paragraph])
   let textWidth = max(size.width - 48, 0)
   let nameHeight = ceil(name.size().height), statusHeight = ceil(status.size().height)
+  let hintHeight = selected ? ceil(hint.size().height) : 0
   let spacing: CGFloat = 8, iconSide: CGFloat = 80
-  var y = ((size.height + iconSide + spacing + nameHeight + spacing + statusHeight) / 2).rounded()
+  var y = ((size.height + iconSide + spacing + nameHeight + spacing + statusHeight
+    + (selected ? spacing + hintHeight : 0)) / 2).rounded()
   y -= iconSide
   icon?.draw(in: CGRect(x: ((size.width - iconSide) / 2).rounded(), y: y, width: iconSide, height: iconSide))
   y -= spacing + nameHeight
@@ -311,5 +521,10 @@ func nativeFullscreenPlaceholderImage(appID: String, title: String, size: CGSize
   y -= spacing + statusHeight
   status.draw(with: CGRect(x: 24, y: y, width: textWidth, height: statusHeight),
     options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+  if selected {
+    y -= spacing + hintHeight
+    hint.draw(with: CGRect(x: 24, y: y, width: textWidth, height: hintHeight),
+      options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+  }
   return context.makeImage()
 }

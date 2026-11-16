@@ -286,6 +286,9 @@ final class Daemon {
     platform.setDiagnosticAnomalyHandler { [weak diagnostics] uptime, event in
       diagnostics?.recordAnomaly(uptime: uptime, event: event)
     }
+    platform.setNativeFullscreenActivationHandler { [weak self] windowID in
+      NavigationActor.enqueue { _ = self?.handle("activate-window") }
+    }
   }
 
   func start() {

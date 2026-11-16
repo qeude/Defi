@@ -154,6 +154,8 @@ public func parseCommand(_ input: String) throws -> Command {
     return .toggleFloating
   case "activate-floating":
     return .activateFloating
+  case "activate-window":
+    return .activateWindow
   case "join-window":
     return .joinWindow(try parseDirection(argument("direction")))
   case "unjoin-windows":

@@ -348,6 +348,7 @@ struct ConfigTests {
     #expect(config.keys["mod-c"] == "center-column")
     #expect(config.keys["mod-v"] == "toggle-floating")
     #expect(config.keys["mod-shift-v"] == "activate-floating")
+    #expect(config.keys["mod-return"] == "activate-window")
     #expect(config.keys["mod-shift-comma"] == "focus-floating previous")
     #expect(config.keys["mod-shift-period"] == "focus-floating next")
     #expect(config.mod == "ctrl+alt+cmd")

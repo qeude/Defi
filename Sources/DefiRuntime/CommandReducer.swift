@@ -492,7 +492,7 @@ public func reduce(
       if !state.monitors[monitorIndex].workspaces[index].floatingWindows.isEmpty {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .floating
       }
-    case .toggleOverview, .toggleCheatsheet, .openSettings, .recentWindows:
+    case .activateWindow, .toggleOverview, .toggleCheatsheet, .openSettings, .recentWindows:
       break
     case .runStartupCommands, .spawnShell:
       break
@@ -623,7 +623,7 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     true
   case .focusColumn, .focusColumnOrMonitor, .focusFloating, .focusWindow, .focusWindowOrWorkspace,
     .focusWindowPrevious, .focusWindowID, .switchWorkspace, .focusWorkspace, .focusMonitor,
-    .activateFloating, .toggleOverview, .toggleCheatsheet, .openSettings, .runStartupCommands,
+    .activateFloating, .activateWindow, .toggleOverview, .toggleCheatsheet, .openSettings, .runStartupCommands,
     .recentWindows, .spawnShell:
     false
   }

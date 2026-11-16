@@ -477,7 +477,7 @@ The key is one of these names, or any other single character, such as
 | Letters | `a` to `z` |
 | Digits | `0` to `9` |
 | Arrows | `left`, `right`, `up`, `down` |
-| Navigation | `tab`, `home`, `end`, `pageup`, `pagedown` (Fn with an arrow on keyboards without them) |
+| Navigation | `return`, `tab`, `home`, `end`, `pageup`, `pagedown` (Fn with an arrow on keyboards without them) |
 | Punctuation | `minus`, `equal`, `leftbracket`, `rightbracket`, `semicolon`, `quote`, `backslash`, `comma`, `period`, `slash` |
 
 ### Keyboard layouts
@@ -560,6 +560,7 @@ declared in `[workspaces].names`; rules cannot target dynamic positions.
 | `focus-floating previous\|next` | Focus the previous or next floating window, wrapping. | `mod-shift-comma` / `mod-shift-period` |
 | `focus-floating first\|last` | Focus the first or last floating window. | unset |
 | `activate-floating` | Select the floating layer and bring its selected window forward. | `mod-shift-v` |
+| `activate-window` | Bring the selected window forward. On a [native fullscreen](#native-macos-fullscreen) window, switch to its Space. | `mod-return` |
 | `focus-monitor left\|right\|up\|down` | Focus the nearest monitor in that direction. | `mod-shift-<arrow>`, `mod-shift-h/j/k/l` |
 | `focus-column-or-monitor left\|right` | Like `focus-column`, but past the first or last column, focus the next monitor. | unset |
 
@@ -1144,8 +1145,14 @@ the app:
 
 - While a window is in native fullscreen, Defi takes it off the strip and stops
   moving, parking, bordering, or focusing it automatically. It keeps the
-  window's column slot, width, monitor, workspace, and selection; explicit focus
-  commands can still select it.
+  window's column slot, width, monitor, workspace, and selection.
+- Navigating onto its slot selects its placeholder and gives it the keyboard,
+  so crossing several fullscreen windows never switches Spaces. Navigating from
+  inside a fullscreen Space returns to the desktop first.
+- Return on the selected placeholder switches to its Space. So do
+  `activate-window`, `focus-window-id`, `focus-window-previous`, the recent
+  windows switcher, and choosing it in the Overview, as Command-Tab and the
+  Dock do.
 - When it exits, Defi puts it back in its slot, or on a fallback monitor if the
   original one is gone.
 - A late fullscreen event never restores an older layout, visibility, or focus.
@@ -1328,6 +1335,7 @@ names = []
 "mod-c" = "center-column"
 "mod-v" = "toggle-floating"
 "mod-shift-v" = "activate-floating"
+"mod-return" = "activate-window"
 "mod-shift-comma" = "focus-floating previous"
 "mod-shift-period" = "focus-floating next"
 "mod-o" = "toggle-overview"

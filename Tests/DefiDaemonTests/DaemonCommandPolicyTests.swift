@@ -8,6 +8,20 @@ import Testing
 @testable import DefiDaemon
 
 struct DaemonCommandPolicyTests {
+  @Test func onlyARequestNamingAWindowEntersItsFullscreenSpace() {
+    let selected = WindowID(rawValue: 1), named = WindowID(rawValue: 2)
+    let state = RuntimeState(config: Config())
+    let target = { nativeFullscreenActivationTarget(for: $0, selectedWindowID: selected, state: state) }
+    #expect(target(.activateWindow) == selected)
+    #expect(target(.focusWindowID(named)) == named)
+    for command: Command in [
+      .focusColumn(.right), .focusWindow(.down), .focusColumnOrMonitor(.left), .focusMonitor(.right),
+      .focusWorkspace(.relative(.down)), .switchWorkspace(WorkspaceID(rawValue: "mail")), .toggleOverview,
+    ] {
+      #expect(target(command) == nil, "\(command)")
+    }
+  }
+
   @Test func onlyACenteringChangeUsesTheScrollAnimation() {
     let base = Config()
     var centerMode = base

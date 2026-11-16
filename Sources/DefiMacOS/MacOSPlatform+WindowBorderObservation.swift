@@ -704,13 +704,16 @@ extension MacOSPlatform {
   public func presentUpdateNativeFullscreenPlaceholders(
     _ placeholders: [NativeFullscreenPlaceholder],
     selectedWindowID: WindowID?,
-    stackingWindowID: WindowID?
+    stackingWindowID: WindowID?,
+    suppressedMonitorIDs: Set<MonitorID>,
+    fullscreenWindows: [WindowID: pid_t] = [:]
   ) {
     if nativeFullscreenPlaceholderManager.sync(
       placeholders,
       selectedWindowID: selectedWindowID,
       stackingWindowID: stackingWindowID,
-      suppressedWindowIDs: presentedActiveNativeFullscreenWindowIDs,
+      suppressedMonitorIDs: suppressedMonitorIDs,
+      fullscreenWindows: fullscreenWindows,
       accentColor: borderStyle.activeColor
     ) {
       invalidatePointerCacheFromPresentation()

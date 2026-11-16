@@ -212,12 +212,20 @@ extension MacOSPlatform {
   public func setWindowBordersSuppressed(_ suppressed: Bool) {
     enqueuePresentation { $0.presentSetWindowBordersSuppressed(suppressed) }
   }
+  /// A suppressed monitor shows a fullscreen Space, where an ordered-in placeholder would land.
   public func updateNativeFullscreenPlaceholders(_ placeholders: [NativeFullscreenPlaceholder],
-    selectedWindowID: WindowID?, stackingWindowID: WindowID?) {
+    selectedWindowID: WindowID?, stackingWindowID: WindowID?, suppressedMonitorIDs: Set<MonitorID>) {
+    let processIDs = snapshotEngine.nativeFullscreenProcessIDsByWindowID
+    let fullscreenWindows = Dictionary(uniqueKeysWithValues: nativeFullscreenWindowIDs.map { ($0, processIDs[$0] ?? 0) })
     enqueuePresentation {
       $0.presentUpdateNativeFullscreenPlaceholders(placeholders, selectedWindowID: selectedWindowID,
-        stackingWindowID: stackingWindowID)
+        stackingWindowID: stackingWindowID, suppressedMonitorIDs: suppressedMonitorIDs,
+        fullscreenWindows: fullscreenWindows)
     }
+  }
+  /// Called when Return is pressed on a focused placeholder.
+  public func setNativeFullscreenActivationHandler(_ handler: @escaping @MainActor (WindowID) -> Void) {
+    enqueuePresentation { $0.nativeFullscreenPlaceholderManager.activationHandler = handler }
   }
   public func hideNativeFullscreenPlaceholders() {
     enqueuePresentation { $0.presentHideNativeFullscreenPlaceholders() }

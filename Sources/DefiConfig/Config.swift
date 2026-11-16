@@ -401,6 +401,7 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-c": "center-column",
       "\(modifier)-v": "toggle-floating",
       "\(modifier)-shift-v": "activate-floating",
+      "\(modifier)-return": "activate-window",
       "\(modifier)-shift-comma": "focus-floating previous",
       "\(modifier)-shift-period": "focus-floating next",
       "\(modifier)-o": "toggle-overview",

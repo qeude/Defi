@@ -16,7 +16,7 @@ enum SettingsShortcutActions {
     "set-column-width", "expand-column-to-available-width",
     "set-window-height", "switch-preset-window-height", "reset-window-height",
     "center-column", "center-visible-columns",
-    "toggle-floating", "activate-floating", "join-window", "unjoin-windows",
+    "toggle-floating", "activate-floating", "activate-window", "join-window", "unjoin-windows",
     "consume-or-expel-window", "swap-window",
     "toggle-cheatsheet", "toggle-overview", "open-settings", "run-startup-commands",
   ]
@@ -24,7 +24,7 @@ enum SettingsShortcutActions {
     "maximize-column", "expand-column-to-available-width", "center-column", "center-visible-columns",
     "focus-workspace-previous", "focus-window-previous", "toggle-floating",
     "switch-preset-window-height", "reset-window-height",
-    "activate-floating", "unjoin-windows",
+    "activate-floating", "activate-window", "unjoin-windows",
     "toggle-cheatsheet", "toggle-overview", "open-settings", "run-startup-commands",
   ]
   static let relativeWorkspaceActions: Set<String> = [
