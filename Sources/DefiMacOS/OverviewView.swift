@@ -34,6 +34,8 @@ final class OverviewView: NSView {
   private var previewOpacities: [WindowID: Double] = [:]
   // Image being replaced, kept underneath until the new preview finishes fading in.
   private var outgoingPreviews: [WindowID: WindowPicture] = [:]
+  /// Previews that arrived below full opacity: their next render starts a Core Animation fade.
+  private var revealing = Set<WindowID>()
   private var mouseDownPoint: NSPoint?
   private var mouseDownWindowID: WindowID?
   private var mouseDownOverflow: (workspaceID: WorkspaceID, direction: Int)?
@@ -110,6 +112,7 @@ final class OverviewView: NSView {
     blurredPreviews.removeAll(keepingCapacity: false)
     outgoingPreviews.removeAll(keepingCapacity: false)
     previewOpacities.removeAll()
+    revealing.removeAll()
     titleCache.prune(windowIDs: [])
     // Icons stay: a few KB per app, and rasterizing them again cost every opening ~10 ms.
     // Layers retain their textures; dropping them releases the images with the caches.
@@ -172,6 +175,7 @@ final class OverviewView: NSView {
     previews[windowID] = picture
     blurredPreviews[windowID] = blurred
     previewOpacities[windowID] = opacity
+    if opacity < 1 { revealing.insert(windowID) }
     dropSettledOutgoingPreviews()
     needsDisplay = true
   }
@@ -350,7 +354,9 @@ final class OverviewView: NSView {
       }
       let contentsRect = overviewAspectFillContentsRect(for: preview.size, in: size)
       show(layers.preview, preview.contents, in: bounds, contentsRect: contentsRect)
-      layers.preview.opacity = Float(opacity)
+      let fades = revealing.remove(card.windowID) != nil && opacity < 1
+      if fades { fadeIn(layers.preview, from: opacity) }
+      layers.preview.opacity = 1
       let fadeHeight = overviewPreviewBlurFadeHeight(
         titleBandHeight: titleBandHeight, imageScale: 1, imageHeight: size.height)
       // The blurred copy lines up with the picture; its mask keeps only the title band.
@@ -364,11 +370,12 @@ final class OverviewView: NSView {
       }
       show(layers.blur, blurred, in: bounds, contentsRect: contentsRect)
       setFrame(layers.blurMask, CGRect(x: 0, y: 0, width: size.width, height: fadeHeight))
-      layers.blur.opacity = Float(outgoing == nil ? opacity : 1)
       show(layers.scrim, titleScrimImage,
         in: CGRect(x: 0, y: 0, width: size.width, height: fadeHeight))
       // Cross-fades keep the scrim steady; only a first reveal fades it in.
-      layers.scrim.opacity = Float(outgoing == nil ? opacity : 1)
+      if fades, outgoing == nil { fadeIn(layers.blur, from: opacity); fadeIn(layers.scrim, from: opacity) }
+      layers.blur.opacity = 1
+      layers.scrim.opacity = 1
     } else {
       for layer in [layers.preview, layers.outgoing, layers.blur, layers.scrim] { layer.isHidden = true }
     }
@@ -658,6 +665,16 @@ final class OverviewView: NSView {
         operation: .sourceOver, fraction: 1, respectFlipped: true,
         hints: [.interpolation: NSImageInterpolation.high])
     } ?? image
+  }
+
+  private func fadeIn(_ layer: CALayer, from opacity: Double) {
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = opacity
+    fade.toValue = 1
+    fade.duration = overviewPreviewFadeDuration * (1 - opacity)
+    fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+    fade.preferredFrameRateRange = overviewAnimationFrameRate
+    layer.add(fade, forKey: "previewFade")
   }
 
   // Built once: each was created per card and per frame of every zoom.

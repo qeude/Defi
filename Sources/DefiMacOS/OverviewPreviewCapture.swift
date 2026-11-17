@@ -33,11 +33,13 @@ func overviewBlurredPreview(
   return context.createCGImage(blurred, from: extent)
 }
 
+let overviewPreviewFadeDuration: TimeInterval = 0.45
+
 func overviewPreviewOpacity(
   startedAt: TimeInterval?,
   now: TimeInterval,
   reduceMotion: Bool,
-  duration: TimeInterval = 0.45
+  duration: TimeInterval = overviewPreviewFadeDuration
 ) -> Double {
   guard !reduceMotion, let startedAt, duration > 0 else { return 1 }
   let progress = min(max((now - startedAt) / duration, 0), 1)
