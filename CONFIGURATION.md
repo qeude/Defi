@@ -1095,7 +1095,8 @@ shared on the desk, Defi moves it to the matching point of the neighboring
 display, while moving or dragging. Change the arrangement in System Settings at
 any time; Defi adopts it as the new desk. While System Settings is the active
 app, Defi lifts the staircase so Displays shows and edits the desk, and puts the
-staircase back when you switch away.
+staircase back when you switch away. Focus does not follow the pointer
+meanwhile; click another window to leave System Settings.
 
 When you connect another set of displays, such as a monitor at home and another
 at the office, the desk is the arrangement macOS restores for that set, as it
