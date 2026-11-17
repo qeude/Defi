@@ -623,6 +623,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     }
     if (!overview) return false;
     if (code === 'Enter' || code === 'Escape') {
+      hideSheet(true);
       overview = false;
       render();
       onCommand(null, 'toggle-overview');
@@ -630,6 +631,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     }
     const command = { ArrowLeft: 'focus-column left', ArrowRight: 'focus-column right', ArrowUp: 'focus-workspace up', ArrowDown: 'focus-workspace down' }[code];
     if (!command) return false;
+    hideSheet(true);
     act(command);
     if (command.startsWith('focus-column')) {
       spaces[active].ovOffset = spaces[active].focus;
