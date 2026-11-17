@@ -152,13 +152,14 @@ struct CheatsheetPanelTests {
     // The fit can follow an opaque panel (no fade under Reduce Motion), and on a small
     // screen it keeps the largest frame: wait for the frame to hold still instead.
     var settled = current.frame, stableSince = ContinuousClock.now
-    while first.isVisible || current.alphaValue < 0.99
+    while (first !== current && first.isVisible) || current.alphaValue < 0.99
       || ContinuousClock.now - stableSince < .milliseconds(150), ContinuousClock.now < deadline {
       try await Task.sleep(for: .milliseconds(10))
       turnMainRunLoop()
       if current.frame != settled { settled = current.frame; stableSince = ContinuousClock.now }
     }
-    #expect(!first.isVisible, "A closed panel must not reappear")
+    // The closed panel may come back as the one now shown; never as a second panel.
+    #expect(first === current || !first.isVisible, "A closed panel must not reappear")
     #expect(abs(current.alphaValue - 1) < 0.01)
     #expect(NSApplication.shared.isActive == wasActive, "Showing the panel must not activate Defi")
     #expect(current.frame.height <= screen.visibleFrame.height - 48)

@@ -10,6 +10,12 @@ public final class CheatsheetController {
   private var closingPanel: NSPanel?
   /// Fitting sizes per column count: measuring builds a hosting view each, at every opening.
   private var measured: (groups: [ShortcutGroup], sizes: [CGSize])?
+  private var grouped: (layout: KeyboardLayout?, displayMod: Bool, groups: [ShortcutGroup])?
+  private var shown: (groups: [ShortcutGroup], frame: CGRect)?
+  /// A closed panel kept briefly for the next opening: building and first drawing the SwiftUI
+  /// panel cost each opening ~40 ms. Released 30 s after closing, so idle memory stays as it was.
+  private var idle: (panel: NSPanel, groups: [ShortcutGroup], frame: CGRect)?
+  private var idleRelease: Task<Void, Never>?
 
   public init(config: Config) {
     self.config = config
@@ -24,10 +30,11 @@ public final class CheatsheetController {
     panel = nil
     finishClosing()
     let bounds = screen.visibleFrame
-    let groups = shortcutGroups(
-      config: config, layout: currentKeyboardLayout(),
-      displayMod: UserDefaults.standard.object(forKey: displayModDefaultsKey) as? Bool ?? false
-    )
+    let keyboardLayout = currentKeyboardLayout()
+    let displayMod = UserDefaults.standard.object(forKey: displayModDefaultsKey) as? Bool ?? false
+    let groups = grouped.flatMap { $0.layout == keyboardLayout && $0.displayMod == displayMod ? $0.groups : nil }
+      ?? shortcutGroups(config: config, layout: keyboardLayout, displayMod: displayMod)
+    grouped = (keyboardLayout, displayMod, groups)
     let sizes = measured?.groups == groups ? measured!.sizes : (1...max(1, min(4, groups.count))).map {
       NSHostingView(rootView: CheatsheetContent(groups: groups, columnCount: $0)).fittingSize
     }
@@ -41,6 +48,18 @@ public final class CheatsheetController {
       x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2,
       width: size.width, height: size.height
     )
+    shown = (groups, frame)
+    if let reused = idle, reused.groups == groups, reused.frame == frame,
+      let content = reused.panel.contentView {
+      idle = nil
+      idleRelease?.cancel()
+      panel = reused.panel
+      if animates { Self.fade(content, from: 0, to: 1, duration: 0.15, timing: .easeOut) } else { content.layer?.opacity = 1 }
+      reused.panel.orderFrontRegardless()
+      return
+    }
+    idle?.panel.close()
+    idle = nil
     // With a screen, the content rect is relative to that screen's origin.
     let panel = CheatsheetPanel(
       contentRect: frame.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY),
@@ -102,7 +121,16 @@ public final class CheatsheetController {
   private func finishClosing() {
     guard let closingPanel else { return }
     self.closingPanel = nil
-    closingPanel.close()
+    closingPanel.orderOut(nil)
+    idle?.panel.close()
+    idle = shown.map { (closingPanel, $0.groups, $0.frame) }
+    idleRelease?.cancel()
+    idleRelease = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(30))
+      guard !Task.isCancelled, let self, let idle else { return }
+      idle.panel.close()
+      self.idle = nil
+    }
   }
 
   private var animates: Bool {
