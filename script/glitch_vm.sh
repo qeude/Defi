@@ -3,6 +3,7 @@
 # Usage: script/glitch_vm.sh OUT LABEL=BUNDLE... [-- BENCH ARGS]
 # Each bundle runs from ~/defi-glitch/LABEL/Defi.app with its own TCC rows; the guest's installed app,
 # config and grants are restored afterwards. DEFI_VM_SECOND_DISPLAY=1 adds a virtual display.
+# DEFI_GLITCH_NO_CAPTURE=1 denies the daemons Screen Recording (pass --instant to the bench).
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -62,7 +63,11 @@ for entry in "${BUNDLES[@]}"; do
   label="${entry%%=*}" bundle="${entry#*=}"
   vm "mkdir -p $G/$label"
   COPYFILE_DISABLE=1 tar -C "$(dirname "$bundle")" -cf - "$(basename "$bundle")" | vm "tar -C $G/$label -xf -"
-  grant "$G/$label/Defi.app/Contents/MacOS/defi-daemon" kTCCServiceAccessibility kTCCServiceScreenCapture kTCCServicePostEvent
+  if [[ "${DEFI_GLITCH_NO_CAPTURE:-0}" == 1 ]]; then
+    grant "$G/$label/Defi.app/Contents/MacOS/defi-daemon" kTCCServiceAccessibility kTCCServicePostEvent
+  else
+    grant "$G/$label/Defi.app/Contents/MacOS/defi-daemon" kTCCServiceAccessibility kTCCServiceScreenCapture kTCCServicePostEvent
+  fi
 done
 # macOS's monthly "bypass the private window picker" alert would cover the windows the camera reads.
 APPROVALS='/Users/admin/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist'
@@ -79,7 +84,8 @@ for key in sys.argv[2:]:
 plistlib.dump(data, open(path, 'wb'))
 \" '$APPROVALS' com.qeude.defi $G/tools/GlitchCamera $(for e in "${BUNDLES[@]}"; do printf "file://$G/%s/Defi.app/ $G/%s/Defi.app/Contents/MacOS/defi-daemon " "${e%%=*}" "${e%%=*}"; done); killall UserNotificationCenter NotificationCenter 2>/dev/null; true"
 # A staged daemon opened by its bundle also needs the bundle-id row for Screen Recording.
-vm "sudo -n sqlite3 '$TCC' \"update access set auth_value=2 where client='com.qeude.defi' and service='kTCCServiceScreenCapture';\"; sudo -n pkill tccd"
+CAPTURE=2; [[ "${DEFI_GLITCH_NO_CAPTURE:-0}" != 1 ]] || CAPTURE=0
+vm "sudo -n sqlite3 '$TCC' \"update access set auth_value=$CAPTURE where client='com.qeude.defi' and service='kTCCServiceScreenCapture';\"; sudo -n pkill tccd"
 
 if [[ "${DEFI_VM_SECOND_DISPLAY:-0}" == 1 ]]; then
   vm "cat > $G/tools/DefiVirtualDisplay && chmod +x $G/tools/DefiVirtualDisplay" < .build/glitch/DefiVirtualDisplay

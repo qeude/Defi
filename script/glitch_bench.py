@@ -252,7 +252,10 @@ class Bench:
         oscillating = any(gained[i] == gained[j] and gained[i] != gained[i + 1]
                           for i in range(len(gained)) for j in range(i + 2, len(gained)))
         if action != 'workspace-burst':  # its targets alternate on purpose
-            self.check('focus_oscillation', not oscillating, action=action, gained=gained)
+            self.check('focus_oscillation', not oscillating, action=action, gained=gained,
+                       at=[round(t, 3) for t, _, _ in flips])
+            if oscillating:
+                (self.out / f'oscillation-{round(start, 1)}-trace.txt').write_text(self.cli_run('trace')[0])
         pids = self.daemons()
         self.check('daemon_count', len(pids) == 1, action=action, pids=pids)
         if before_pids is not None and action != 'restart':
@@ -673,12 +676,13 @@ def analyze(out):
 
     # Setup opens fixtures at arbitrary frames: only scenarios are scored.
     actions = [e for e in events if e['scenario'] != 'setup'
-               and e['action'] not in ('create', 'settled', 'column-burst-step', 'workspace-burst-step', 'burst-end')]
+               and e['action'] not in ('mode', 'create', 'settled', 'column-burst-step', 'workspace-burst-step', 'burst-end')]
     settled_at = {}
     for e in events:
         if e['action'] == 'settled':
             settled_at.setdefault(e['of'], []).append(e)
     starts = [e['t'] for e in actions] + [float('inf')]
+    instant = any(e['action'] == 'mode' and e.get('instant') for e in events)
     blind = 0
     for index, action in enumerate(actions):
         t0, t1 = action['t'], starts[index + 1]
@@ -698,7 +702,7 @@ def analyze(out):
         for display, seq in by_display.items():
             width = displays.get(display, [0, 0, 1024, 768])[2]
             seq = [{**f, 'rows': [[run for run in row if run[0] not in still_hidden] for row in f['rows']]} for f in seq]
-            judge_motion(action, seq, width, defect)
+            judge_motion(action, seq, width, defect, instant)
         # Parking leak: a hidden window shows once its action settled.
         if settled:
             hidden = set(settled['visible']['hidden'])
@@ -732,7 +736,7 @@ def analyze(out):
 first_steps, stalls = [], []
 
 
-def judge_motion(action, frames, width, defect):
+def judge_motion(action, frames, width, defect, instant=False):
     """Backtracks, jumps, blinks and two-step landings of each window's run on the middle row."""
     scenario, name, direction = action['scenario'], action['action'], action.get('direction')
     tracks = collections.defaultdict(list)
@@ -757,7 +761,7 @@ def judge_motion(action, frames, width, defect):
             changes.append(f['t'])
         previous_seen = seen
     # A freeze mid-motion: nothing on the row changes for longer than the camera's own gaps.
-    if direction in ('left', 'right') and len(changes) > 2:
+    if direction in ('left', 'right') and len(changes) > 2 and not instant:
         gap = max(b - a for a, b in zip(changes, changes[1:]))
         stalls.append(round(gap * 1000))
         if gap > 0.12:
@@ -771,7 +775,7 @@ def judge_motion(action, frames, width, defect):
             gaps = [t for (t, p) in track if p is None]
             defect(scenario, 'blink', action=name, label=label, at=gaps[0], frames=len(gaps))
         positions = [(t, p) for t, p in track if p is not None]
-        if direction in ('left', 'right') and len(positions) > 2:
+        if direction in ('left', 'right') and len(positions) > 2 and not instant:
             # The first visible step of a motion: a spring frame covers about 8 % of the travel at
             # 60 Hz; a quarter or more means the clock ran while nothing was drawn.
             edge = 0 if positions[0][1][0] > 1 else 1
@@ -793,7 +797,7 @@ def judge_motion(action, frames, width, defect):
                         defect(scenario, 'backtrack', action=name, label=label, at=tb, dx=moved)
                         break
                     # Per display frame: the camera itself skips frames under load.
-                    if not clipped and abs(moved) / max(1, round((tb - ta) * 60)) > width * 0.3:
+                    if not clipped and not instant and abs(moved) / max(1, round((tb - ta) * 60)) > width * 0.3:
                         defect(scenario, 'jump', action=name, label=label, at=tb, dx=moved)
                         break
         # Two-step: the window rests 60 ms or more short of where it lands, then moves on by itself.
@@ -846,6 +850,7 @@ def run(args):
     if camera.stdout.readline().strip() != 'ready':
         raise SystemExit('camera failed: ' + (out / 'camera.err').read_text())
     bench = Bench(args.app, out, tools)
+    bench.log_event('mode', instant=args.instant)
     rng = random.Random(args.seed)
     try:
         bench.scenario = 'setup'
@@ -879,6 +884,8 @@ def main():
     parser.add_argument('--rounds', type=int, default=1)
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--analyze', action='store_true')
+    # Without Screen Recording the overlay is off and windows move at once: no motion to judge.
+    parser.add_argument('--instant', action='store_true')
     args = parser.parse_args()
     if args.analyze:
         print(json.dumps(analyze(Path(args.out or args.app))['scenarios'], indent=1))
