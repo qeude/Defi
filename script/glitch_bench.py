@@ -136,7 +136,9 @@ class Bench:
         return self.fixtures[name]
 
     def create(self, fixture, window_id, frame=None):
-        hue = HUES[self.next_hue % len(HUES)]
+        # A colour no live window wears: a reused one reads as that window leaking.
+        live = {self.hue_of[n] for n in self.window_ids() if n in self.hue_of}
+        hue = next((h for h in HUES if f'w{HUES.index(h)}' not in live), HUES[self.next_hue % len(HUES)])
         self.next_hue += 1
         report = self.fixture(fixture).ask('create', id=window_id, hue=hue, **({'frame': frame} if frame else {}))
         number = next(w['windowNumber'] for w in report['windows'] if w['id'] == window_id)
@@ -627,7 +629,7 @@ def analyze(out):
 
     def defect(scenario, kind, **detail):
         counts[scenario][kind] += 1
-        if len(examples[kind]) < 8:
+        if len(examples[kind]) < 40:
             examples[kind].append({'scenario': scenario, **detail})
 
     for check in checks:
