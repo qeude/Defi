@@ -143,8 +143,8 @@ public func stackWindowShares(
 public func stackWindowShare(
   height: Double, index: Int, count: Int, viewportHeight: Double, settings: LayoutSettings
 ) -> Double {
-  (height + stackVerticalGaps(windowIndex: index, windowCount: count, settings: settings))
-    / viewportHeight
+  let edges = stackVerticalEdgeGaps(windowIndex: index, windowCount: count, settings: settings)
+  return (height + edges.top + edges.bottom) / viewportHeight
 }
 
 /// Shares after giving the window at `index` `share` of the column, at least
@@ -195,7 +195,10 @@ func constrainedStackWindowHeight(
   settings: LayoutSettings
 ) -> Double {
   guard let window, !window.intrinsicSize else { return slotHeight }
-  let gaps = stackVerticalGaps(windowIndex: windowIndex, windowCount: windowCount, settings: settings)
+  let edges = stackVerticalEdgeGaps(
+    windowIndex: windowIndex, windowCount: windowCount, settings: settings
+  )
+  let gaps = edges.top + edges.bottom
   let capped = window.maximumTiledHeight.map { min(slotHeight, $0 + gaps) } ?? slotHeight
   return window.minimumTiledHeight.map { max(capped, $0 + gaps) } ?? capped
 }
@@ -218,7 +221,9 @@ private func stackBounds(
   settings: LayoutSettings
 ) -> [(lower: Double, upper: Double)] {
   windowIDs.enumerated().map { index, windowID in
-    let gaps = stackVerticalGaps(windowIndex: index, windowCount: windowIDs.count, settings: settings)
+    let edges = stackVerticalEdgeGaps(
+      windowIndex: index, windowCount: windowIDs.count, settings: settings)
+    let gaps = edges.top + edges.bottom
     // `applyGaps` never emits a frame below 1pt, so every slot needs its gaps plus that.
     let floor = 1 + gaps
     guard let window = windowsByID[windowID], !window.intrinsicSize else {
@@ -230,12 +235,15 @@ private func stackBounds(
   }
 }
 
-/// Gap space `applyGaps` removes from a slot of this position.
-private func stackVerticalGaps(windowIndex: Int, windowCount: Int, settings: LayoutSettings) -> Double {
+/// Gap space `applyGaps` removes from a slot of this position, edge by edge.
+func stackVerticalEdgeGaps(
+  windowIndex: Int, windowCount: Int, settings: LayoutSettings
+) -> (top: Double, bottom: Double) {
   let inner = max(settings.innerVerticalGap, 0)
-  let top = windowIndex == 0 ? max(settings.outerTopGap, 0) : inner
-  let bottom = windowIndex + 1 == windowCount ? max(settings.outerBottomGap, 0) : inner
-  return top + bottom
+  return (
+    windowIndex == 0 ? max(settings.outerTopGap, 0) : inner,
+    windowIndex + 1 == windowCount ? max(settings.outerBottomGap, 0) : inner
+  )
 }
 
 /// Splits columns whose windows can no longer share the viewport height.

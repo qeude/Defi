@@ -330,7 +330,6 @@ final class WindowBorderManager {
     }
   }
 
-  /// Edge frames each visible border should have around its window's frame.
   func expectedEdgeFrames(
     windowFrame: (WindowID) -> Rect?
   ) -> [WindowID: [UInt32: Rect]] {

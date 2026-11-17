@@ -444,17 +444,6 @@ struct PlatformEventTests {
     #expect(transientOwnerResolutionRefreshInterval(retryAfter: [], now: 10) == nil)
   }
 
-  @Test @NavigationActor
-  func transientOwnerRetrySchedulesTheWindowListRefresh() {
-    let platform = MacOSPlatform()
-    platform.presentationStatus.topologyReliable = true
-    let now = ProcessInfo.processInfo.systemUptime
-    platform.transientOwnerResolutionRetryAfter[WindowID(rawValue: 42)] = now + 5
-
-    #expect(platform.hasPendingTransientOwnerResolution)
-    #expect(platform.recommendedWindowListRefreshInterval > 4)
-    #expect(platform.recommendedWindowListRefreshInterval <= 5)
-  }
 
   @Test
   func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
@@ -1318,7 +1307,7 @@ struct PlatformEventTests {
   @Test
   func pointerMotionDeliveryIsRefreshBoundedWithATrailingDelivery() {
     func delay(at timestamp: TimeInterval, last: TimeInterval?) -> TimeInterval {
-      pointerMotionDeliveryDelay(rawWindowID: 0, eventTimestamp: timestamp, lastDeliveryTimestamp: last,
+      pointerMotionDeliveryDelay(eventTimestamp: timestamp, lastDeliveryTimestamp: last,
         maximumFrequencyHz: 100)
     }
     #expect(delay(at: 12, last: nil) == 0)
@@ -1368,10 +1357,8 @@ struct PlatformEventTests {
 
   @Test
   func reliableObservationWatchdogsWaitForIdleButFallbacksStayImmediate() {
-    #expect(applicationInventoryRefreshInterval(reliableLifecycleObservation: true)
-      > applicationInventoryRefreshInterval(reliableLifecycleObservation: false))
-    #expect(desktopSnapshotRefreshInterval(reliableDesktopObservation: true)
-      > desktopSnapshotRefreshInterval(reliableDesktopObservation: false))
+    #expect(reliableObservationRefreshInterval(reliableObservation: true)
+      > reliableObservationRefreshInterval(reliableObservation: false))
     #expect(!observationWatchdogRefreshIsReady(due: true, interval: 30, userInputIdleDuration: 0.5))
     #expect(observationWatchdogRefreshIsReady(due: true, interval: 30, userInputIdleDuration: 1))
     #expect(observationWatchdogRefreshIsReady(due: true, interval: 0.3, userInputIdleDuration: 0))
@@ -1430,32 +1417,6 @@ struct PlatformEventTests {
       < windowListRefreshInterval(hasPendingShortRetry: false, reliableTopologyObservation: true))
   }
 
-  enum ShortRetryTrigger: String, CaseIterable, CustomTestStringConvertible, Sendable {
-    case failedWindowListRead
-    case failedCGWindowInventory
-    case retainedWindow
-    case none
-
-    var testDescription: String { rawValue }
-  }
-
-  @Test(arguments: ShortRetryTrigger.allCases) @NavigationActor
-  func pendingWindowDiscoverySchedulesShortRetry(_ trigger: ShortRetryTrigger) {
-    let platform = MacOSPlatform()
-    switch trigger {
-    case .failedWindowListRead:
-      platform.windowListReadRetryAttemptsByProcess[101] = 0
-    case .failedCGWindowInventory:
-      platform.cgWindowInventoryRetryAttempts = 0
-    case .retainedWindow:
-      platform.retainedWindowIDs = [WindowID(rawValue: 42)]
-    case .none:
-      break
-    }
-
-    let interval = platform.recommendedWindowListRefreshInterval
-    #expect(interval == (trigger == .none ? 0.3 : 0.1))
-  }
 
   @Test
   func partialNotificationBatchRollsBackSuccessfulRegistrations() {

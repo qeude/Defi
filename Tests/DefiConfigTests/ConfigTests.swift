@@ -290,9 +290,9 @@ struct ConfigTests {
   }
 
   @Test(arguments: [
-    ("never", CenterFocusedColumnConfig.never), ("always", .always), ("on-overflow", .onOverflow),
+    ("never", CenterFocusedColumn.never), ("always", .always), ("on-overflow", .onOverflow),
   ])
-  func decodesCenterFocusedColumn(value: String, expected: CenterFocusedColumnConfig) throws {
+  func decodesCenterFocusedColumn(value: String, expected: CenterFocusedColumn) throws {
     #expect(try Config.decode(Data("[layout]\ncenter_focused_column = \"\(value)\"".utf8)).layout
       .centerFocusedColumn == expected)
   }

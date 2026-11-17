@@ -171,7 +171,6 @@ struct EventStreamTests {
 
     var byte: UInt8 = 0
     #expect(Darwin.read(client, &byte, 1) == 0)
-    #expect(hub.clientCount == 0)
   }
 
   private func socketPair() throws -> (Int32, Int32) {

@@ -515,8 +515,8 @@ final class Daemon {
     }
     let userInputIdleDuration =
       now - platform.userInputTracker.latestEventTimestamp
-    let desktopRefreshInterval = desktopSnapshotRefreshInterval(
-      reliableDesktopObservation: platform.hasReliableDesktopObservation
+    let desktopRefreshInterval = reliableObservationRefreshInterval(
+      reliableObservation: platform.hasReliableDesktopObservation
     )
     let windowListRefreshInterval = platform.recommendedGlobalWindowListRefreshInterval
     let applicationInventoryInterval =

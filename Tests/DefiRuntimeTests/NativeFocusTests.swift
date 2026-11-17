@@ -803,14 +803,14 @@ struct NativeFocusTests {
   }
 
   @Test(arguments: [
-    (CenterFocusedColumnConfig.always, UInt64(2), 0.25),
-    (CenterFocusedColumnConfig.always, UInt64(3), 0.75),
-    (CenterFocusedColumnConfig.never, UInt64(3), 0.5),
-    (CenterFocusedColumnConfig.onOverflow, UInt64(2), 0.0),
-    (CenterFocusedColumnConfig.onOverflow, UInt64(3), 0.75),
+    (CenterFocusedColumn.always, UInt64(2), 0.25),
+    (CenterFocusedColumn.always, UInt64(3), 0.75),
+    (CenterFocusedColumn.never, UInt64(3), 0.5),
+    (CenterFocusedColumn.onOverflow, UInt64(2), 0.0),
+    (CenterFocusedColumn.onOverflow, UInt64(3), 0.75),
   ])
   func nativeAndShortcutFocusRespectConfiguredScroll(
-    centering: CenterFocusedColumnConfig, focusedWindow: UInt64, expectedOffset: Double
+    centering: CenterFocusedColumn, focusedWindow: UInt64, expectedOffset: Double
   ) throws {
     var native = try makeState(
       windowCount: 4,

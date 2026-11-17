@@ -79,24 +79,6 @@ struct LosslessTOMLDocument {
   }
 
   /// Renames a key in place, keeping its value, comments, and quoting style.
-  mutating func renameKey(table: String, from old: String, to new: String) {
-    let (start, end) = range(of: table)
-    guard let start else { return }
-    let sectionStart = table.isEmpty ? 0 : start + 1
-    guard let index = assignmentIndex(for: old, in: sectionStart..<(end ?? lines.endIndex)),
-      let equals = firstEquals(in: lines[index])
-    else { return }
-    let line = lines[index]
-    let written = line[..<equals]
-    let indent = written.prefix { $0 == " " || $0 == "\t" }
-    let spacing = String(written.reversed().prefix { $0 == " " || $0 == "\t" }.reversed())
-    let quoted = written.trimmingCharacters(in: .whitespaces).hasPrefix("\"")
-    let key = quoted
-      ? "\"\(new.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
-      : Self.quotedKey(new)
-    lines[index] = indent + key + spacing + line[equals...]
-  }
-
   /// Removes a standard table with its header and the comments right above it.
   mutating func removeTable(_ table: String) {
     guard !table.isEmpty else { return }
@@ -133,23 +115,6 @@ struct LosslessTOMLDocument {
     let sectionStart = table.isEmpty ? 0 : start + 1
     let sectionEnd = end ?? lines.endIndex
     return assignmentIndex(for: key, in: sectionStart..<sectionEnd) != nil
-  }
-
-  /// The raw text of a one-line value, without its trailing comment.
-  func value(table: String, key: String, occurrence: Int = 0) -> String? {
-    let (start, end) = range(of: table, occurrence: occurrence)
-    guard let start else { return nil }
-    let sectionStart = table.isEmpty ? 0 : start + 1
-    guard let index = assignmentIndex(for: key, in: sectionStart..<(end ?? lines.endIndex)),
-      let equals = firstEquals(in: lines[index])
-    else { return nil }
-    let line = lines[index]
-    return line[line.index(after: equals)..<(commentStart(in: line) ?? line.endIndex)]
-      .trimmingCharacters(in: .whitespaces)
-  }
-
-  func count(ofArrayTable table: String) -> Int {
-    ranges(of: table).count
   }
 
   func render() -> String {

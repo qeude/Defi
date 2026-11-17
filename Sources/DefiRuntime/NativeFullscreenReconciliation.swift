@@ -101,14 +101,22 @@ private func suspendNativeFullscreenWindow(
   let originalColumnIndex = removedColumnIndices.reduce(visibleColumnIndex) {
     index, removed in removed <= index ? index + 1 : index
   }
-  state.nativeFullscreenTiledPlacements[windowID] = SuspendedTiledPlacement(
-    monitorID: location.monitorID,
-    workspaceID: location.workspaceID,
-    columnIndex: priorPlacement?.columnIndex ?? originalColumnIndex,
-    windowIndex: originalColumn.windows.firstIndex(of: windowID) ?? windowIndex,
-    column: originalColumn,
-    scrollOffset: priorPlacement?.scrollOffset ?? targetScrollOffset
-  )
+  state.nativeFullscreenTiledPlacements[windowID] =
+    (priorPlacement
+      ?? SuspendedTiledPlacement(
+        monitorID: location.monitorID,
+        workspaceID: location.workspaceID,
+        columnIndex: originalColumnIndex,
+        windowIndex: windowIndex,
+        column: originalColumn,
+        scrollOffset: targetScrollOffset
+      )).relocated(
+        monitorID: location.monitorID,
+        workspaceID: location.workspaceID,
+        columnIndex: priorPlacement?.columnIndex ?? originalColumnIndex,
+        windowIndex: originalColumn.windows.firstIndex(of: windowID) ?? windowIndex,
+        column: originalColumn
+      )
   removeWindow(windowID, from: &workspace, settings: state.layout)
   workspace.columns.append(
     Column(

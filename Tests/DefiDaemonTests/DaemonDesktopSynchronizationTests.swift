@@ -10,15 +10,15 @@ import Testing
 
 struct DaemonDesktopSynchronizationTests {
   @Test(arguments: [
-    (CenterFocusedColumnConfig.always, UInt64(2), 0.25),
-    (CenterFocusedColumnConfig.always, UInt64(3), 0.75),
-    (CenterFocusedColumnConfig.never, UInt64(3), 0.5),
-    (CenterFocusedColumnConfig.onOverflow, UInt64(2), 0.0),
-    (CenterFocusedColumnConfig.onOverflow, UInt64(3), 0.75),
+    (CenterFocusedColumn.always, UInt64(2), 0.25),
+    (CenterFocusedColumn.always, UInt64(3), 0.75),
+    (CenterFocusedColumn.never, UInt64(3), 0.5),
+    (CenterFocusedColumn.onOverflow, UInt64(2), 0.0),
+    (CenterFocusedColumn.onOverflow, UInt64(3), 0.75),
   ])
   @NavigationActor
   func nativeDesktopFocusRespectsConfiguredScroll(
-    centering: CenterFocusedColumnConfig, focusedWindow: UInt64, expectedOffset: Double
+    centering: CenterFocusedColumn, focusedWindow: UInt64, expectedOffset: Double
   ) async throws {
     let directory = URL(filePath: "/tmp/defi-focus-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

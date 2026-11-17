@@ -37,7 +37,7 @@ extension AXFrameCoordinator {
       skippedStaleWrites += result.stale
       lastFrameDurationMS = elapsedMS
       maximumFrameDurationMS = max(maximumFrameDurationMS, elapsedMS)
-      if elapsedMS > 16.67 {
+      if elapsedMS > slowFrameDurationMS {
         slowFrameCount += 1
       }
       appendTraceLocked(

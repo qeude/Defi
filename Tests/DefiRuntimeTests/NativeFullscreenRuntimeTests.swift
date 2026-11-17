@@ -88,6 +88,34 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
+  func `Relocating a fullscreen placement keeps its return scroll offset`() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    let closedID = WindowID(rawValue: 1)
+    let remainingID = WindowID(rawValue: 3)
+    state.monitors[0].workspaces[0].targetScrollOffset = 120
+
+    reconcileWindows(
+      orderedWindows(in: state),
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      state: &state
+    )
+    #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.scrollOffset == 120)
+
+    reconcileWindows(
+      [try #require(state.windows[fullscreenID]), try #require(state.windows[remainingID])],
+      config: Config(),
+      nativeFullscreenWindowIDs: [fullscreenID],
+      explicitlyRemovedWindowIDs: [closedID],
+      state: &state
+    )
+
+    #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.columnIndex == 0)
+    #expect(state.nativeFullscreenTiledPlacements[fullscreenID]?.scrollOffset == 120)
+  }
+
+  @Test
   func `Closing an earlier column preserves fullscreen return order`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)

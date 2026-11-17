@@ -107,6 +107,48 @@ struct ModelTests {
   }
 
   @Test
+  func `Every command spec parses`() throws {
+    for spec in commandSpecs {
+      let input: String
+      switch spec.argument {
+      case .none:
+        input = spec.name
+      case .keywords(let values):
+        input = "\(spec.name) \(values[0])"
+      case .workspaceName:
+        input = "\(spec.name) dev"
+      case .workspaceOrRelative:
+        input = "\(spec.name) up"
+      case .workspacePosition:
+        input = "\(spec.name) 2"
+      case .text(let suggestions):
+        input = "\(spec.name) \(suggestions.first ?? sampleArgument(for: spec.name))"
+      }
+      #expect(throws: Never.self) { try parseCommand(input) }
+    }
+  }
+
+  private func sampleArgument(for command: String) -> String {
+    switch command {
+    case "spawn-sh": "echo hi"
+    case "focus-window-id": "42"
+    default: "1"
+    }
+  }
+
+  @Test
+  func `Client verbs are not layout commands`() {
+    #expect(isClientVerb("diagnostic-mark"))
+    #expect(!isClientVerb(" diagnostic-mark"))
+    #expect(!isClientVerb("diagnostic-mark extra"))
+    #expect(!isClientVerb("focus-column left"))
+    #expect(!isClientVerb("diagnostic"))
+    #expect(throws: CommandParseError.unknownCommand("diagnostic-mark")) {
+      try parseCommand("diagnostic-mark")
+    }
+  }
+
+  @Test
   func `Single-window activation fallback is unambiguous`() {
     let frame = Rect(x: 0, y: 0, width: 10, height: 10)
     let solo = Window(
@@ -166,6 +208,16 @@ struct ModelTests {
   ])
   func selectedLayoutEditsAnimate(testCase: (command: Command, expected: Bool)) {
     #expect(testCase.command.editsSelectedLayout == testCase.expected)
+  }
+
+  @Test(arguments: [
+    (Command.moveColumnToMonitor(.right), true),
+    (Command.moveWindowToMonitor(.right), true),
+    (Command.moveWorkspaceToMonitor(.right), true),
+    (Command.centerColumn, false),
+  ])
+  func onlyMonitorMovesAnimateWithoutEditingTheSelection(testCase: (command: Command, expected: Bool)) {
+    #expect(testCase.command.editsSelectedLayout == false)
     #expect(testCase.command.animatesManagedLayout == testCase.expected)
   }
 }

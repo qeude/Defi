@@ -135,14 +135,6 @@ private func ipcEventHandler(
   }
 }
 
-func commandFollowUpIsPending(
-  frameWrites: Bool,
-  animatedFocus: Bool,
-  workspaceFocus: Bool
-) -> Bool {
-  frameWrites || animatedFocus || workspaceFocus
-}
-
 func crossMonitorCommandWindowID(
   _ command: Command,
   selectedWindowID: WindowID?,
@@ -381,7 +373,7 @@ extension Daemon {
       }
       return .success("deferred")
     }
-    if rawCommand == "diagnostic-mark" {
+    if rawCommand == ClientVerb.diagnosticMark.rawValue {
       diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)
       return .success("marked \(diagnostics.currentFileURL.path)")
     }
@@ -438,7 +430,6 @@ extension Daemon {
       if case .recentWindows(let action) = parsedCommand {
         return handleRecentWindows(action)
       }
-      // Any other command ends the switcher without choosing a window.
       closeRecentWindows()
       if parsedCommand == .toggleOverview {
         return toggleOverview()
@@ -845,15 +836,13 @@ extension Daemon {
       platform.recordPerformanceTrace(
         "command-ready cg=\(currentCommandGeneration) stateMs=\(String(format: "%.2f", (stateReadyAt - commandStartedAt) * 1_000)) scrollMs=\(String(format: "%.2f", (animationReadyAt - stateReadyAt) * 1_000))"
       )
-      let affectedMonitorIDs = commandLayoutMonitorIDs(
-        affected: affectedMonitorIDsForWindowMove(
+      let affectedMonitorIDs =
+        affectedMonitorIDsForWindowMove(
           commandMonitorID: commandMonitorID,
           resultMonitorID: resultMonitorID,
           previousWindowMonitorIDs: previousWindowMonitorIDs,
           nextWindowMonitorIDs: nextWindowMonitorIDs
-        ),
-        inFlightAnimations: inFlightAnimationMonitorIDs
-      )
+        ).union(inFlightAnimationMonitorIDs)
       let dispatchedAnimation =
         animatedManagedLayout
         ? dispatchManagedLayoutAnimation(
@@ -1066,11 +1055,9 @@ extension Daemon {
       }
       persistTopology()
       updateMenuBar()
-      if commandFollowUpIsPending(
-        frameWrites: platform.hasPendingFrameWrites,
-        animatedFocus: pendingAnimatedFocus != nil,
-        workspaceFocus: pendingWorkspaceFocus != nil
-      ) {
+      if platform.hasPendingFrameWrites || pendingAnimatedFocus != nil
+        || pendingWorkspaceFocus != nil
+      {
         setTimerFrequency(60)
       }
       lastCommandDurationMS =
@@ -1084,13 +1071,6 @@ extension Daemon {
       return .failure(String(describing: error))
     }
   }
-}
-
-func commandLayoutMonitorIDs(
-  affected: Set<MonitorID>,
-  inFlightAnimations: Set<MonitorID>
-) -> Set<MonitorID> {
-  affected.union(inFlightAnimations)
 }
 
 func commandValidationIsNoOp(

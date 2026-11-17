@@ -639,8 +639,6 @@ public final class MacOSPlatform {
   var frameSubmissionGeneration: UInt64 = 0 {
     didSet { cursorWarpGeneration.withLock { $0 &+= 1 } }
   }
-  var positionWriteCount = 0
-  var sizeWriteCount = 0
   var lastFrameApplyDurationMS = 0.0
   nonisolated var lastMonitorFrames: [Rect] {
     get { snapshotEngine.lastMonitorFrames }
@@ -725,12 +723,6 @@ public final class MacOSPlatform {
     let boundsProvider = WindowServerBoundsProvider()
     borderBoundsProvider = boundsProvider
     frameCoordinator = suppliedCoordinator ?? AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
-      nativePositionReader: { windowID, processID in
-        if let frame = boundsProvider.frame(for: windowID) {
-          return CGPoint(x: frame.x, y: frame.y)
-        }
-        return AXFrameAccessibilityWriter.readWindowServerPosition(windowID, processID: processID)
-      },
       independentBorderObservationAvailable: { boundsProvider.isAvailable }
     ))
     snapshotEngine = SnapshotEngine(
@@ -767,12 +759,12 @@ public final class MacOSPlatform {
     }
     for windowID in entered {
       frameCommitExpectations[windowID] = nil
-      initialFrameSettlementDeadlines[windowID] = now + 2.5
+      initialFrameSettlementDeadlines[windowID] = now + initialSettlementHorizon
       pendingFrameCorrections[windowID] = nil
       pendingFrameDebtWindowIDs.remove(windowID)
     }
     for windowID in exited {
-      initialFrameSettlementDeadlines[windowID] = now + 2.5
+      initialFrameSettlementDeadlines[windowID] = now + initialSettlementHorizon
     }
     enqueuePresentation { platform in
       platform.presentedNativeFullscreenWindowIDs = windowIDs

@@ -96,11 +96,9 @@ func relocateTransientIfNeeded(
         by: targetViewport.width / max(sourceViewport.width, 1)
       )
     }
-    state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+    state.suspendedTiledPlacements[windowID] = placement.relocated(
       monitorID: target.monitorID,
       workspaceID: target.workspaceID,
-      columnIndex: placement.columnIndex,
-      windowIndex: placement.windowIndex,
       column: column
     )
   }
@@ -146,13 +144,21 @@ func reclassifyTiledWindowAsAutomaticFloater(
   let originalColumnIndex = removedColumnIndices.sorted().reduce(columnIndex) { index, removed in
     removed <= index ? index + 1 : index
   }
-  state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
-    monitorID: location.monitorID,
-    workspaceID: location.workspaceID,
-    columnIndex: priorPlacement?.columnIndex ?? originalColumnIndex,
-    windowIndex: originalColumn.windows.firstIndex(of: windowID) ?? windowIndex,
-    column: originalColumn
-  )
+  state.suspendedTiledPlacements[windowID] =
+    (priorPlacement
+      ?? SuspendedTiledPlacement(
+        monitorID: location.monitorID,
+        workspaceID: location.workspaceID,
+        columnIndex: originalColumnIndex,
+        windowIndex: windowIndex,
+        column: originalColumn
+      )).relocated(
+        monitorID: location.monitorID,
+        workspaceID: location.workspaceID,
+        columnIndex: priorPlacement?.columnIndex ?? originalColumnIndex,
+        windowIndex: originalColumn.windows.firstIndex(of: windowID) ?? windowIndex,
+        column: originalColumn
+      )
   let selectedTiledWindowID = workspace.columns.indices.contains(workspace.focusedColumn)
     && workspace.columns[workspace.focusedColumn].windows.indices.contains(
       workspace.columns[workspace.focusedColumn].focusedWindow

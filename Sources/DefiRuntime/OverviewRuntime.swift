@@ -328,11 +328,9 @@ public func applyOverviewDrop(
       if next.windows[windowID]?.floatingOrigin == .automatic {
         var column = placement.column
         scalePixelWidths(in: &column, by: widthScale)
-        next.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+        next.suspendedTiledPlacements[windowID] = placement.relocated(
           monitorID: destination.monitorID,
           workspaceID: destination.workspaceID,
-          columnIndex: placement.columnIndex,
-          windowIndex: placement.windowIndex,
           column: column
         )
       } else {

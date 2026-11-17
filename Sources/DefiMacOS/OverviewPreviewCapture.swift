@@ -53,7 +53,6 @@ public enum OverviewPreviewPermissionState: String, Sendable {
 
 // Workers may overlap image processing, but only one macOS capture/consent call
 // may be outstanding. Cancellation does not dismiss a system consent dialog.
-let overviewPreviewMaximumConcurrentCaptures = 2
 let overviewCaptureLimiter = OverviewCaptureLimiter(limit: 1)
 private let overviewCaptureLogger = Logger(subsystem: "com.qeude.defi", category: "overview-capture")
 
@@ -94,7 +93,7 @@ actor OverviewCaptureLimiter {
   private(set) var authorizationDeclined = false
   var waitingCount: Int { waiters.count }
 
-  init(limit: Int = overviewPreviewMaximumConcurrentCaptures) { available = limit }
+  init(limit: Int) { available = limit }
 
   @discardableResult
   func acquire() async -> Bool {

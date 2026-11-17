@@ -128,9 +128,19 @@ struct ShiftedShortcut: Hashable {
   let action: String
 }
 
-private let shortcutSections = [
-  "Columns", "Windows in a column", "Workspaces", "Monitors", "Size", "Floating", "Other",
-]
+private func sectionTitle(for category: CommandCategory?) -> String {
+  switch category {
+  case .column: "Columns"
+  case .window: "Windows in a column"
+  case .workspace: "Workspaces"
+  case .monitor: "Monitors"
+  case .size: "Size"
+  case .floating: "Floating"
+  case .other, nil: "Other"
+  }
+}
+
+private let shortcutSections = CommandCategory.allCases.map(sectionTitle)
 
 // Order defines row order inside a section. Entries without an argument label the
 // whole command family, which also names merged rows such as 1–9 or arrows.
@@ -190,22 +200,7 @@ private struct ShortcutBinding {
     let words = command.split(maxSplits: 1, whereSeparator: \.isWhitespace)
     return words.count > 1 ? String(words[1]) : nil
   }
-  var section: String {
-    if verb.contains("monitor") { return "Monitors" }
-    // Previous and recent windows may cross workspaces, and activation may cross Spaces,
-    // so they sit beside previous workspace.
-    if verb.contains("workspace")
-      || ["toggle-overview", "focus-window-previous", "recent-windows", "activate-window"].contains(verb) {
-      return "Workspaces"
-    }
-    if verb.contains("width") || verb.contains("height") || verb == "maximize-column" {
-      return "Size"
-    }
-    if verb.contains("floating") { return "Floating" }
-    if verb.contains("window") { return "Windows in a column" }
-    if verb.contains("column") { return "Columns" }
-    return "Other"
-  }
+  var section: String { sectionTitle(for: commandSpec(named: verb)?.category) }
   var rank: Int {
     shortcutLabels.firstIndex { $0.command == command }
       ?? shortcutLabels.firstIndex { $0.command == verb } ?? shortcutLabels.count

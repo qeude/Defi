@@ -7,7 +7,6 @@ import DefiCore
 import DefiModel
 import OSLog
 
-let focusSnapshotAccessibilityTimeoutSeconds: Float = 0.05
 extension SnapshotEngine {
   func prepareWindowAttributes(
     processIDs refreshingProcessIDs: Set<pid_t>,
@@ -70,7 +69,7 @@ extension SnapshotEngine {
             return nil
           }
           return AXMessagingTimeoutAccess.shared.withTimeout(
-            0.05,
+            accessibilityReadTimeoutSeconds,
             elements: [candidate.element]
           ) {
             var attributes: AXWindowAttributes?
@@ -100,7 +99,7 @@ extension SnapshotEngine {
         var applicationWindows: PreparedAXApplicationWindows?
         if let candidate = job.application, readIsCurrent(job.processID) {
           let readStartedAt = ProcessInfo.processInfo.systemUptime
-          let windows = AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [candidate.element]) {
+          let windows = AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [candidate.element]) {
             self.readDiscoveryApplicationWindows(candidate.element, processID: job.processID)
           }
           applicationWindows = PreparedAXApplicationWindows(elements: windows,

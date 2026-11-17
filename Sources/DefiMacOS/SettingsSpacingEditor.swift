@@ -193,7 +193,6 @@ struct SpacingEditor: View {
     return choice ?? (first.value(in: layout) == second.value(in: layout))
   }
 
-  /// Linking copies the first edge onto the second so both values agree immediately.
   private func linkBinding(_ choice: Binding<Bool?>, edges: [ScreenEdge]) -> Binding<Bool> {
     Binding(
       get: { linked(choice.wrappedValue, edges[0], edges[1]) },

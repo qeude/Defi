@@ -496,13 +496,8 @@ private func adjustNativeFullscreenPlacements(
   }
 
   for (fullscreenID, placement) in placements where placement.columnIndex > originalColumnIndex {
-    state.nativeFullscreenTiledPlacements[fullscreenID] = SuspendedTiledPlacement(
-      monitorID: placement.monitorID,
-      workspaceID: placement.workspaceID,
-      columnIndex: placement.columnIndex - 1,
-      windowIndex: placement.windowIndex,
-      column: placement.column
-    )
+    state.nativeFullscreenTiledPlacements[fullscreenID] = placement.relocated(
+      columnIndex: placement.columnIndex - 1)
   }
 }
 
@@ -604,14 +599,7 @@ private func replace(
     column.windows = column.windows.map {
       $0 == previousID ? replacementID : $0
     }
-    replaced[windowID == previousID ? replacementID : windowID] =
-      SuspendedTiledPlacement(
-        monitorID: placement.monitorID,
-        workspaceID: placement.workspaceID,
-        columnIndex: placement.columnIndex,
-        windowIndex: placement.windowIndex,
-        column: column
-      )
+    replaced[windowID == previousID ? replacementID : windowID] = placement.relocated(column: column)
   }
   placements = replaced
 }

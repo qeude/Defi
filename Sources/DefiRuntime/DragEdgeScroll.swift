@@ -67,7 +67,6 @@ public struct DragEdgeScroll: Equatable, Sendable {
     return (min(max(pointer.x, viewport.x), viewport.x + viewport.width), pointer.y)
   }
 
-  /// False once a display, workspace or the window's tiling changed under the drag.
   public func isCurrent(state: RuntimeState, viewports: [MonitorID: Rect], monitorFrames: [MonitorID: Rect]) -> Bool {
     viewports[anchor.monitorID] == viewport && (monitorFrames[anchor.monitorID] ?? viewport) == screen
       && state.windows[windowID]?.floating == false && !state.nativeFullscreenWindowIDs.contains(windowID)

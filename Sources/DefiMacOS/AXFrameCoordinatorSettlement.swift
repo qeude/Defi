@@ -84,7 +84,7 @@ extension AXFrameCoordinator {
     lock.unlock()
 
     let observedFrame = AXMessagingTimeoutAccess.shared.withTimeout(
-      0.025,
+      minimumFrameReadbackTimeout,
       elements: [write.application, write.element]
     ) {
       guard let actualPosition = accessibilityWriter.readPosition(write.element),
@@ -169,7 +169,7 @@ extension AXFrameCoordinator {
     let positionChanged = abs(actual.x - target.x) > 1
       || abs(actual.y - target.y) > 1
     let repairSucceeded = AXMessagingTimeoutAccess.shared.withTimeout(
-      0.025,
+      minimumFrameReadbackTimeout,
       elements: [write.application, write.element]
     ) { [self] in
       if sizeChanged {
@@ -279,7 +279,7 @@ extension AXFrameCoordinator {
       return
     }
     lock.unlock()
-    AXMessagingTimeoutAccess.shared.withTimeout(max(write.timeoutSeconds, 0.025), elements: [write.application, write.element]) {
+    AXMessagingTimeoutAccess.shared.withTimeout(max(write.timeoutSeconds, minimumFrameReadbackTimeout), elements: [write.application, write.element]) {
       var verified = false
       defer {
         if isFinalCheck {

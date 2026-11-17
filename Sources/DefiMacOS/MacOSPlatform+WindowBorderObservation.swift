@@ -886,7 +886,7 @@ func applicationSingleWindow(_ processID: pid_t) -> AXUIElement? {
 
 /// What an app created, for the overlay log: no title, only what tells such windows apart.
 func createdWindowSummary(_ element: AXUIElement, number: CGWindowID?) -> String {
-  let ax = AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [element]) {
+  let ax = AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [element]) {
     var values: CFArray?
     AXUIElementCopyMultipleAttributeValues(element,
       [kAXRoleAttribute, kAXSubroleAttribute, kAXPositionAttribute, kAXSizeAttribute] as CFArray, [], &values)

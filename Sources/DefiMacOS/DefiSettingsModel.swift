@@ -306,13 +306,6 @@ public final class DefiSettingsModel {
     save([.set(table: table, key: key, value: value)])
   }
 
-  public func isExplicitlySet(table: String, key: String, occurrence: Int = 0) -> Bool {
-    guard let lastWrittenData,
-      let source = String(data: lastWrittenData, encoding: .utf8)
-    else { return false }
-    return LosslessTOMLDocument(source).contains(table: table, key: key, occurrence: occurrence)
-  }
-
   public func reset(table: String, key: String) {
     set(table: table, key: key, value: nil)
   }
@@ -332,7 +325,6 @@ public final class DefiSettingsModel {
     )
   }
 
-  /// `nil` makes the edges inherit `gaps` again.
   public func setScreenMargin(_ value: Double?, edges: [ScreenEdge]) {
     save(edges.map { .set(table: "layout", key: $0.key, value: value.map { String($0) }) })
   }

@@ -66,20 +66,9 @@ struct NavigationIsolationTests {
     #expect(actual.frames.count == 3)
     #expect(actual.frames.allSatisfy { $0.frame.width > 0 && $0.frame.height > 0 })
 
-    // The old main-queue routing necessarily pays the entire injected stall.
-    let reference = Mutex(0.0)
-    let referenceFinished = DispatchSemaphore(value: 0)
-    let referenceStarted = ProcessInfo.processInfo.systemUptime
-    DispatchQueue.main.async {
-      reference.withLock { $0 = (ProcessInfo.processInfo.systemUptime - referenceStarted) * 1_000 }
-      referenceFinished.signal()
-    }
-    #expect(blockMain(until: referenceFinished, seconds: 0.1) == .timedOut)
     await withCheckedContinuation { continuation in
       DispatchQueue.main.async { continuation.resume() }
     }
-    print(String(format: "navigation isolation: main-queue reference %.2f ms; navigation + placement %.2f ms",
-      reference.withLock { $0 }, actual.milliseconds))
   }
 
   @Test

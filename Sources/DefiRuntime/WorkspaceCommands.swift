@@ -266,12 +266,11 @@ func moveFocusedSelection(
       {
         var column = placement.column
         scalePixelWidths(in: &column, by: widthScale)
-        state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+        state.suspendedTiledPlacements[windowID] = placement.relocated(
           monitorID: targetMonitorID,
           workspaceID: state.monitors[targetMonitorIndex]
             .workspaces[targetWorkspaceIndex].id,
           columnIndex: transferredColumnIndex ?? placement.columnIndex,
-          windowIndex: placement.windowIndex,
           column: column
         )
       } else {
@@ -400,22 +399,18 @@ func moveActiveWorkspaceToMonitor(
     if let placement = state.suspendedTiledPlacements[windowID] {
       var column = placement.column
       scalePixelWidths(in: &column, by: scale)
-      state.suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+      state.suspendedTiledPlacements[windowID] = placement.relocated(
         monitorID: targetMonitorID,
         workspaceID: workspace.id,
-        columnIndex: placement.columnIndex,
-        windowIndex: placement.windowIndex,
         column: column
       )
     }
     if let placement = state.nativeFullscreenTiledPlacements[windowID] {
       var column = placement.column
       scalePixelWidths(in: &column, by: scale)
-      state.nativeFullscreenTiledPlacements[windowID] = SuspendedTiledPlacement(
+      state.nativeFullscreenTiledPlacements[windowID] = placement.relocated(
         monitorID: targetMonitorID,
         workspaceID: workspace.id,
-        columnIndex: placement.columnIndex,
-        windowIndex: placement.windowIndex,
         column: column
       )
     }

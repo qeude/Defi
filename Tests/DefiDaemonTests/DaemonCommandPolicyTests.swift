@@ -578,16 +578,6 @@ struct DaemonCommandPolicyTests {
     let nativeFocusAccepted = nativeFocusMutationIsReady(nativeFocusChanged: true, mouseInteractionEnded: false,
       leftMouseButtonDown: false, mouseReleaseFocusIntentCurrent: false, keyboardFocusIntentCurrent: false,
       applicationActivationTimestamp: activationTimestamp, latestCommandInputTimestamp: 11)
-    #expect(!shouldCommitNativeFocusSelection(nativeFocusAccepted: nativeFocusAccepted, selectionChanged: true))
-    #expect(shouldCommitNativeFocusSelection(nativeFocusAccepted: true, selectionChanged: true))
-    #expect(!shouldCommitNativeFocusSelection(nativeFocusAccepted: true, selectionChanged: false))
-    let first = MonitorID(rawValue: 1), stale = MonitorID(rawValue: 2)
-    let accepted = shouldCommitNativeFocusSelection(nativeFocusAccepted: nativeFocusAccepted, selectionChanged: true)
-      ? stale : nil
-    #expect(activeMonitorIDAfterSnapshot(activeMonitorID: nil, acceptedNativeFocusMonitorID: accepted,
-      fallbackMonitorID: first) == first)
-    #expect(activeMonitorIDAfterSnapshot(activeMonitorID: nil, acceptedNativeFocusMonitorID: stale,
-      fallbackMonitorID: first) == stale)
   }
 
   @Test
@@ -692,19 +682,6 @@ struct DaemonCommandPolicyTests {
         mouseFocusIntentTimestamp: nil,
         keyboardFocusIntentTimestamp: 11
       )
-    )
-  }
-
-  @Test
-  func localCommandResubmitsMonitorsWithInFlightAnimation() {
-    let animatedMonitor = MonitorID(rawValue: 1)
-    let commandMonitor = MonitorID(rawValue: 2)
-
-    #expect(
-      commandLayoutMonitorIDs(
-        affected: [commandMonitor],
-        inFlightAnimations: [animatedMonitor]
-      ) == [animatedMonitor, commandMonitor]
     )
   }
 

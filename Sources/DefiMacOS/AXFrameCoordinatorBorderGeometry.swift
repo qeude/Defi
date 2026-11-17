@@ -83,7 +83,8 @@ extension AXFrameCoordinator {
         let sampledAt = ProcessInfo.processInfo.systemUptime
         let frame = borderNativeFrameReader(ticket.target.windowID).flatMap(validatedWindowFrame)
           ?? AXMessagingTimeoutAccess.shared.withTimeout(
-            0.025, elements: [ticket.target.application, ticket.target.element]
+            minimumFrameReadbackTimeout,
+            elements: [ticket.target.application, ticket.target.element]
           ) { accessibilityWriter.readFrame(ticket.target.element) }
         if let frame, borderBindingIsCurrent(ticket.target) {
           observation = BorderGeometryObservation(ticket: ticket, sampledAt: sampledAt, frame: frame)
@@ -165,7 +166,7 @@ extension AXFrameCoordinator {
   /// WindowServer can report a slow app's previous position for a few frames
   /// after its AX write returns; such a sample must not replace the written point.
   func observationContradictsRecentWriteLocked(
-    _ frame: Rect, windowID: WindowID, sampledAt: TimeInterval, within seconds: TimeInterval = 0.2
+    _ frame: Rect, windowID: WindowID, sampledAt: TimeInterval, within seconds: TimeInterval = borderWriteFreshnessWindow
   ) -> Bool {
     // Read-back writes store geometry at writtenAt; only an unverified written point qualifies.
     guard let writtenAt = borderGeometryWrittenAt[windowID], sampledAt - writtenAt < seconds,

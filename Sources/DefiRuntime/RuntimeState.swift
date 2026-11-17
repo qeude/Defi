@@ -698,12 +698,9 @@ public struct RuntimeState: Equatable, Sendable {
         placement.workspaceID == workspaceID
       else { continue }
       let migrated = scale.map { placement.scaled(by: $0) } ?? placement
-      suspendedTiledPlacements[windowID] = SuspendedTiledPlacement(
+      suspendedTiledPlacements[windowID] = migrated.relocated(
         monitorID: targetMonitorID,
-        workspaceID: migrated.workspaceID,
-        columnIndex: columnOffset + migrated.columnIndex,
-        windowIndex: migrated.windowIndex,
-        column: migrated.column
+        columnIndex: columnOffset + migrated.columnIndex
       )
     }
     for windowID in nativeFullscreenTiledPlacements.keys {
@@ -712,12 +709,9 @@ public struct RuntimeState: Equatable, Sendable {
         placement.workspaceID == workspaceID
       else { continue }
       let migrated = scale.map { placement.scaled(by: $0) } ?? placement
-      nativeFullscreenTiledPlacements[windowID] = SuspendedTiledPlacement(
+      nativeFullscreenTiledPlacements[windowID] = migrated.relocated(
         monitorID: targetMonitorID,
-        workspaceID: migrated.workspaceID,
-        columnIndex: columnOffset + migrated.columnIndex,
-        windowIndex: migrated.windowIndex,
-        column: migrated.column
+        columnIndex: columnOffset + migrated.columnIndex
       )
     }
   }
@@ -879,17 +873,29 @@ public struct SuspendedTiledPlacement: Equatable, Codable, Sendable {
   /// The strip's scroll before a native full-screen entry, so the exit lands on the same desk.
   public var scrollOffset: Double? = nil
 
+  /// Moves this placement without losing the state that belongs to it, such as the
+  /// scroll offset a native fullscreen exit returns to.
+  public func relocated(
+    monitorID: MonitorID? = nil,
+    workspaceID: WorkspaceID? = nil,
+    columnIndex: Int? = nil,
+    windowIndex: Int? = nil,
+    column: Column? = nil
+  ) -> Self {
+    Self(
+      monitorID: monitorID ?? self.monitorID,
+      workspaceID: workspaceID ?? self.workspaceID,
+      columnIndex: columnIndex ?? self.columnIndex,
+      windowIndex: windowIndex ?? self.windowIndex,
+      column: column ?? self.column,
+      scrollOffset: scrollOffset
+    )
+  }
+
   fileprivate func scaled(by scale: Double) -> Self {
     var column = column
     scalePixelWidths(in: &column, by: scale)
-    return Self(
-      monitorID: monitorID,
-      workspaceID: workspaceID,
-      columnIndex: columnIndex,
-      windowIndex: windowIndex,
-      column: column,
-      scrollOffset: scrollOffset
-    )
+    return relocated(column: column)
   }
 }
 
@@ -960,7 +966,7 @@ func scalePixelWidths(in column: inout Column, by scale: Double) {
 
 private func scalePixelWidth(_ width: inout ColumnWidth, by scale: Double) {
   guard case .pixels(let pixels) = width else { return }
-  width = .pixels(max(pixels * scale, 80))
+  width = .pixels(max(pixels * scale, minimumPixelColumnWidth))
 }
 
 extension LayoutSettings {
@@ -976,7 +982,7 @@ extension LayoutSettings {
       defaultColumnWidth: config.layout.defaultColumnWidth,
       presetColumnWidths: config.layout.presetColumnWidths,
       presetWindowHeights: config.layout.presetWindowHeights,
-      centerFocusedColumn: CenterFocusedColumn(config.layout.centerFocusedColumn),
+      centerFocusedColumn: config.layout.centerFocusedColumn,
       alwaysCenterSingleColumn: config.layout.alwaysCenterSingleColumn,
       innerHorizontalGap: gaps / 2 + border,
       innerVerticalGap: gaps / 2 + border,
@@ -999,12 +1005,3 @@ extension LayoutSettings {
   }
 }
 
-extension CenterFocusedColumn {
-  fileprivate init(_ config: CenterFocusedColumnConfig) {
-    switch config {
-    case .never: self = .never
-    case .always: self = .always
-    case .onOverflow: self = .onOverflow
-    }
-  }
-}

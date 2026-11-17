@@ -45,7 +45,6 @@ struct FrameSettlementVerificationTests {
       },
       frameReader: { @Sendable element in reads.state.withLock { $0.windowsByHash[CFHash(element)]?.frame } },
       enhancedUIWriter: { @Sendable _, _ in true },
-      nativePositionReader: { @Sendable _, _ in nil }
     )
   }
 

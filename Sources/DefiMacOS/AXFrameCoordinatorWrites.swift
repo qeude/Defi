@@ -213,19 +213,6 @@ extension AXFrameCoordinator {
     }
   }
 
-  func predictedFrameLatency(
-    for writes: [WindowID: AsyncPositionWrite]
-  ) -> TimeInterval {
-    let processIDs = Set(writes.values.map(\.processID))
-    lock.lock()
-    let maximumMS =
-      processIDs.compactMap {
-        predictedProcessLatencyMS[$0]
-      }.max() ?? 0
-    lock.unlock()
-    return maximumMS / 1_000
-  }
-
   func recordProcessLatencySamples(_ samplesMS: [pid_t: Double]) {
     lock.lock()
     for (processID, rawSample) in samplesMS {
@@ -351,7 +338,7 @@ extension AXFrameCoordinator {
           token: enhancedUIRestoreToken
         )
       } else if let batchApplication, managesEnhancedUI {
-        _ = messagingTimeoutAccess.withTimeout(0.016, elements: [batchApplication]) {
+        _ = messagingTimeoutAccess.withTimeout(frameRefreshInterval, elements: [batchApplication]) {
           accessibilityWriter.setEnhancedUserInterface(true, application: batchApplication)
         }
       }
@@ -584,7 +571,7 @@ extension AXFrameCoordinator {
         lock.unlock()
         frame.cursorWarpAfterWindowCommit?(item.key, frame.generation)
       }
-      if writeElapsedMS > 16.67 {
+      if writeElapsedMS > slowFrameDurationMS {
         lock.lock()
         appendTraceLocked(
           "slow g=\(frame.generation) pid=\(item.value.processID) windows=1 ms=\(String(format: "%.2f", writeElapsedMS)) setup=\(String(format: "%.2f", (timeoutConfiguredAt - writeStartedAt) * 1_000)) position=\(String(format: "%.2f", writeResult.positionDurationMS)) geometry=\(String(format: "%.2f", (positionAppliedAt - timeoutConfiguredAt) * 1_000 - writeResult.positionDurationMS)) wait=\(String(format: "%.2f", timeoutWaitMS)) reset=\(String(format: "%.2f", (timeoutResetAt - positionAppliedAt) * 1_000))"
@@ -643,7 +630,7 @@ extension AXFrameCoordinator {
       }
       deferredEnhancedUIRestores[processID]?.disabled = false
       lock.unlock()
-      let restored = messagingTimeoutAccess.withTimeout(0.016, elements: [restore.application]) {
+      let restored = messagingTimeoutAccess.withTimeout(frameRefreshInterval, elements: [restore.application]) {
         accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
       }
       lock.lock()
@@ -669,7 +656,7 @@ extension AXFrameCoordinator {
       if current { deferredEnhancedUIRestores[processID]?.disabled = false }
       lock.unlock()
       guard current else { continue }
-      let restored = messagingTimeoutAccess.withTimeout(0.016, elements: [restore.application]) {
+      let restored = messagingTimeoutAccess.withTimeout(frameRefreshInterval, elements: [restore.application]) {
         accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
           || accessibilityWriter.setEnhancedUserInterface(true, application: restore.application)
       }
@@ -736,7 +723,7 @@ extension AXFrameCoordinator {
           guard let target = write.binding, snapshotEngine.borderBindingIsCurrent(target) else { continue }
           let sampledAt = ProcessInfo.processInfo.systemUptime
           let accepted = messagingTimeoutAccess.withTimeout(
-            max(write.timeoutSeconds, 0.025), elements: [target.application, target.element]
+            max(write.timeoutSeconds, minimumFrameReadbackTimeout), elements: [target.application, target.element]
           ) { accessibilityWriter.readFrame(target.element) }
           if let accepted, snapshotEngine.borderBindingIsCurrent(target) {
             observed.append(BorderGeometryObservation(
@@ -769,7 +756,7 @@ extension AXFrameCoordinator {
       frame: frame,
       positionChanged: positionChanged,
       sizeChanged: sizeChanged,
-      deadline: now + 2.5
+      deadline: now + initialSettlementHorizon
     ))
     recentInternalFrameWrites[windowID] = writes
     lock.unlock()
@@ -800,5 +787,5 @@ extension AXFrameCoordinator {
 }
 
 private func frameMessagingTimeout(_ write: AsyncPositionWrite) -> Float {
-  max(write.timeoutSeconds, 0.016)
+  max(write.timeoutSeconds, frameRefreshInterval)
 }

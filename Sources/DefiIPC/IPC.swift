@@ -214,7 +214,6 @@ private let maximumIPCRequestBytes = 65_536
 /// Large enough for `list-windows --json` with hundreds of long titles.
 let maximumIPCResponseBytes = 4 << 20
 
-/// The request that turns a connection into an event stream.
 public let subscribeCommand = "subscribe"
 
 func encodedResponseForIPC(_ response: CommandResponse) throws -> Data {
@@ -397,7 +396,6 @@ public func sendCommand(
   return response
 }
 
-/// Streams `defi subscribe` lines to `output` until the daemon closes the connection.
 public func subscribeToEvents(
   to url: URL = SocketPath.defaultURL,
   output: (Data) -> Void
