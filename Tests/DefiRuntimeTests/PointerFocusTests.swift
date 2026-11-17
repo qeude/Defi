@@ -668,7 +668,7 @@ struct PointerFocusTests {
   private func makeState(
     columnWidths: [Double],
     gaps: Double = 8,
-    centerFocusedColumn: CenterFocusedColumnConfig = .never
+    centerFocusedColumn: CenterFocusedColumn = .never
   ) throws -> RuntimeState {
     let config = Config(
       layout: LayoutConfig(centerFocusedColumn: centerFocusedColumn, gaps: gaps)

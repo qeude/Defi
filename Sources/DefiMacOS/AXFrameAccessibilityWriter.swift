@@ -9,7 +9,6 @@ final class AXFrameAccessibilityWriter {
   private let positionReader: ((AXUIElement) -> CGPoint?)?
   private let enhancedUIWriter: ((AXUIElement, Bool) -> Bool)?
 
-  let nativePositionReader: (WindowID, pid_t) -> CGPoint?
   let independentBorderObservationAvailable: () -> Bool
 
   init(
@@ -19,7 +18,6 @@ final class AXFrameAccessibilityWriter {
     positionReader: ((AXUIElement) -> CGPoint?)? = nil,
     frameReader: (@Sendable (AXUIElement) -> Rect?)? = nil,
     enhancedUIWriter: ((AXUIElement, Bool) -> Bool)? = nil,
-    nativePositionReader: @escaping (WindowID, pid_t) -> CGPoint? = readWindowServerPosition,
     independentBorderObservationAvailable: @escaping () -> Bool = { false }
   ) {
     self.positionWriter = positionWriter
@@ -28,7 +26,6 @@ final class AXFrameAccessibilityWriter {
     self.positionReader = positionReader
     self.frameReader = frameReader
     self.enhancedUIWriter = enhancedUIWriter
-    self.nativePositionReader = nativePositionReader
     self.independentBorderObservationAvailable = independentBorderObservationAvailable
   }
 

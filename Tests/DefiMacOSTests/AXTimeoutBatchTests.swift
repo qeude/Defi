@@ -39,7 +39,7 @@ struct AXTimeoutBatchTests {
       transitions.withLock { $0.writes += 1 }
       if supersede { coordinator.latestGeneration = 2 }
       return true
-    }, nativePositionReader: { _, _ in nil })
+    })
     coordinator = AXFrameCoordinator(accessibilityWriter: writer, messagingTimeoutAccess: access)
     coordinator.latestGeneration = 1
     let writes = Dictionary(uniqueKeysWithValues: (1...2).map { index in

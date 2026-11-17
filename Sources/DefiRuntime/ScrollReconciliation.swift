@@ -25,7 +25,6 @@ public func applyOverviewScrollOffsets(
   return changedMonitorIDs
 }
 
-/// Splits stacks that no longer fit their monitor; a no-op when all fit.
 @discardableResult
 public func separateInfeasibleStacks(
   state: inout RuntimeState,
@@ -294,7 +293,7 @@ private func tiledWindowWidthLearning(
         min(configuredSlotWidth, maximumTiledWidth ?? configuredSlotWidth),
         minimumTiledWidth
       )
-      let learnedWidth = max(currentSlotWidth + actualFrame.width - target.width, 80)
+      let learnedWidth = max(currentSlotWidth + actualFrame.width - target.width, minimumPixelColumnWidth)
       guard abs(learnedWidth - currentSlotWidth) >= 1 else { return nil }
       return (
         monitorIndex,

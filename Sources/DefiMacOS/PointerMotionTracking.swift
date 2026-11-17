@@ -42,7 +42,6 @@ struct PointerWindowTransitionState {
 }
 
 func pointerMotionDeliveryDelay(
-  rawWindowID: Int64,
   eventTimestamp: TimeInterval,
   lastDeliveryTimestamp: TimeInterval?,
   maximumFrequencyHz: Double = 120

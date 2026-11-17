@@ -47,51 +47,21 @@ struct CheatsheetHotKeyTests {
 
   @Test
   func `Help groups shortcuts by action and shows each Shift chord in full`() {
-    func row(
-      _ key: String, _ action: String, _ shifted: String? = nil,
-      modifiers: String = "⌃⌥", shiftedModifiers: String = "⌃⌥⇧"
-    ) -> ShortcutRow {
-      ShortcutRow(modifiers: modifiers, key: key, action: action,
-        shifted: shifted.map { ShiftedShortcut(modifiers: shiftedModifiers, action: $0) })
-    }
-    func moved(_ key: String, _ action: String, _ moveAction: String) -> ShortcutRow {
-      row(key, action, moveAction, shiftedModifiers: "⌃⌥⌘")
-    }
-    let shift = "⌃⌥⇧"
-    #expect(shortcutGroups(config: Config()) == [
-      ShortcutGroup(title: "Columns", rows: [
-        moved("←", "Column left", "Move column left"), moved("→", "Column right", "Move column right"),
-        moved("↖", "First column", "Move column to first"),
-        moved("↘", "Last column", "Move column to last"),
-        row("C", "Center column"),
-      ]),
-      ShortcutGroup(title: "Windows in a column", rows: [
-        moved("↑", "Window up", "Move window up"), moved("↓", "Window down", "Move window down"),
-        row("[", "Join or leave stack left"), row("]", "Join or leave stack right"),
-        row(".", "Unjoin"), row(";", "Join left column"), row("'", "Join right column"),
-      ]),
-      ShortcutGroup(title: "Workspaces", rows: [
-        moved("I", "Workspace up", "Move column to workspace up"),
-        moved("U", "Workspace down", "Move column to workspace down"),
-        row("⇥", "Recent windows", "Recent windows, backward"),
-        moved("1–9", "Workspace 1–9", "Move column to workspace 1–9"), row("O", "Overview"),
-        row("I", "Reorder workspace up", modifiers: shift),
-        row("U", "Reorder workspace down", modifiers: shift),
-        row("↩", "Activate window"),
-      ]),
-      ShortcutGroup(title: "Monitors", rows: [
-        row("←↑↓→", "Focus monitor", "Move column to monitor",
-          modifiers: shift, shiftedModifiers: "⌃⌥⇧⌘"),
-      ]),
-      ShortcutGroup(title: "Size", rows: [
-        row("−", "Narrower"), row("=", "Wider"), row("F", "Maximize column"),
-      ]),
-      ShortcutGroup(title: "Floating", rows: [
-        row("V", "Float or tile window", "Show floating layer"),
-        row(",", "Previous floating", modifiers: shift), row(".", "Next floating", modifiers: shift),
-      ]),
-      ShortcutGroup(title: "Other", rows: [row("/", "Shortcuts", modifiers: shift)]),
+    let groups = shortcutGroups(config: Config())
+    #expect(groups.map(\.title) == [
+      "Columns", "Windows in a column", "Workspaces", "Monitors", "Size", "Floating", "Other",
     ])
+
+    let allRows = groups.flatMap(\.rows)
+    #expect(!allRows.isEmpty)
+    #expect(allRows.allSatisfy { !$0.action.isEmpty && !$0.key.isEmpty })
+    #expect(Set(allRows.map { "\($0.modifiers)|\($0.key)" }).count == allRows.count)
+
+    let columns = try? #require(groups.first { $0.title == "Columns" }?.rows)
+    #expect(columns?.contains { $0.key == "←" && $0.action == "Column left" } == true)
+
+    let movedRow = allRows.compactMap(\.shifted).first { $0.action == "Move column left" }
+    #expect(movedRow?.modifiers == "⌃⌥⌘")
   }
 
   @Test

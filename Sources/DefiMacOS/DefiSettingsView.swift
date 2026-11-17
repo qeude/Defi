@@ -345,9 +345,9 @@ private struct LayoutSettingsView: View {
           selection: stringBinding(
             "layout", "center_focused_column", model.config.layout.centerFocusedColumn.rawValue)
         ) {
-          Text("Reveal as needed").tag("never")
-          Text("Always center").tag("always")
-          Text("Center on overflow").tag("on-overflow")
+          Text("Reveal as needed").tag(CenterFocusedColumn.never.rawValue)
+          Text("Always center").tag(CenterFocusedColumn.always.rawValue)
+          Text("Center on overflow").tag(CenterFocusedColumn.onOverflow.rawValue)
         }
         .settingsSearchTarget(.focusedColumn)
         settingsToggle(
@@ -1729,17 +1729,13 @@ private struct SettingsShortcutEditor: View {
   @State private var customCommand: String
   @State private var usesCustomCommand: Bool
 
+  private var argumentKind: CommandArgument {
+    SettingsShortcutActions.argumentKind(for: action)
+  }
+
   private var isArgumentValid: Bool {
-    if SettingsShortcutActions.noArgumentActions.contains(action) { return true }
-    if SettingsShortcutActions.relativeWorkspaceActions.contains(action) {
-      return ["up", "down"].contains(argument) || model.config.workspaces.names.contains(argument)
-    }
-    if SettingsShortcutActions.namedWorkspaceActions.contains(action) { return model.config.workspaces.names.contains(argument) }
-    if SettingsShortcutActions.positionActions.contains(action) {
-      return Int(argument).map { $0 > 0 } ?? false
-    }
-    if let options = SettingsShortcutActions.argumentOptions[action] { return options.contains(argument) }
-    return (try? parseCommand("\(action) \(argument)")) != nil
+    SettingsShortcutActions.accepted(
+      argument, for: action, workspaces: model.config.workspaces.names)
   }
 
   init(model: DefiSettingsModel, row: SettingsShortcutRow?) {
@@ -1748,10 +1744,11 @@ private struct SettingsShortcutEditor: View {
     _sourceWasRemoved = State(initialValue: false)
     let command = row?.command ?? "focus-column left"
     let parts = command.split(whereSeparator: \.isWhitespace).map(String.init)
-    let isKnown = parts.first.map(SettingsShortcutActions.actions.contains) ?? false
+    let isKnown = SettingsShortcutActions.isKnown(parts.first ?? "")
     _accelerator = State(initialValue: row?.accelerator ?? "")
     _action = State(initialValue: isKnown ? parts[0] : SettingsShortcutActions.actions[0])
-    _argument = State(initialValue: isKnown && parts.count > 1 ? parts[1] : "left")
+    _argument = State(initialValue: isKnown && parts.count > 1
+      ? parts[1] : SettingsShortcutActions.defaultArgument(workspaces: model.config.workspaces.names))
     _customCommand = State(initialValue: command)
     _usesCustomCommand = State(initialValue: !isKnown)
   }
@@ -1787,25 +1784,29 @@ private struct SettingsShortcutEditor: View {
               Text(value.replacingOccurrences(of: "-", with: " ").capitalized).tag(value)
             }
           }
-          if !SettingsShortcutActions.noArgumentActions.contains(action) {
-            if SettingsShortcutActions.relativeWorkspaceActions.contains(action) {
+          if argumentKind != .none {
+            switch argumentKind {
+            case .workspaceOrRelative:
               Picker("Workspace target", selection: $argument) {
                 Text("Up").tag("up")
                 Text("Down").tag("down")
                 ForEach(model.config.workspaces.names, id: \.self) { name in Text(name).tag(name) }
               }
-            } else if SettingsShortcutActions.namedWorkspaceActions.contains(action) {
+            case .workspaceName:
               Picker("Workspace", selection: $argument) {
                 ForEach(model.config.workspaces.names, id: \.self) { name in Text(name).tag(name) }
               }
-            } else if let options = SettingsShortcutActions.argumentOptions[action] {
+            case .keywords(let options):
               Picker("Argument", selection: $argument) {
                 if !options.contains(argument) { Text(argument).tag(argument) }
                 ForEach(options, id: \.self) { Text($0.capitalized).tag($0) }
               }
-            } else {
-              TextField(SettingsShortcutActions.positionActions.contains(action) ? "Position" : "Argument", text: $argument)
-                .help(SettingsShortcutActions.positionActions.contains(action) ? "Enter a 1-based workspace position." : "Enter the argument accepted by this action.")
+            case .workspacePosition:
+              TextField("Position", text: $argument)
+                .help("Enter a 1-based workspace position.")
+            case .text, .none:
+              TextField("Argument", text: $argument)
+                .help("Enter the argument accepted by this action.")
             }
           }
         }
@@ -1820,7 +1821,7 @@ private struct SettingsShortcutEditor: View {
           model.dismissMessage()
           let command = usesCustomCommand
             ? customCommand
-            : SettingsShortcutActions.noArgumentActions.contains(action) ? action : "\(action) \(argument)"
+            : argumentKind == .none ? action : "\(action) \(argument)"
           model.saveShortcut(sourceRow, accelerator: accelerator, command: command)
           if model.message == nil { dismiss() }
         }
@@ -1828,17 +1829,22 @@ private struct SettingsShortcutEditor: View {
       }
     }
     .onChange(of: action) { _, newAction in
-      if let options = SettingsShortcutActions.argumentOptions[newAction], !options.contains(argument) {
-        argument = options[0]
-      } else if SettingsShortcutActions.namedWorkspaceActions.contains(newAction),
-        !model.config.workspaces.names.contains(argument)
-      {
-        argument = model.config.workspaces.names.first ?? ""
-      } else if SettingsShortcutActions.relativeWorkspaceActions.contains(newAction),
-        !["up", "down"].contains(argument), !model.config.workspaces.names.contains(argument) {
-        argument = model.config.workspaces.names.first ?? "up"
-      } else if SettingsShortcutActions.positionActions.contains(newAction), !(Int(argument).map { $0 > 0 } ?? false) {
-        argument = "1"
+      let kind = SettingsShortcutActions.argumentKind(for: newAction)
+      switch kind {
+      case .keywords(let options):
+        if !options.contains(argument) { argument = options[0] }
+      case .workspaceName:
+        if !model.config.workspaces.names.contains(argument) {
+          argument = model.config.workspaces.names.first ?? ""
+        }
+      case .workspaceOrRelative:
+        if !["up", "down"].contains(argument), !model.config.workspaces.names.contains(argument) {
+          argument = model.config.workspaces.names.first ?? "up"
+        }
+      case .workspacePosition:
+        if !(Int(argument).map { $0 > 0 } ?? false) { argument = "1" }
+      case .text, .none:
+        break
       }
     }
     .onChange(of: model.shortcutRows) { _, rows in
@@ -1875,9 +1881,10 @@ private struct SettingsShortcutEditor: View {
     sourceWasRemoved = false
     accelerator = matchingRow.accelerator
     let parts = matchingRow.command.split(whereSeparator: \.isWhitespace).map(String.init)
-    let isKnown = parts.first.map(SettingsShortcutActions.actions.contains) ?? false
+    let isKnown = SettingsShortcutActions.isKnown(parts.first ?? "")
     action = isKnown ? parts[0] : SettingsShortcutActions.actions[0]
-    argument = isKnown && parts.count > 1 ? parts[1] : "left"
+    argument = isKnown && parts.count > 1
+      ? parts[1] : SettingsShortcutActions.defaultArgument(workspaces: model.config.workspaces.names)
     customCommand = matchingRow.command
     usesCustomCommand = !isKnown
   }
@@ -2178,7 +2185,6 @@ private struct SettingsReorderContainer<Item, ID: Hashable & Sendable>: ViewModi
   }
 }
 
-/// A rule setting label followed by an info button that explains it in a popover.
 private struct RuleInfoLabel: View {
   let title: String
   let text: String

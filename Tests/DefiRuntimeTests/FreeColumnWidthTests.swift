@@ -8,7 +8,7 @@ struct FreeColumnWidthTests {
   let monitorID = MonitorID(rawValue: 1)
   let viewport = Rect(x: 0, y: 0, width: 1_000, height: 800)
 
-  func state(widths: [Double], focused: Int, centering: CenterFocusedColumnConfig = .never) -> RuntimeState {
+  func state(widths: [Double], focused: Int, centering: CenterFocusedColumn = .never) -> RuntimeState {
     var state = RuntimeState(config: Config(layout: LayoutConfig(centerFocusedColumn: centering)))
     state.attachMonitor(monitorID)
     state.monitors[0].workspaces[0].columns = widths.indices.map {

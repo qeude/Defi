@@ -35,7 +35,7 @@ struct ClampedFrameWriteTests {
         return true
       },
       sizeReader: { _ in state.size }, positionReader: { _ in state.point },
-      enhancedUIWriter: { _, _ in true }, nativePositionReader: { _, _ in nil }
+      enhancedUIWriter: { _, _ in true }
     )
     let coordinator = AXFrameCoordinator(accessibilityWriter: writer)
     coordinator.latestGeneration = 1
@@ -85,7 +85,7 @@ struct ClampedFrameWriteTests {
         return true
       },
       sizeReader: { _ in state.size }, positionReader: { _ in state.point },
-      enhancedUIWriter: { _, _ in true }, nativePositionReader: { _, _ in nil }
+      enhancedUIWriter: { _, _ in true }
     )
     let coordinator = AXFrameCoordinator(accessibilityWriter: writer)
     coordinator.latestGeneration = 1

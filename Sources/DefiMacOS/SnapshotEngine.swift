@@ -1258,7 +1258,7 @@ extension SnapshotEngine {
     let system = AXUIElementCreateSystemWide()
     let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared
       .withTimeout(
-        focusSnapshotAccessibilityTimeoutSeconds,
+        accessibilityReadTimeoutSeconds,
         elements: [system]
       ) {
         var value: CFTypeRef?
@@ -1277,7 +1277,7 @@ extension SnapshotEngine {
     let systemFocusedElement = focusedApplication.map { $0 as! AXUIElement }
     let readFocusedProcessID = systemFocusedElement.map { element in
       AXMessagingTimeoutAccess.shared.withTimeout(
-        focusSnapshotAccessibilityTimeoutSeconds,
+        accessibilityReadTimeoutSeconds,
         elements: [element]
       ) {
         AXUIElementGetPid(element, &focusedProcessID) == .success
@@ -1317,7 +1317,7 @@ extension SnapshotEngine {
       ) { return stable }
     }
     let focusedWindow: CFTypeRef? = AXMessagingTimeoutAccess.shared.withTimeout(
-      focusSnapshotAccessibilityTimeoutSeconds,
+      accessibilityReadTimeoutSeconds,
       elements: [focusedApplicationElement]
     ) {
       var value: CFTypeRef?
@@ -1340,7 +1340,7 @@ extension SnapshotEngine {
       return exact.key
     }
     focusedPopup = AXMessagingTimeoutAccess.shared.withTimeout(
-      focusSnapshotAccessibilityTimeoutSeconds, elements: [focusedElement]
+      accessibilityReadTimeoutSeconds, elements: [focusedElement]
     ) {
       var values: CFArray?
       AXUIElementCopyMultipleAttributeValues(focusedElement,
@@ -1350,7 +1350,7 @@ extension SnapshotEngine {
     } ?? false
     guard
       let focusedFrame = AXMessagingTimeoutAccess.shared.withTimeout(
-        focusSnapshotAccessibilityTimeoutSeconds,
+        accessibilityReadTimeoutSeconds,
         elements: [focusedElement],
         perform: { frame(of: focusedElement) }
       )
@@ -1379,7 +1379,7 @@ extension SnapshotEngine {
       let appElement = applications[frontmostProcessID]
     else { return nil }
     let rawWindows: [AXUIElement]? = AXMessagingTimeoutAccess.shared.withTimeout(
-      focusSnapshotAccessibilityTimeoutSeconds,
+      accessibilityReadTimeoutSeconds,
       elements: [appElement]
     ) {
       copyElements(appElement, attribute: kAXWindowsAttribute)

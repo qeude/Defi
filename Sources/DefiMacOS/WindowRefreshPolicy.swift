@@ -8,16 +8,10 @@ import OSLog
 
 let reliableObservationWatchdogInterval: TimeInterval = 30
 
-func applicationInventoryRefreshInterval(
-  reliableLifecycleObservation: Bool
+public func reliableObservationRefreshInterval(
+  reliableObservation: Bool
 ) -> TimeInterval {
-  reliableLifecycleObservation ? reliableObservationWatchdogInterval : 0.3
-}
-
-public func desktopSnapshotRefreshInterval(
-  reliableDesktopObservation: Bool
-) -> TimeInterval {
-  reliableDesktopObservation ? reliableObservationWatchdogInterval : 0.3
+  reliableObservation ? reliableObservationWatchdogInterval : 0.3
 }
 
 public func boundedSnapshotRefreshDeadline(

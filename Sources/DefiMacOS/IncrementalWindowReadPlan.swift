@@ -89,7 +89,7 @@ extension SnapshotEngine {
         return PreparedAXProcessReadResult(processID: job.processID, windows: [], application: nil)
       }
       let start = ProcessInfo.processInfo.systemUptime
-      let windows = AXMessagingTimeoutAccess.shared.withTimeout(snapshotAccessibilityTimeoutSeconds, elements: [application.element]) {
+      let windows = AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [application.element]) {
         self.readDiscoveryApplicationWindows(application.element, processID: job.processID)
       }
       return PreparedAXProcessReadResult(processID: job.processID, windows: [],
@@ -117,7 +117,7 @@ extension SnapshotEngine {
     let reads = collectPreparedAXProcessReads(jobs, shouldStart: { isCurrent($0) && shouldReadProcess($0) }, read: { [self] job in
       let windows = job.windows.compactMap { candidate -> PreparedAXWindowRead? in
         guard isCurrent(job.processID) else { return nil }
-        let attributes = AXMessagingTimeoutAccess.shared.withTimeout(snapshotAccessibilityTimeoutSeconds, elements: [candidate.element]) {
+        let attributes = AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [candidate.element]) {
           self.windowAttributes(candidate.element, processID: job.processID)
         }
         return PreparedAXWindowRead(windowID: candidate.windowID, attributes: attributes, parent: nil, sheets: [])
@@ -151,7 +151,7 @@ extension SnapshotEngine {
     let reads = collectPreparedAXProcessReads(jobs, shouldStart: isCurrent, read: { [self] job in
       let windows = job.windows.compactMap { candidate -> PreparedAXWindowRead? in
         guard isCurrent(job.processID) else { return nil }
-        let parent = AXMessagingTimeoutAccess.shared.withTimeout(snapshotAccessibilityTimeoutSeconds, elements: [candidate.element]) {
+        let parent = AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [candidate.element]) {
           self.readDiscoveryParent(candidate.element)
         }
         return PreparedAXWindowRead(windowID: candidate.windowID, attributes: nil, parent: parent, sheets: [])

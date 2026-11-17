@@ -6,7 +6,6 @@ import DefiCore
 import DefiModel
 import OSLog
 
-let snapshotAccessibilityTimeoutSeconds: Float = 0.05
 private let maximumTransientOwnerResolutionAttempts = 8
 
 func transientOwnerResolutionRetryDelay(afterAttempt attempt: Int) -> TimeInterval {
@@ -351,7 +350,7 @@ extension SnapshotEngine {
         if enhancedUIByProcess[processID] == nil {
           let observedEnhancedUI = AXMessagingTimeoutAccess.shared
             .withTimeout(
-              snapshotAccessibilityTimeoutSeconds,
+              accessibilityReadTimeoutSeconds,
               elements: [appElement]
             ) {
               value(
@@ -403,7 +402,7 @@ extension SnapshotEngine {
           let preparedWindows = preparedReadIsCurrent ? preparedApplicationWindows[processID] : nil
           let copiedWindows: [AXUIElement]? = preparedWindows != nil ? preparedWindows!.elements
             : AXMessagingTimeoutAccess.shared.withTimeout(
-              snapshotAccessibilityTimeoutSeconds,
+              accessibilityReadTimeoutSeconds,
               elements: [appElement]
             ) {
               applicationWindowsAfterPreparingTopologyObservation(
@@ -440,7 +439,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
         if processID == ownProcessID {
           // Defi's overlays and panels stay unmanaged.
           appWindows = appWindows.map { windows in
-            AXMessagingTimeoutAccess.shared.withTimeout(snapshotAccessibilityTimeoutSeconds, elements: windows) {
+            AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: windows) {
               windows.filter(isDefiSettingsWindow)
             }
           }
@@ -507,7 +506,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           }
           if let previousWindowID { attemptedFrameWindowIDs.insert(previousWindowID) }
           let discovery = AXMessagingTimeoutAccess.shared.withTimeout(
-            snapshotAccessibilityTimeoutSeconds,
+            accessibilityReadTimeoutSeconds,
             elements: [element]
           ) {
             makeWindow(
@@ -581,7 +580,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             floatingWindowIDs.contains($0) ? WindowDisposition.floating : .tiled
           }
           let disposition = AXMessagingTimeoutAccess.shared.withTimeout(
-            snapshotAccessibilityTimeoutSeconds,
+            accessibilityReadTimeoutSeconds,
             elements: [element]
           ) {
             windowDisposition(
@@ -634,7 +633,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           )
           if previousWindowID == nil {
             let hasTabs = AXMessagingTimeoutAccess.shared.withTimeout(
-              snapshotAccessibilityTimeoutSeconds,
+              accessibilityReadTimeoutSeconds,
               elements: [element]
             ) {
               self.nativeWindowHasTabs(in: element, windowFrame: tracked.frame)
@@ -660,7 +659,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           cachedWindowState = { windowID in
             guard let element = previousElements[windowID] else { return (.invalidUIElement, nil) }
             return AXMessagingTimeoutAccess.shared.withTimeout(
-              snapshotAccessibilityTimeoutSeconds,
+              accessibilityReadTimeoutSeconds,
               elements: [element]
             ) {
               var minimized: CFTypeRef?
@@ -913,7 +912,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
       let parent: AXUIElement?
       if let prepared = preparedParents[childID] { parent = prepared }
       else {
-        parent = AXMessagingTimeoutAccess.shared.withTimeout(snapshotAccessibilityTimeoutSeconds, elements: [child]) {
+        parent = AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [child]) {
           self.readDiscoveryParent(child)
         }
       }

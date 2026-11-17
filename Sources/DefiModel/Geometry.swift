@@ -26,8 +26,7 @@ public enum ColumnWidth: Equatable, Codable, Sendable {
   case pixels(Double)
 }
 
-/// A `set-column-width` request. `.pixels` counts the window's own width, without the
-/// gaps its column adds.
+/// `.pixels` counts the window's own width, without the gaps its column adds.
 public enum ColumnWidthChange: Equatable, Codable, Sendable {
   case set(ColumnWidth)
   case adjust(ColumnWidth)

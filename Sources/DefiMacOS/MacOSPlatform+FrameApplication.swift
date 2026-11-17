@@ -171,7 +171,7 @@ extension MacOSPlatform {
         monitorFrames: lastMonitorFrames
       )
     {
-      initialFrameSettlementDeadlines[assignment.windowID] = now + 2.5
+      initialFrameSettlementDeadlines[assignment.windowID] = now + initialSettlementHorizon
     }
     for assignment in assignments
     where !hiddenWindowIDs.contains(assignment.windowID)
@@ -799,7 +799,7 @@ extension MacOSPlatform {
       guard let element = elements[id] else { return false }
       var value: CFTypeRef?
       // A busy full-screen app must not hold command intake.
-      return AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [element]) {
+      return AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [element]) {
         AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &value)
       } == .success && value as? Bool == true
     }) else { return }

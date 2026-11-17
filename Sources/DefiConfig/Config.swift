@@ -98,7 +98,6 @@ public struct Config: Equatable, Sendable {
 
   public static let defaultMod = "ctrl+alt"
 
-  /// The aliases accelerators resolve: `mod` alone.
   public var modifierAliases: [String: String] { ["mod": mod] }
 
   /// The modifier held for scroll gestures.
@@ -265,9 +264,10 @@ public struct Config: Equatable, Sendable {
       guard normalizedAccelerator(accelerator, aliases: modifierAliases) != nil else {
         throw ConfigError.invalidValue("keys.\(accelerator)")
       }
-      if command == "diagnostic-mark" { continue }
+      if isClientVerb(command) { continue }
       do {
-        try validateCommandWorkspace(try parseCommand(command))
+        _ = try parseCommand(command)
+        try validateCommandWorkspace(command)
       } catch let error as ConfigError {
         throw error
       } catch {
@@ -337,23 +337,12 @@ public struct Config: Equatable, Sendable {
     return result
   }
 
-  private func validateCommandWorkspace(_ command: Command) throws {
-    let workspaceName: String?
-    switch command {
-    case .switchWorkspace(let value),
-      .moveWindowToWorkspace(let value),
-      .sendWindowToWorkspace(let value):
-      workspaceName = value.rawValue
-    case .focusWorkspace(.named(let value)),
-      .moveColumnToWorkspace(.named(let value), follow: _),
-      .moveWindowToWorkspaceTarget(.named(let value), follow: _):
-      workspaceName = value
-    default:
-      workspaceName = nil
-    }
-    if let workspaceName, !workspaces.names.contains(workspaceName) {
-      throw ConfigError.unknownWorkspace(workspaceName)
-    }
+  private func validateCommandWorkspace(_ rawCommand: String) throws {
+    let name = rawCommand.split(whereSeparator: \.isWhitespace).first
+      .flatMap { commandSpec(named: String($0)) }?
+      .argument.workspaceNameArgument(in: rawCommand)
+    guard let name, !workspaces.names.contains(name) else { return }
+    throw ConfigError.unknownWorkspace(name)
   }
 
   private static func defaultKeys(

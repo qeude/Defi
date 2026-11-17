@@ -6,6 +6,17 @@ import DefiCore
 import DefiModel
 import OSLog
 
+/// One display refresh at 60 Hz, in seconds.
+let frameRefreshInterval: Float = 0.016
+/// A frame write longer than this misses the display's budget.
+let slowFrameDurationMS = 16.67
+/// How long an initial frame write may take to settle before it is reported as missed.
+let initialSettlementHorizon: TimeInterval = 2.5
+/// WindowServer still reports the old frame for this long after a write.
+let borderWriteFreshnessWindow: TimeInterval = 0.2
+/// The shortest readback Defi waits for before judging a frame.
+let minimumFrameReadbackTimeout: Float = 0.025
+
 func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
   guard let frame else { return }
   frame.completion?(
@@ -438,7 +449,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
 
   /// WindowServer can still report a slow app's previous position for a few
   /// frames after its AX write returns; a native sample this soon is not proof.
-  func borderWriteIsRecent(for windowID: WindowID, within seconds: TimeInterval = 0.2) -> Bool {
+  func borderWriteIsRecent(for windowID: WindowID, within seconds: TimeInterval = borderWriteFreshnessWindow) -> Bool {
     lock.lock()
     defer { lock.unlock() }
     return (borderGeometryWrittenAt[windowID] ?? -.infinity)
@@ -642,7 +653,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
         guard !superseded else { return }
         // AXUIElement isn't Sendable; an application element is fully identified by its pid.
         let application = AXUIElementCreateApplication(processID)
-        let restored = AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [application]) {
+        let restored = AXMessagingTimeoutAccess.shared.withTimeout(frameRefreshInterval, elements: [application]) {
           accessibilityWriter.setEnhancedUserInterface(true, application: application)
         }
         lock.lock()

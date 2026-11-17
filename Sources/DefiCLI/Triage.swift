@@ -271,7 +271,6 @@ enum Triage {
       .first { access($0, X_OK) == 0 }
   }
 
-  /// Returns nil when the user leaves the command empty with no agent installed, to print the prompt.
   private static func prompt(among choices: [String]) throws -> String? {
     while true {
       var command: String

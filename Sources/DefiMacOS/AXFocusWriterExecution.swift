@@ -55,7 +55,7 @@ extension AXFocusWriter {
       }
       if selectsSpecificWindow {
         operations.withTimeout(
-          0.016,
+          frameRefreshInterval,
           [request.application, request.element]
         ) {
           guard isCurrent(queued) else {
@@ -92,7 +92,7 @@ extension AXFocusWriter {
           {
             retried = true
             operations.withTimeout(
-              0.05,
+              accessibilityReadTimeoutSeconds,
               [request.application, request.element]
             ) {
               guard isCurrent(queued) else {

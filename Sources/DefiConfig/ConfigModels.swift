@@ -257,7 +257,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
   public var defaultColumnWidth: Double
   public var presetColumnWidths: [Double]
   public var presetWindowHeights: [Double]
-  public var centerFocusedColumn: CenterFocusedColumnConfig
+  public var centerFocusedColumn: CenterFocusedColumn
   public var alwaysCenterSingleColumn: Bool
   public var gaps: Double
   public var outerTopGap: Double?
@@ -270,11 +270,11 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
   public var monitors: [String: MonitorLayoutConfig]
 
   public init(
-    defaultColumnWidth: Double = 0.80,
-    presetColumnWidths: [Double] = [0.33, 0.50, 0.66, 0.80],
-    presetWindowHeights: [Double] = [0.33, 0.50, 0.66],
-    centerFocusedColumn: CenterFocusedColumnConfig = .never,
-    alwaysCenterSingleColumn: Bool = false,
+    defaultColumnWidth: Double = LayoutSettings().defaultColumnWidth,
+    presetColumnWidths: [Double] = LayoutSettings().presetColumnWidths,
+    presetWindowHeights: [Double] = LayoutSettings().presetWindowHeights,
+    centerFocusedColumn: CenterFocusedColumn = LayoutSettings().centerFocusedColumn,
+    alwaysCenterSingleColumn: Bool = LayoutSettings().alwaysCenterSingleColumn,
     gaps: Double = 8,
     outerTopGap: Double? = nil,
     outerRightGap: Double? = nil,
@@ -328,7 +328,7 @@ public struct LayoutConfig: Codable, Equatable, Sendable {
       ?? defaults.presetWindowHeights
     centerFocusedColumn =
       try values.decodeIfPresent(
-        CenterFocusedColumnConfig.self,
+        CenterFocusedColumn.self,
         forKey: .centerFocusedColumn
       ) ?? defaults.centerFocusedColumn
     alwaysCenterSingleColumn =
@@ -391,12 +391,6 @@ public struct MenuBarConfig: Codable, Equatable, Sendable {
   }
 }
 
-public enum CenterFocusedColumnConfig: String, Codable, Sendable {
-  case never
-  case always
-  case onOverflow = "on-overflow"
-}
-
 public struct WorkspacesConfig: Codable, Equatable, Sendable {
   public var icons: [String: String]
   public var names: [String]
@@ -445,7 +439,6 @@ public struct WorkspacesConfig: Codable, Equatable, Sendable {
   }
 }
 
-/// How a rule places matching windows.
 public enum RuleWindow: String, Codable, Equatable, Sendable, CaseIterable {
   case forceFloating = "force-floating"
   /// Tiles even windows that automatic classification would float or ignore.

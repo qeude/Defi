@@ -211,7 +211,6 @@ public final class EventStreamHub: @unchecked Sendable {
     self.maximumClients = maximumClients
   }
 
-  public var clientCount: Int { queue.sync { clients.count } }
 
   public func publish(_ state: EventStreamState) {
     queue.async { [self] in

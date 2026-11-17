@@ -8,6 +8,12 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+func displaySizeDescription(_ monitors: [MonitorSnapshot]) -> String {
+  monitors.map {
+    "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))"
+  }.joined(separator: ",")
+}
+
 let displayLogger = Logger(
   subsystem: "com.qeude.defi",
   category: "Display"
@@ -161,14 +167,6 @@ extension Daemon {
       )
     }
     deferredMouseFocusIntent = nil
-  }
-
-  func displayGeometryDescription(
-    _ monitors: [MonitorSnapshot]
-  ) -> String {
-    monitors.map {
-      "\($0.id.rawValue):\(Int($0.frame.width))x\(Int($0.frame.height))"
-    }.joined(separator: ",")
   }
 
   func invalidateDisplayArrangement() {

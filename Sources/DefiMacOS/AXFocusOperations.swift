@@ -3,7 +3,7 @@ import ApplicationServices
 
 struct AXFocusOperations: @unchecked Sendable {
   var targetIsFocused: (AXUIElement, AXUIElement) -> Bool = { element, application in
-    AXMessagingTimeoutAccess.shared.withTimeout(0.016, elements: [application, element]) {
+    AXMessagingTimeoutAccess.shared.withTimeout(frameRefreshInterval, elements: [application, element]) {
       // Main-window state alone does not establish the keyboard recipient.
       targetWindowFocusIsConfirmed(readFocused(element)) {
         var focusedWindow: CFTypeRef?

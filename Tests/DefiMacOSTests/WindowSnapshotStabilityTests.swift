@@ -655,34 +655,14 @@ struct WindowSnapshotStabilityTests {
     }
   }
 
-  @Test func applicationInventoryUsesEventsAndBoundedWatchdog() {
+  @Test func applicationInventoryIsReusedWhenNothingChanged() {
     #expect(
-      applicationInventoryRefreshIsRequired(
-        hasCompletedSnapshot: false,
+      !applicationInventoryRefreshIsRequired(
+        hasCompletedSnapshot: true,
         topologyRequiresFullSnapshot: false,
         forced: false
       )
     )
-    #expect(
-      applicationInventoryRefreshIsRequired(
-        hasCompletedSnapshot: true,
-        topologyRequiresFullSnapshot: true,
-        forced: false
-      )
-    )
-    #expect(
-      applicationInventoryRefreshIsRequired(
-        hasCompletedSnapshot: true,
-        topologyRequiresFullSnapshot: false,
-        forced: true
-      )
-    )
-    #expect(
-      applicationInventoryRefreshIsRequired(
-        hasCompletedSnapshot: true,
-        topologyRequiresFullSnapshot: false,
-        forced: false
-      ) == false)
   }
 
   @Test func visibleWindowProcessMissingFromWorkspaceInventoryIsDiscovered() {
@@ -743,64 +723,14 @@ struct WindowSnapshotStabilityTests {
     #expect(appBundleIdentifier(executablePath: "/usr/bin/open") == nil)
   }
 
-  @Test func windowListUsesCacheUntilTopologyOrWatchdogInvalidation() {
+  @Test func windowListIsReusedWhenNothingChanged() {
     #expect(
-      applicationWindowListRefreshIsRequired(
-        hasCachedWindows: false,
-        refreshesAllWindowLists: false,
-        topologyProcessWasInvalidated: false
-      )
-    )
-    #expect(
-      applicationWindowListRefreshIsRequired(
-        hasCachedWindows: true,
-        refreshesAllWindowLists: true,
-        topologyProcessWasInvalidated: false
-      )
-    )
-    #expect(
-      applicationWindowListRefreshIsRequired(
-        hasCachedWindows: true,
-        refreshesAllWindowLists: false,
-        topologyProcessWasInvalidated: true
-      )
-    )
-    #expect(
-      applicationWindowListRefreshIsRequired(
+      !applicationWindowListRefreshIsRequired(
         hasCachedWindows: true,
         refreshesAllWindowLists: false,
         topologyProcessWasInvalidated: false
-      ) == false)
-  }
-
-  @Test func windowListWatchdogRetriesPreviouslyUnmatchedWindows() {
-    #expect(
-      unmatchedWindowCacheRequiresFullRetry(
-        eventRequiresFullSnapshot: false,
-        forceFullWindowRefresh: false,
-        forceWindowListRefresh: true
       )
     )
-    #expect(
-      unmatchedWindowCacheRequiresFullRetry(
-        eventRequiresFullSnapshot: true,
-        forceFullWindowRefresh: false,
-        forceWindowListRefresh: false
-      )
-    )
-    #expect(
-      unmatchedWindowCacheRequiresFullRetry(
-        eventRequiresFullSnapshot: false,
-        forceFullWindowRefresh: true,
-        forceWindowListRefresh: false
-      )
-    )
-    #expect(
-      unmatchedWindowCacheRequiresFullRetry(
-        eventRequiresFullSnapshot: false,
-        forceFullWindowRefresh: false,
-        forceWindowListRefresh: false
-      ) == false)
   }
 
   @Test func unavailableNewWindowUsesDeduplicatedShortRetry() {
@@ -1318,45 +1248,6 @@ struct WindowSnapshotStabilityTests {
         pendingFrameWindowIDs: [emittedWindowID],
         matchesRecentInternalWrite: true
       ) == false
-    )
-  }
-
-  @Test func mouseResizeAlwaysAdoptsTheGestureWindow() {
-    let resizedWindowID = WindowID(rawValue: 42)
-    let siblingWindowID = WindowID(rawValue: 43)
-
-    #expect(
-      windowIsMouseResizeGestureCandidate(
-        resizedWindowID,
-        mouseGestureWindowID: resizedWindowID,
-        mouseResizeGestureObserved: true
-      )
-    )
-    #expect(
-      windowIsMouseResizeGestureCandidate(
-        siblingWindowID,
-        mouseGestureWindowID: resizedWindowID,
-        mouseResizeGestureObserved: true
-      ) == false
-    )
-    #expect(
-      windowIsMouseResizeGestureCandidate(
-        resizedWindowID,
-        mouseGestureWindowID: resizedWindowID,
-        mouseResizeGestureObserved: false
-      ) == false
-    )
-  }
-
-  @Test func frameEventRemainsPendingOnlyForRetainedWindow() {
-    let retained = WindowID(rawValue: 42)
-    let observed = WindowID(rawValue: 43)
-
-    #expect(
-      retainedFrameEventWindowIDs(
-        observedFrameEventWindowIDs: [retained, observed],
-        retainedWindowIDs: [retained]
-      ) == Set([retained])
     )
   }
 

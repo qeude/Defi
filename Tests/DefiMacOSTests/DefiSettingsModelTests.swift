@@ -113,6 +113,14 @@ struct DefiSettingsModelTests {
   }
 
   @Test
+  func everyCommandWithChoicesIsOfferedInSettings() {
+    for spec in commandSpecs {
+      if case .text(let suggestions) = spec.argument, suggestions.isEmpty { continue }
+      #expect(spec.isConfigurable, "\(spec.name) can be bound but Settings never offers it")
+    }
+  }
+
+  @Test
   func shortcutActionCatalogContainsValidUnassignedActionsAndNamedWorkspaces() throws {
     let commands = SettingsShortcutActions.availableCommands(workspaces: ["dev", "web"])
     #expect(commands.contains("focus-column first"))
@@ -243,12 +251,12 @@ struct DefiSettingsModelTests {
     let rows = model.shortcutRows
     let first = try #require(rows.first)
     let other = try #require(rows.dropFirst().first)
-    model.moveShortcut(first, to: other.accelerator)
+    model.saveShortcut(first, accelerator: other.accelerator, command: first.command)
     #expect(try Data(contentsOf: url) == original)
     #expect(model.message?.contains("already used") == true)
 
     let recorded = try #require(recordedAccelerator(keyCode: 7, modifiers: [.control, .option]))
-    model.moveShortcut(first, to: recorded)
+    model.saveShortcut(first, accelerator: recorded, command: first.command)
     #expect(model.config.keys[recorded] == first.command)
     #expect(model.config.keys[first.accelerator] == nil)
     let moved = try #require(model.shortcutRows.first { $0.accelerator == recorded })
@@ -266,7 +274,7 @@ struct DefiSettingsModelTests {
     model.followKeyboardLayout { french }
     // On French `ctrl-alt-leftbracket` falls back to the `^` key, which `ctrl-alt-^` also names.
     let row = try #require(model.shortcutRows.first { $0.accelerator == "mod-f" })
-    model.moveShortcut(row, to: "ctrl-alt-^")
+    model.saveShortcut(row, accelerator: "ctrl-alt-^", command: row.command)
     #expect(model.message?.contains("already used") == true)
     #expect(model.config.keys["ctrl-alt-^"] == nil)
   }
@@ -285,38 +293,22 @@ struct DefiSettingsModelTests {
   }
 
   @Test
-  func recordingEveryExistingCombinationKeepsItsBinding() throws {
-    let url = try configFile()
-    defer { removeConfig(url) }
-    let original = Data("mod = \"ctrl+alt+cmd\"\n".utf8)
-    try original.write(to: url)
-    let model = DefiSettingsModel(configURL: url)
-    for row in model.shortcutRows {
-      let key = try Key(accelerator: row.accelerator, aliases: model.config.modifierAliases)
-      let recorded = try #require(recordedAccelerator(
-        keyCode: key.code, modifiers: NSEvent.ModifierFlags(rawValue: UInt(key.modifierBits))))
-      model.moveShortcut(row, to: recorded)
-      #expect(model.message == nil, "Re-recording \(row.command): \(row.accelerator)")
-      #expect(try Data(contentsOf: url) == original)
-    }
-  }
-
-  @Test
   func recordingSameShortcutAgainIsIdempotent() throws {
     let url = configURL()
     defer { removeConfig(url) }
     let model = DefiSettingsModel(configURL: url)
     let original = try #require(model.shortcutRows.first)
-    model.moveShortcut(original, to: "ctrl-alt-x")
+    model.saveShortcut(original, accelerator: "ctrl-alt-x", command: original.command)
     let saved = try Data(contentsOf: url)
-    model.moveShortcut(original, to: "option-control-x")
-    #expect(model.message == nil)
-    #expect(try Data(contentsOf: url) == saved)
     let current = try #require(model.shortcutRows.first { $0.accelerator == "alt-ctrl-x" })
-    model.moveShortcut(current, to: "ctrl-alt-x")
+    model.saveShortcut(current, accelerator: "option-control-x", command: current.command)
     #expect(model.message == nil)
     #expect(try Data(contentsOf: url) == saved)
-    model.moveShortcut(current, to: original.accelerator)
+    let respelled = try #require(model.shortcutRows.first { $0.accelerator == "alt-ctrl-x" })
+    model.saveShortcut(respelled, accelerator: "ctrl-alt-x", command: respelled.command)
+    #expect(model.message == nil)
+    #expect(try Data(contentsOf: url) == saved)
+    model.saveShortcut(respelled, accelerator: original.accelerator, command: respelled.command)
     #expect(model.message == nil)
     #expect(model.config.keys[original.accelerator] == original.command)
     #expect(model.config.keyOverrides.isEmpty)

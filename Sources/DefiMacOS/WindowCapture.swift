@@ -190,6 +190,8 @@ let windowPixelsBitmapInfo = CGBitmapInfo(rawValue:
 // A stand-in for the few frames a restoration takes, and for Overview cards: a quarter of a
 // 5K-wide window still reads as the window, at about 2 MB in compressible memory.
 let windowPictureReducedLongSide = 1_024
+/// A slow capture backlog must not delay visible windows; the rest follows next pass.
+let maximumCaptureRequestsPerPass = 3
 
 func windowPictureReducedPixels(_ image: CGImage?) -> (width: Int, height: Int)? {
   guard let image else { return nil }
@@ -823,8 +825,11 @@ final class WindowCaptureCache {
     }
     // Short passes keep stills and visible windows from queueing behind slow
     // ScreenCaptureKit captures of parked windows; the rest follows next pass.
-    let backlog = requests.count > 3
-    if backlog { requests = Array(requests.prefix(3)); refreshQueued = true }
+    let backlog = requests.count > maximumCaptureRequestsPerPass
+    if backlog {
+      requests = Array(requests.prefix(maximumCaptureRequestsPerPass))
+      refreshQueued = true
+    }
     guard !displays.isEmpty || !visible.isEmpty || !requests.isEmpty || !pendingStills.isEmpty
     else { return }
     // One call per window: a multi-window call returns a single composite whose

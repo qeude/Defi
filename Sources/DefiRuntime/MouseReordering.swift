@@ -850,7 +850,6 @@ private func rawMouseDropTarget(
   return fits ? .stack(target) : .rejectedStack(target)
 }
 
-/// Applies a drop target; returns false when the window already sits there.
 @discardableResult
 public func applyMouseDrop(
   _ windowID: WindowID,

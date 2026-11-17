@@ -276,30 +276,6 @@ struct WindowDiscoveryTests {
       ).map(\.id) == expected)
   }
 
-  @Test
-  func `Window frame snapshot selects requested floating window`() {
-    let requested = CGWindowRecord(
-      id: 2,
-      processID: processID,
-      layer: 3,
-      title: "Utility",
-      frame: frame
-    )
-    let unrelated = CGWindowRecord(
-      id: 3,
-      processID: processID,
-      layer: 0,
-      title: "Main",
-      frame: Rect(x: 100, y: 100, width: 800, height: 600)
-    )
-
-    #expect(
-      framesByWindowID(
-        for: [WindowID(rawValue: UInt64(requested.id))],
-        in: [unrelated, requested]
-      ) == [WindowID(rawValue: UInt64(requested.id)): frame])
-  }
-
   // role, subrole, app, close button, resizable, modal, configured floating, force tiling -> disposition
   @Test(arguments: [
     (kAXWindowRole, kAXStandardWindowSubrole, "net.imput.helium", true, true, false, false, false, .tiled),

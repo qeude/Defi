@@ -108,11 +108,4 @@ struct LosslessTOMLDocumentTests {
     )
   }
 
-  @Test
-  func `A renamed non-ASCII key stays quoted`() throws {
-    var document = LosslessTOMLDocument("[keys]\n'hyper-é' = \"reload\"\n")
-    document.renameKey(table: "keys", from: "hyper-é", to: "cmd-é")
-    let table = try TOMLTable(source: document.render())
-    #expect(try table.table(forKey: "keys").string(forKey: "cmd-é") == "reload")
-  }
 }

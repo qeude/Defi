@@ -63,9 +63,8 @@ func overviewKeyAction(
   modifierBits: UInt64,
   configuredCommand: String? = nil
 ) -> OverviewKeyAction? {
-  let parts = configuredCommand?.split(whereSeparator: \.isWhitespace) ?? []
-  let commandName = parts.first
-  if let configuredCommand, let command = try? parseCommand(configuredCommand) {
+  let command = configuredCommand.flatMap { try? parseCommand($0) }
+  if let command {
     switch command {
     case .switchWorkspace(let id): return .workspace(.named(id.rawValue))
     case .focusWorkspace(let target):
@@ -79,6 +78,8 @@ func overviewKeyAction(
     // Letter aliases such as mod-h navigate like the arrows.
     case .focusColumn(.left): return .left
     case .focusColumn(.right): return .right
+    case .focusColumn(.first): return .firstColumn
+    case .focusColumn(.last): return .lastColumn
     case .focusWindow(.up): return .up
     case .focusWindow(.down): return .down
     case .focusMonitor(let direction): return .monitor(direction)
@@ -94,19 +95,17 @@ func overviewKeyAction(
       if command.editsSelectedLayout { return .layout(command) }
     }
   }
-  if parts.count == 2 {
-    switch (parts[0], parts[1]) {
-    case ("focus-column", "first"): return .firstColumn
-    case ("focus-column", "last"): return .lastColumn
-    default: break
+  let navigatesOverview: Bool
+  if modifierBits == 0 {
+    navigatesOverview = true
+  } else {
+    switch command {
+    case .focusColumn, .focusColumnOrMonitor, .focusWindow, .focusWindowOrWorkspace:
+      navigatesOverview = true
+    default:
+      navigatesOverview = false
     }
   }
-  let navigatesOverview =
-    modifierBits == 0
-    || commandName == "focus-column"
-    || commandName == "focus-column-or-monitor"
-    || commandName == "focus-window"
-    || commandName == "focus-window-or-workspace"
   return switch keyCode {
   case 123 where navigatesOverview: .left
   case 124 where navigatesOverview: .right
@@ -115,7 +114,7 @@ func overviewKeyAction(
   case 36 where modifierBits == 0: .select
   case 76 where modifierBits == 0: .select
   case 53 where modifierBits == 0: .cancel
-  case _ where commandName == "toggle-overview": .cancel
+  case _ where command == .toggleOverview: .cancel
   default: nil
   }
 }

@@ -50,13 +50,6 @@ func nativeFocusPendingSkippedWindowIDs(
 /// How long after discovery a rule's `open_focused = false` still refuses its app's focus.
 let unfocusedOpeningGrace: TimeInterval = 1
 
-func shouldCommitNativeFocusSelection(
-  nativeFocusAccepted: Bool,
-  selectionChanged: Bool
-) -> Bool {
-  nativeFocusAccepted && selectionChanged
-}
-
 func nativeFocusAnimationMonitorID(
   focusedMonitorID: MonitorID?, floating: Bool, activatedWorkspace: Bool,
   overviewOpen: Bool, mouseGestureActive: Bool, displayGeometryChanged: Bool
@@ -80,14 +73,6 @@ func validatedNativeActivationTimestamp(
     resolvedActivation.timestamp == snapshot.applicationActivationTimestamp
   else { return nil }
   return resolvedActivation.timestamp
-}
-
-func activeMonitorIDAfterSnapshot(
-  activeMonitorID: MonitorID?,
-  acceptedNativeFocusMonitorID: MonitorID?,
-  fallbackMonitorID: MonitorID?
-) -> MonitorID? {
-  acceptedNativeFocusMonitorID ?? activeMonitorID ?? fallbackMonitorID
 }
 
 func shouldCloseOverviewAfterNativeFocusChange(
@@ -217,8 +202,8 @@ extension Daemon {
     nextPeriodicWindowRefreshAt = boundedSnapshotRefreshDeadline(
       current: nextPeriodicWindowRefreshAt,
       now: snapshotCompletedAt,
-      interval: desktopSnapshotRefreshInterval(
-        reliableDesktopObservation: platform.hasReliableDesktopObservation
+      interval: reliableObservationRefreshInterval(
+        reliableObservation: platform.hasReliableDesktopObservation
       ),
       reset: forceFullWindowRefresh || consumePeriodicWindowRefresh
     )
@@ -278,8 +263,8 @@ extension Daemon {
     var preservedWorkspaceFocus: PendingWorkspaceFocus?
     var preservedDisplacedFocus: DisplacedPointerFocusRecovery?
     if displayGeometryChanged {
-      let previous = displayGeometryDescription(latestMonitors)
-      let next = displayGeometryDescription(snapshot.monitors)
+      let previous = displaySizeDescription(latestMonitors)
+      let next = displaySizeDescription(snapshot.monitors)
       displayLogger.info(
         "geometry changed previous=\(previous, privacy: .public) next=\(next, privacy: .public)"
       )
@@ -300,7 +285,6 @@ extension Daemon {
       invalidatePointerFocusIntent(recoveringTo: preservedLogicalFocusWindowID)
       rearmPointerFocusTransition()
       scrollAnimations.removeAll(keepingCapacity: true)
-      focus.cancelSubmittedWorkspace()
       pendingWindowRemovalFocusGuard = nil
       consumeDeferredMouseFocusIntent()
       finishMouseGestureTracking()
@@ -701,10 +685,7 @@ extension Daemon {
       }
       if !preservesSelectionOverNativeFocus
         && (!snapshot.leftMouseButtonDown || nativeFocusAccepted)
-        && shouldCommitNativeFocusSelection(
-          nativeFocusAccepted: nativeFocusAccepted,
-          selectionChanged: selectionChanged
-        )
+        && nativeFocusAccepted && selectionChanged
       {
         let activatedWorkspace = focusWindow(focusedWindowID, state: &state)
         nativelyActivatedWorkspace = nativeFocusAccepted && activatedWorkspace
@@ -739,11 +720,7 @@ extension Daemon {
     {
       self.activeMonitorID = nil
     }
-    activeMonitorID = activeMonitorIDAfterSnapshot(
-      activeMonitorID: activeMonitorID,
-      acceptedNativeFocusMonitorID: acceptedNativeFocusMonitorID,
-      fallbackMonitorID: state.monitors.first?.id
-    )
+    activeMonitorID = acceptedNativeFocusMonitorID ?? activeMonitorID ?? state.monitors.first?.id
     // Only a window both natively focused and selected counts: transient selections during
     // rapid navigation and stale native focus that Defi rejected never agree.
     if let focusedWindowID = snapshot.focusedWindowID,

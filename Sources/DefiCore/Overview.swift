@@ -52,10 +52,13 @@ public struct OverviewViewport: Equatable, Sendable {
   }
 }
 
+public let overviewDefaultZoom = 0.5
+public let overviewDefaultWorkspaceGap = 28.0
+
 public func overviewWorkspaceStride(
   boundsHeight: Double,
-  zoom: Double = 0.5,
-  workspaceGap: Double = 28
+  zoom: Double = overviewDefaultZoom,
+  workspaceGap: Double = overviewDefaultWorkspaceGap
 ) -> Double {
   max((boundsHeight - workspaceGap * 2) * zoom, 1) + workspaceGap
 }
@@ -326,8 +329,8 @@ public func projectOverview(
   bounds: Rect,
   viewport: OverviewViewport,
   layout: LayoutSettings,
-  zoom: Double = 0.5,
-  workspaceGap: Double = 28,
+  zoom: Double = overviewDefaultZoom,
+  workspaceGap: Double = overviewDefaultWorkspaceGap,
   includeOffscreenContent: Bool = false
 ) -> OverviewProjection {
   guard let monitor = snapshot.monitors.first(where: { $0.id == monitorID }),

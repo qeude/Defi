@@ -1,6 +1,9 @@
 import ApplicationServices
 import Foundation
 
+/// The timeout for an Accessibility read that must not stall a snapshot or a focus write.
+let accessibilityReadTimeoutSeconds: Float = 0.05
+
 final class AXMessagingTimeoutAccess: @unchecked Sendable {
   static let shared = AXMessagingTimeoutAccess()
 

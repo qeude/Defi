@@ -147,18 +147,6 @@ func cgWindowRecordForDiscovery(
   )
 }
 
-func framesByWindowID(
-  for windowIDs: Set<WindowID>,
-  in records: [CGWindowRecord]
-) -> [WindowID: Rect] {
-  Dictionary(
-    uniqueKeysWithValues: records.compactMap { record in
-      let windowID = WindowID(rawValue: UInt64(record.id))
-      return windowIDs.contains(windowID) ? (windowID, record.frame) : nil
-    }
-  )
-}
-
 func nativeFullscreenWindowIDs(
   windows: [Window],
   cgWindows: [CGWindowRecord],
@@ -297,7 +285,6 @@ func stabilizedNativeFullscreenWindowIDs(
   now: TimeInterval,
   exitGrace: TimeInterval = 0.75
 ) -> (windowIDs: Set<WindowID>, exitDeadlines: [WindowID: TimeInterval]) {
-  // ponytail: one fixed Space-transition grace; tune only if real traces demand it.
   // A window back on the desktop at its own size has finished exiting: the grace
   // only held its layout, focus ring and placeholder about a second longer.
   var deadlines = previousExitDeadlines.filter {
@@ -315,7 +302,6 @@ private func fullscreenSurfaceGroupMatches(
   _ physicalFrame: Rect,
   tolerance: Double = 2
 ) -> Bool {
-  // ponytail: public geometry heuristic; add Space metadata only after a reproducible false match.
   let fullWidthSurfaces = surfaces.filter { surface in
     abs(surface.frame.x - physicalFrame.x) <= tolerance
       && abs(surface.frame.width - physicalFrame.width) <= tolerance
@@ -670,7 +656,7 @@ func windowCanGrow(_ element: AXUIElement) -> Bool {
 /// The frame of a titled document window outside a native tab group, read with a short
 /// timeout; `.some(nil)` for other windows, nil when the app does not answer in time.
 func ownWindowFrame(_ element: AXUIElement) -> Rect?? {
-  AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [element]) {
+  AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [element]) {
     var values: CFArray?
     AXUIElementCopyMultipleAttributeValues(element,
       [kAXSubroleAttribute, kAXPositionAttribute, kAXSizeAttribute, kAXChildrenAttribute] as CFArray,
@@ -705,7 +691,7 @@ func isSystemTextAccessory(title: String, hasCloseButton: Bool, isModal: Bool) -
 /// A new window that is a system text accessory, such as an input method's candidate list,
 /// read with a short timeout; false when the app does not answer in time.
 func isTextInputAccessory(_ element: AXUIElement) -> Bool {
-  AXMessagingTimeoutAccess.shared.withTimeout(0.05, elements: [element]) {
+  AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [element]) {
     var values: CFArray?
     AXUIElementCopyMultipleAttributeValues(element,
       [kAXSubroleAttribute, kAXTitleAttribute, kAXCloseButtonAttribute, kAXModalAttribute] as CFArray,

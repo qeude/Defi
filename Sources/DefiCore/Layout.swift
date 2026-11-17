@@ -332,9 +332,10 @@ private func applyGaps(
   // Outer horizontal gaps are in the strip, so every column has inner gaps.
   let left = max(settings.innerHorizontalGap, 0)
   let right = left
-  let verticalInner = max(settings.innerVerticalGap, 0)
-  let top = windowIndex == 0 ? max(settings.outerTopGap, 0) : verticalInner
-  let bottom = windowIndex + 1 == windowCount ? max(settings.outerBottomGap, 0) : verticalInner
+  let edges = stackVerticalEdgeGaps(
+    windowIndex: windowIndex, windowCount: windowCount, settings: settings)
+  let top = edges.top
+  let bottom = edges.bottom
 
   let maxHorizontal = max((rect.width - 1) / 2, 0)
   let maxVertical = max((rect.height - 1) / 2, 0)

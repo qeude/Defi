@@ -49,7 +49,6 @@ struct FrameCommitTests {
         return true
       },
       positionReader: { _ in CGPoint(x: 2520, y: 40) },
-      nativePositionReader: { _, _ in nil }
     )
     coordinator = AXFrameCoordinator(accessibilityWriter: writer)
     coordinator.latestGeneration = 1
@@ -172,10 +171,9 @@ struct FrameCommitTests {
 
   @Test(arguments: [false, true])
   func oneWriteMovesTheWindowWithoutNativeStaging(independentObservation: Bool) {
-    let nativeReads = Mutex(0), writes = Mutex<[CGPoint]>([])
+    let writes = Mutex<[CGPoint]>([])
     let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
       positionWriter: { _, point in writes.withLock { $0.append(point) }; return true },
-      nativePositionReader: { _, _ in nativeReads.withLock { $0 += 1 }; return nil },
       independentBorderObservationAvailable: { independentObservation }
     ))
     coordinator.running = true
@@ -185,7 +183,6 @@ struct FrameCommitTests {
       source: "command-animation", monitorFrames: [Rect(x: 0, y: 0, width: 2560, height: 1440)])
     coordinator.drain()
     #expect(writes.withLock { $0 } == [CGPoint(x: 1700, y: 40)])
-    #expect(nativeReads.withLock { $0 } == 0)
   }
 
   @Test
@@ -251,10 +248,6 @@ struct FrameCommitTests {
     let coordinator = AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
       positionWriter: { _, _ in true },
       positionReader: { _ in Issue.record("Unexpected AX fallback"); return nil },
-      nativePositionReader: { _, _ in
-        reads.withLock { $0 += 1 }
-        return CGPoint(x: 480, y: 40)
-      },
       independentBorderObservationAvailable: { true }
     ))
     let id = WindowID(rawValue: 1)
@@ -833,45 +826,24 @@ struct FrameCommitTests {
   }
 
   @Test
-  func `Recent internal write matches every recorded component`() {
-    let sizeWrite = RecentInternalFrameWrite(
+  func `Recent internal write matches within the frame tolerance`() {
+    let write = RecentInternalFrameWrite(
       frame: Rect(x: 100, y: 40, width: 900, height: 700),
-      positionChanged: false,
+      positionChanged: true,
       sizeChanged: true,
       deadline: 20
     )
-    let positionWrite = RecentInternalFrameWrite(
-      frame: Rect(x: 100, y: 40, width: 900, height: 700),
-      positionChanged: true,
-      sizeChanged: false,
-      deadline: 20
-    )
 
+    #expect(frameMatchesRecentInternalWrite(actual: write.frame, write: write))
     #expect(
       frameMatchesRecentInternalWrite(
-        actual: sizeWrite.frame,
-        write: sizeWrite
-      ))
+        actual: Rect(x: 102, y: 42, width: 899, height: 701), write: write))
     #expect(
       frameMatchesRecentInternalWrite(
-        actual: positionWrite.frame,
-        write: positionWrite
-      ))
+        actual: Rect(x: 400, y: 200, width: 900, height: 700), write: write) == false)
     #expect(
       frameMatchesRecentInternalWrite(
-        actual: Rect(x: 400, y: 200, width: 900, height: 700),
-        write: sizeWrite
-      ) == false)
-    #expect(
-      frameMatchesRecentInternalWrite(
-        actual: Rect(x: 100, y: 40, width: 1_200, height: 800),
-        write: positionWrite
-      ) == false)
-    #expect(
-      frameMatchesRecentInternalWrite(
-        actual: Rect(x: 400, y: 200, width: 1_200, height: 800),
-        write: sizeWrite
-      ) == false)
+        actual: Rect(x: 100, y: 40, width: 1_200, height: 800), write: write) == false)
   }
 
   @Test

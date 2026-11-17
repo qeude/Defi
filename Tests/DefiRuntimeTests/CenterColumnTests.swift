@@ -9,7 +9,7 @@ struct CenterColumnTests {
   private let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
 
   private func makeState(
-    columns: Int = 4, focusedColumn: Int = 0, centerFocusedColumn: CenterFocusedColumnConfig = .never
+    columns: Int = 4, focusedColumn: Int = 0, centerFocusedColumn: CenterFocusedColumn = .never
   ) -> RuntimeState {
     var state = RuntimeState(
       config: Config(layout: LayoutConfig(centerFocusedColumn: centerFocusedColumn, gaps: 0))

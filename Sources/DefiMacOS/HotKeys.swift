@@ -741,7 +741,6 @@ final class InputMonitor: @unchecked Sendable {
     }
   }
 
-  /// The active tap only intercepts modal input and routes physical pointer movement.
   func intercept(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       return handle(type: type, event: event)
@@ -924,7 +923,6 @@ final class InputMonitor: @unchecked Sendable {
     lock.lock()
     let rawWindowChanged = pointerTransitionState.changed(to: rawWindowID)
     let refreshDelay = pointerMotionDeliveryDelay(
-      rawWindowID: rawWindowID,
       eventTimestamp: invocation.timestamp,
       lastDeliveryTimestamp: lastPointerDeliveryTimestamp
     )

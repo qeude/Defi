@@ -85,7 +85,7 @@ extension MacOSPlatform {
   }
 
   public var successfulPositionWriteCount: Int {
-    positionWriteCount + frameCoordinator.writeCount
+    frameCoordinator.writeCount
   }
 
   public var skippedStalePositionWriteCount: Int {
@@ -268,7 +268,7 @@ extension MacOSPlatform {
   }
 
   public var successfulSizeWriteCount: Int {
-    sizeWriteCount + frameCoordinator.asynchronousSizeWriteCount
+    frameCoordinator.asynchronousSizeWriteCount
   }
 
   public var frameApplyDurationMS: Double {
@@ -330,10 +330,6 @@ extension MacOSPlatform {
     deferredFreshReadProcessIDs.isEmpty == false
   }
 
-  public var incompatibleObservationProcessIDs: Set<pid_t> {
-    presentationStatus.incompatibleProcesses
-  }
-
   public var hasChunkedFullRefreshPending: Bool {
     chunkedFullRefreshRemainingProcessIDs?.isEmpty == false
   }
@@ -362,8 +358,8 @@ extension MacOSPlatform {
   }
 
   public var recommendedApplicationInventoryRefreshInterval: TimeInterval {
-    applicationInventoryRefreshInterval(
-      reliableLifecycleObservation: hasReliableApplicationLifecycleObservation
+    reliableObservationRefreshInterval(
+      reliableObservation: hasReliableApplicationLifecycleObservation
     )
   }
 
@@ -377,16 +373,6 @@ extension MacOSPlatform {
     return min(base, transientOwnerResolutionRefreshInterval(
       retryAfter: Array(transientOwnerResolutionRetryAfter.values), now: snapshotEngine.discoveryNow
     ) ?? base)
-  }
-
-  public var recommendedWindowListRefreshInterval: TimeInterval {
-    let base = recommendedGlobalWindowListRefreshInterval
-    let pending = windowListReadRetryAttemptsByProcess.values.contains { unmatchedWindowRetryIsPending(attempts: $0) }
-      || unmatchedWindowElementsByProcess.contains { pid, elements in
-        !elements.isEmpty && unmatchedWindowRetryIsPending(attempts: unmatchedWindowRetryAttemptsByProcess[pid] ?? 0)
-      }
-      || !retainedWindowIDs.isEmpty || nextWindowDiscoveryRetryAt != nil
-    return pending ? min(base, 0.1) : base
   }
 
   public var nextWindowDiscoveryRetryAt: TimeInterval? {

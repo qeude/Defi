@@ -116,7 +116,7 @@ func performForegroundRaise(
       cancelled: true
     )
   }
-  let initialResult = attempt(0.016)
+  let initialResult = attempt(frameRefreshInterval)
   guard isCurrent() else {
     return ForegroundRaiseOutcome(
       succeeded: false,
@@ -131,7 +131,7 @@ func performForegroundRaise(
       cancelled: false
     )
   }
-  let retryResult = attempt(0.05)
+  let retryResult = attempt(accessibilityReadTimeoutSeconds)
   return ForegroundRaiseOutcome(
     succeeded: retryResult == .success,
     retried: true,

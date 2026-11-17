@@ -18,7 +18,6 @@ public enum WorkspaceTarget: Equatable, Codable, Sendable {
   case lastActive
 }
 
-/// The argument of `set-window-height`.
 public enum WindowHeightChange: Equatable, Codable, Sendable {
   /// Share of the column height, from `N%`.
   case share(Double)
@@ -78,87 +77,83 @@ public enum Command: Equatable, Codable, Sendable {
   case toggleCheatsheet
   case toggleOverview
   case openSettings
-  case runStartupCommands
   case spawnShell(String)
 
-  public var editsSelectedLayout: Bool {
+  var effects: CommandEffects {
     switch self {
-    case .cycleWidth, .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth,
-      .moveColumn, .moveWindow, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
-      .toggleFloating,
+    case .cycleWidth, .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth:
+      return CommandEffects(editsSelectedLayout: true, resizesManagedLayout: true)
+    case .moveColumn, .moveWindow, .toggleFloating:
+      return CommandEffects(editsSelectedLayout: true)
+    case .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
       .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
-      true
-    default:
-      false
-    }
-  }
-
-  public var animatesManagedLayout: Bool {
-    editsSelectedLayout || resizesManagedLayout
-  }
-
-  public var resizesManagedLayout: Bool {
-    switch self {
-    case .cycleWidth, .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth,
-      .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
-      .moveColumnToMonitor, .moveWindowToMonitor, .moveWorkspaceToMonitor,
-      .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
-      true
-    default:
-      false
-    }
-  }
-
-  public var activatesWorkspace: Bool {
-    switch self {
-    case .switchWorkspace, .moveWindowToWorkspace, .focusWorkspace, .focusWindowID,
-      .moveColumnToWorkspace(_, follow: true),
-      .moveWindowToWorkspaceTarget(_, follow: true), .moveWorkspaceToMonitor,
-      .focusMonitor:
-      true
-    default:
-      false
-    }
-  }
-
-  public var movesWindowBetweenWorkspaces: Bool {
-    switch self {
-    case .moveWindowToWorkspace, .sendWindowToWorkspace,
-      .moveColumnToWorkspace, .moveWindowToWorkspaceTarget:
-      true
-    default:
-      false
-    }
-  }
-
-  public var explicitlyFocusesFloating: Bool {
-    switch self {
+      return CommandEffects(editsSelectedLayout: true, resizesManagedLayout: true)
+    case .moveColumnToMonitor, .moveWindowToMonitor:
+      return CommandEffects(
+        resizesManagedLayout: true, movesWindowsAcrossMonitors: true, followsWindowMove: true)
+    case .moveWorkspaceToMonitor:
+      return CommandEffects(
+        resizesManagedLayout: true, activatesWorkspace: true, movesWindowsAcrossMonitors: true,
+        followsWindowMove: true)
+    case .moveColumnToWorkspace(_, follow: true), .moveWindowToWorkspaceTarget(_, follow: true):
+      return CommandEffects(
+        activatesWorkspace: true, movesWindowBetweenWorkspaces: true,
+        movesWindowsAcrossMonitors: true, followsWindowMove: true)
+    case .moveColumnToWorkspace(_, follow: false), .moveWindowToWorkspaceTarget(_, follow: false),
+      .sendWindowToWorkspace:
+      return CommandEffects(
+        movesWindowBetweenWorkspaces: true, movesWindowsAcrossMonitors: true)
+    case .moveWindowToWorkspace:
+      return CommandEffects(
+        activatesWorkspace: true, movesWindowBetweenWorkspaces: true,
+        movesWindowsAcrossMonitors: true, followsWindowMove: true)
+    case .switchWorkspace, .focusWorkspace, .focusWindowID, .focusMonitor:
+      return CommandEffects(activatesWorkspace: true)
     case .activateFloating, .focusFloating:
-      true
-    default:
-      false
+      return CommandEffects(explicitlyFocusesFloating: true)
+    case .focusColumn, .focusColumnOrMonitor, .moveColumnOrToMonitor, .focusWindow,
+      .focusWindowOrWorkspace, .focusWindowPrevious, .recentWindows, .centerColumn,
+      .centerVisibleColumns, .activateWindow, .reorderWorkspace, .toggleCheatsheet,
+      .toggleOverview, .openSettings, .spawnShell:
+      return CommandEffects()
     }
   }
 
-  public var movesWindowsAcrossMonitors: Bool {
-    switch self {
-    case .moveColumnToMonitor, .moveWindowToMonitor, .moveWorkspaceToMonitor,
-      .moveWindowToWorkspace, .sendWindowToWorkspace,
-      .moveColumnToWorkspace, .moveWindowToWorkspaceTarget:
-      true
-    default:
-      false
-    }
-  }
+  public var editsSelectedLayout: Bool { effects.editsSelectedLayout }
+  public var animatesManagedLayout: Bool { effects.editsSelectedLayout || effects.resizesManagedLayout }
+  public var activatesWorkspace: Bool { effects.activatesWorkspace }
+  public var movesWindowBetweenWorkspaces: Bool { effects.movesWindowBetweenWorkspaces }
+  public var explicitlyFocusesFloating: Bool { effects.explicitlyFocusesFloating }
+  public var movesWindowsAcrossMonitors: Bool { effects.movesWindowsAcrossMonitors }
+  public var followsWindowMove: Bool { effects.followsWindowMove }
+}
 
-  public var followsWindowMove: Bool {
-    switch self {
-    case .moveColumnToMonitor, .moveWindowToMonitor, .moveWindowToWorkspace,
-      .moveColumnToWorkspace(_, follow: true),
-      .moveWindowToWorkspaceTarget(_, follow: true), .moveWorkspaceToMonitor:
-      true
-    default:
-      false
-    }
+/// What a layout command changes. One exhaustive switch in `Command.effects` owns this, so a new
+/// case fails the build instead of silently reading false.
+struct CommandEffects: Equatable, Sendable {
+  let editsSelectedLayout: Bool
+  let resizesManagedLayout: Bool
+  let activatesWorkspace: Bool
+  let movesWindowBetweenWorkspaces: Bool
+  let explicitlyFocusesFloating: Bool
+  let movesWindowsAcrossMonitors: Bool
+  let followsWindowMove: Bool
+
+  init(
+    editsSelectedLayout: Bool = false,
+    resizesManagedLayout: Bool = false,
+    activatesWorkspace: Bool = false,
+    movesWindowBetweenWorkspaces: Bool = false,
+    explicitlyFocusesFloating: Bool = false,
+    movesWindowsAcrossMonitors: Bool = false,
+    followsWindowMove: Bool = false
+  ) {
+    self.editsSelectedLayout = editsSelectedLayout
+    self.resizesManagedLayout = resizesManagedLayout
+    self.activatesWorkspace = activatesWorkspace
+    self.movesWindowBetweenWorkspaces = movesWindowBetweenWorkspaces
+    self.explicitlyFocusesFloating = explicitlyFocusesFloating
+    self.movesWindowsAcrossMonitors = movesWindowsAcrossMonitors
+    self.followsWindowMove = followsWindowMove
   }
 }

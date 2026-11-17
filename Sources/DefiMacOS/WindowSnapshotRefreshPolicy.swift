@@ -81,12 +81,10 @@ struct CGWindowDiscoveryRetry: Equatable, Sendable {
 }
 
 struct CGWindowDiscoveryRetryTracker: Sendable {
-  // Three PID-targeted retries bound an unresolved surface to 100/200/400 ms
-  // backoff; each pass retains the existing 12 ms fresh-read budget and 50 ms
-  // AX timeout. Exhausted records stay diagnosable and wait for a new event or
-  // the normal inventory watchdog.
   static let retryDelays: [TimeInterval] = [0.1, 0.2, 0.4]
 
+  // Exhausted records stay diagnosable and wait for a new event or the
+  // inventory watchdog.
   private(set) var entries: [CGWindowDiscoveryIdentity: CGWindowDiscoveryRetry] = [:]
 
   mutating func observe(
@@ -362,7 +360,7 @@ func currentFrontmostProcessID(
   ) { return resolved }
   let system = AXUIElementCreateSystemWide()
   let focusedApplication: CFTypeRef? = AXMessagingTimeoutAccess.shared.withTimeout(
-    focusSnapshotAccessibilityTimeoutSeconds,
+    accessibilityReadTimeoutSeconds,
     elements: [system]
   ) {
     var value: CFTypeRef?
@@ -375,7 +373,7 @@ func currentFrontmostProcessID(
   let focusedElement = focusedApplication as! AXUIElement
   var accessibilityProcessID: pid_t = 0
   let readProcessID = AXMessagingTimeoutAccess.shared.withTimeout(
-    focusSnapshotAccessibilityTimeoutSeconds,
+    accessibilityReadTimeoutSeconds,
     elements: [focusedElement]
   ) {
     AXUIElementGetPid(focusedElement, &accessibilityProcessID) == .success
@@ -423,16 +421,6 @@ func applicationWindowListRefreshIsRequired(
   !hasCachedWindows
     || refreshesAllWindowLists
     || topologyProcessWasInvalidated
-}
-
-func unmatchedWindowCacheRequiresFullRetry(
-  eventRequiresFullSnapshot: Bool,
-  forceFullWindowRefresh: Bool,
-  forceWindowListRefresh: Bool
-) -> Bool {
-  eventRequiresFullSnapshot
-    || forceFullWindowRefresh
-    || forceWindowListRefresh
 }
 
 func freshWindowObservationIDs(
