@@ -26,6 +26,17 @@ vm_start() {
   tart exec "$VM" /bin/sh -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && grep -qsF '$(cat "$KEY.pub")' ~/.ssh/authorized_keys || echo '$(cat "$KEY.pub")' >> ~/.ssh/authorized_keys; chmod 600 ~/.ssh/authorized_keys"
   vm 'sudo -n mdutil -a -i off >/dev/null 2>&1; defaults write com.apple.WindowManager StandardHideWidgets -int 1; mkdir -p ~/defi-e2e'
 
+  # Keep the guest disk lean: the VM image only grows on the host, so every run starts from the bare
+  # minimum. Repros and backups left in the guest home go, and macOS never stages updates in the guest.
+  vm 'cd ~ && for f in *; do case "$f" in Applications|Desktop|Documents|Downloads|Library|Movies|Music|Pictures|Public|defi-e2e|defi-perf) ;; *) rm -rf "$f" ;; esac; done
+    rm -rf ~/Library/Caches/* 2>/dev/null
+    # Guest tools such as /usr/bin/python3 resolve through the shared host Xcode, not Command Line Tools.
+    sudo -n ln -sfn "/Volumes/My Shared Files/xcode" /Applications/Xcode.app && sudo -n xcode-select -s /Applications/Xcode.app ||
+      echo "The guest could not select the shared Xcode; /usr/bin/python3 will not work in it" >&2
+    for k in AutomaticDownload ConfigDataInstall CriticalUpdateInstall AutomaticallyInstallMacOSUpdates; do
+      sudo -n defaults write /Library/Preferences/com.apple.SoftwareUpdate "$k" -bool false
+    done; true'
+
   # Earlier sessions' traces and recordings fill the guest's 41 GB disk until a run fails mid-way.
   vm 'sudo -n sh -s' <<'GUEST' || { echo "The VM guest disk is full even after cleaning; free space in it first" >&2; exit 1; }
 free_kb() { df -k /System/Volumes/Data | awk 'NR == 2 { print $4 }'; }
