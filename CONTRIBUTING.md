@@ -379,6 +379,6 @@ stanza, remove `com.apple.quarantine` in `postflight`, and zap:
 | `update_homebrew_release.sh` | Open a Cask update PR from a published release checksum. |
 | `install.sh` | The end-user install script the README points to. |
 | `perf_release.sh` | Release performance check: previous release against the candidate, in the VM (needs Tart, jq, Python 3). |
-| `fluidity_probe.py` | Optional: dropped frames per user action, measured with Instruments (needs Python 3). |
+| `fluidity_probe.py` | Optional: A/B of two builds per user action on the real display: render cadence inside motion signposts, hitches, daemon CPU, wakeups and AX writes, idle cost (needs Python 3); `fluidity_report.py` tables a run against pooled base trials. |
 
 See [PERFORMANCE.md](PERFORMANCE.md) for performance investigation.
