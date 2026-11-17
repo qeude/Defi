@@ -1686,6 +1686,21 @@ struct PlatformEventTests {
   }
 
   @Test
+  func applicationFactsStayUntilAnEventNamesTheProcess() throws {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let own = getpid()
+    let other = try #require(NSWorkspace.shared.runningApplications.first { $0.processIdentifier != own })
+    let first = engine.applicationFacts(own, .current, refresh: false)
+    // Cached: another application object for the same process is not read.
+    #expect(engine.applicationFacts(own, other, refresh: false) == first)
+    engine.recordObservation(.frame, processID: own)
+    #expect(engine.applicationFacts(own, other, refresh: false) == first)
+    #expect(engine.applicationFacts(own, other, refresh: true)?.bundleIdentifier == other.bundleIdentifier)
+    engine.recordObservation(.focus, processID: own)
+    #expect(engine.applicationFacts(own, .current, refresh: false) == first)
+  }
+
+  @Test
   func unscopedFrameEventCannotBeNarrowedByALaterWindowEvent() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     engine.recordObservation(.frame, processID: 101)

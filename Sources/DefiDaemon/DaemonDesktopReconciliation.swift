@@ -144,7 +144,8 @@ extension Daemon {
     }
   }
 
-  static let topologySaveDebounce: TimeInterval = 0.5
+  // Navigation changes the topology at every step; shutdown flushes the last change.
+  static let topologySaveDebounce: TimeInterval = 2
 
   func flushPendingTopologyWrite() {
     guard topologySaveWorkItem != nil else { return }

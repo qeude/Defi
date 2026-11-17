@@ -27,7 +27,7 @@ final class OverviewSurfaceScene {
       !workspace.windows.isEmpty
     else { return nil }
     let workspaceIDs = Set(workspace.windows.map(\.windowID))
-    let infos = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []
+    let infos = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [NSDictionary] ?? []
     let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
     let screenOrigin = CGPoint(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY)
     var frames: [WindowID: CGRect] = [:]
@@ -195,7 +195,7 @@ final class OverviewSurfaceScene {
   }
 
   func matchesNativeFrames(screen: NSScreen) -> Bool {
-    let infos = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []
+    let infos = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [NSDictionary] ?? []
     let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
     let origin = CGPoint(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY)
     var current: [WindowID: CGRect] = [:]

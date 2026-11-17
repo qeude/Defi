@@ -20,7 +20,7 @@ struct CursorTests {
         kCGWindowBounds as String: bounds,
         kCGWindowName as String: "Dock",
         kCGWindowMemoryUsage as String: NSNumber(value: 2_368),
-      ])
+      ] as NSDictionary)
     )
 
     #expect(parsed.id == 42)
@@ -387,9 +387,9 @@ struct CursorTests {
       kCGWindowOwnerPID as String: 90,
       kCGWindowBounds as String: CGRect(x: 0, y: 0, width: 10, height: 10).dictionaryRepresentation,
     ]
-    #expect(try #require(cgWindowRecord(item)).alpha == 1)
+    #expect(try #require(cgWindowRecord(item as NSDictionary)).alpha == 1)
     item[kCGWindowAlpha as String] = 0.0
-    #expect(try #require(cgWindowRecord(item)).alpha == 0)
+    #expect(try #require(cgWindowRecord(item as NSDictionary)).alpha == 0)
   }
 
   // process, layer, frame -> transparent

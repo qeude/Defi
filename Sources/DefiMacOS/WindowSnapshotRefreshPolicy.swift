@@ -341,7 +341,7 @@ func currentFrontmostProcessID(
   } else {
     let visibleWindows = CGWindowListCopyWindowInfo(
       [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-    ) as? [[String: Any]] ?? []
+    ) as? [NSDictionary] ?? []
     let frontmostWindow = visibleWindows.first {
       ($0[kCGWindowLayer as String] as? Int) == 0
         && ($0[kCGWindowOwnerPID as String] as? pid_t ?? 0) > 0

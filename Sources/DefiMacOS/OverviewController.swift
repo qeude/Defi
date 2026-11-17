@@ -985,7 +985,7 @@ public final class OverviewController: NSObject {
       windowIDs = (workspace?.columns.flatMap(\.windows) ?? []) + (workspace?.floatingWindows ?? [])
     }
     let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-      as? [[String: Any]] ?? []
+      as? [NSDictionary] ?? []
     // Windows on another Space are missing from the on-screen list.
     let onScreen = Set(infos.compactMap {
       ($0[kCGWindowNumber as String] as? NSNumber).map { WindowID(rawValue: $0.uint64Value) }

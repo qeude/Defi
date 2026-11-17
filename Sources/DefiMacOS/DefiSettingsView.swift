@@ -5,18 +5,41 @@ import SwiftUI
 
 @MainActor
 public struct DefiSettingsView: View {
+  private let configURL: URL
+  @State private var holder = Holder()
+
+  /// Built once, when the window first shows: the menu bar's App body rebuilds this view value
+  /// on every workspace change, and a model per value parsed the whole config each time.
+  private final class Holder {
+    var model: DefiSettingsModel?
+  }
+
+  public init(configURL: URL = Config.defaultURL) {
+    self.configURL = configURL
+  }
+
+  public var body: some View {
+    DefiSettingsPane(model: holder.model ?? {
+      let model = DefiSettingsModel(configURL: configURL)
+      model.followKeyboardLayout()
+      holder.model = model
+      return model
+    }())
+  }
+}
+
+@MainActor
+private struct DefiSettingsPane: View {
   @State private var model: DefiSettingsModel
   @State private var selection = SettingsRevealRequest(destination: .page(.general))
   @State private var sidebarQuery = ""
   @FocusState private var resultsFocused: Bool
 
-  public init(configURL: URL = Config.defaultURL) {
-    let model = DefiSettingsModel(configURL: configURL)
-    model.followKeyboardLayout()
+  init(model: DefiSettingsModel) {
     _model = State(initialValue: model)
   }
 
-  public var body: some View {
+  var body: some View {
     let query = sidebarQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     let results = query.isEmpty ? [] : SettingsSearchCatalog.results(
       matching: query, config: model.config, shortcuts: model.shortcutRows, resolution: model.shortcutResolution)

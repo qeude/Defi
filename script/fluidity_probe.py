@@ -195,6 +195,16 @@ def scenario(out, label, rounds, on_ready, only=None):
                     go('overview-open', 'toggle-overview', pause=1)
                     go('overview-close', 'toggle-overview', pause=1)
                 continue
+            if only == 'window':
+                for n in range(4):
+                    act('open', lambda n=n: fixture.ask('create', id=f'extra{n}-{time.time()}'), 1.2)
+                for window in [w for w in fixture.ask()['windows'] if str(w['id']).startswith('extra')]:
+                    act('close', lambda w=window: fixture.ask('close', id=w['id']), 1.2)
+                continue
+            if only == 'workspace':
+                for direction in ['down', 'up'] * 4:
+                    go('workspace', 'focus-workspace', direction)
+                continue
             if only == 'cheatsheet':
                 for _ in range(8):
                     go('cheatsheet-open', 'toggle-cheatsheet', pause=.8)
@@ -377,7 +387,7 @@ def main():
     p.add_argument('--bundle', action='append', required=True, help='LABEL=path')
     p.add_argument('--trials', type=int, default=2, help='trials per build, alternating ABBA')
     p.add_argument('--rounds', type=int, default=1, help='workload repetitions per trial')
-    p.add_argument('--only', choices=['column', 'overview', 'cheatsheet'], help='one action only')
+    p.add_argument('--only', choices=['column', 'overview', 'cheatsheet', 'workspace', 'window'], help='one action only')
     p.add_argument('--profile', action='store_true', help='Time Profiler instead of render gaps')
     args = p.parse_args()
     if not pe.locked():
