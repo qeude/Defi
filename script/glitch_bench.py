@@ -604,9 +604,29 @@ def displays(bench, rng, rounds):
         time.sleep(1)
 
 
+def settings(bench, rng, rounds):
+    """Focus moving to and from System Settings, where Defi lifts its display staircase."""
+    subprocess.run(['open', '-a', 'System Settings'])
+    time.sleep(3)
+    bench.wait_settled()
+    for _ in range(rounds):
+        for direction in ['right', 'left'] * 3:
+            start = now()
+            bench.act('settings-nav', ['focus-column', direction], direction=direction, pause=rng.uniform(0.4, 0.9))
+            resets = [line for line in bench.cli_run('trace')[0].splitlines()
+                      if 'reason=display-change' in line and float(line.split()[0]) >= start]
+            arrangement = bench.status().get('displayArrangement')
+            # Lifting a native desk changes nothing; a reset there cuts the motion for nothing.
+            bench.check('display_reset', not resets or arrangement != 'native', action='settings-nav',
+                        resets=len(resets), arrangement=arrangement)
+    bench.log_event('settings-quit')
+    subprocess.run(['osascript', '-e', 'quit app "System Settings"'], capture_output=True)
+    time.sleep(1.5)
+
+
 SCENARIOS = {'columns': columns, 'workspaces': workspaces, 'windows': windows, 'activation': activation,
              'overview': overview, 'fullscreen': fullscreen, 'restart': restart, 'slow': slow,
-             'displays': displays}
+             'displays': displays, 'settings': settings}
 
 
 # -- analysis ----------------------------------------------------------------------------------------
@@ -664,7 +684,9 @@ def analyze(out):
         if settled:
             hidden = set(settled['visible']['hidden'])
             after = [f for f in span if f['t'] >= settled['t']]
-            leaked = {run[0] for f in after for row in f['rows'] for run in row if run[0] in hidden}
+            # Under 30 pt is an app's coloured icon, not a window: a parked one leaves no visible sliver.
+            leaked = {run[0] for f in after for row in f['rows'] for run in row
+                      if run[0] in hidden and run[2] - run[1] >= 30}
             if leaked:
                 defect(action['scenario'], 'parking_leak', action=action['action'], labels=sorted(leaked), t=t0)
             placeholders(action, settled, [c for c in camera if 'windows' in c and settled['t'] <= c['t'] < t1],
