@@ -65,11 +65,17 @@ extension Daemon {
     }
   }
 
-  private func applyPointerMotion(_ invocation: PointerMotionInvocation, pointerWindowID: WindowID?) {
+  func applyPointerMotion(_ invocation: PointerMotionInvocation, pointerWindowID: WindowID?) {
     defer { if pendingPointerFocus != nil { scheduleTick() } }
     // Left unrecorded, so the window under the pointer focuses on the next motion
     // once the popup closes.
     if config.input.focusFollowsMouse, platform.nativeFocusIsAppPopup {
+      pointerFocusIgnoredCount += 1
+      return
+    }
+    // Leaving System Settings restores the staircase, which moves the displays under the
+    // pointer and hands focus back: crossing a display would toggle the arrangement.
+    if config.input.focusFollowsMouse, displayArrangementStatus == "suspended" {
       pointerFocusIgnoredCount += 1
       return
     }
