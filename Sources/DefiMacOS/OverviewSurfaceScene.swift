@@ -195,7 +195,8 @@ final class OverviewSurfaceScene {
   }
 
   func matchesNativeFrames(screen: NSScreen) -> Bool {
-    let infos = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [NSDictionary] ?? []
+    // The zoomed windows only: the whole list of every Space's windows came back for a few.
+    let infos = ribbonProxyWindowDescriptions(nativeFrames.keys.compactMap { CGWindowID(exactly: $0.rawValue) })
     let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
     let origin = CGPoint(x: screen.frame.minX, y: primaryHeight - screen.frame.maxY)
     var current: [WindowID: CGRect] = [:]
