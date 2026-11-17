@@ -109,7 +109,7 @@ public let commandSpecs: [CommandSpec] = [
   },
   spec("focus-window-previous", .workspace) { _, _ in .focusWindowPrevious },
   spec(
-    "recent-windows", .workspace, .text(suggestions: [])
+    "recent-windows", .workspace, .keywords(["next", "previous"])
   ) { arguments, _ in
     let value = try argument(arguments, label: "action")
     guard let action = RecentWindowsAction(rawValue: value == "prev" ? "previous" : value) else {

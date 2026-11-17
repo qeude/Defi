@@ -293,6 +293,26 @@ struct DefiSettingsModelTests {
   }
 
   @Test
+  func recordingEveryExistingCombinationKeepsItsBinding() throws {
+    let url = try configFile()
+    defer { removeConfig(url) }
+    let original = Data("mod = \"ctrl+alt+cmd\"\n".utf8)
+    try original.write(to: url)
+    let model = DefiSettingsModel(configURL: url)
+    for row in model.shortcutRows {
+      let key = try Key(accelerator: row.accelerator, aliases: model.config.modifierAliases)
+      let recorded = try #require(recordedAccelerator(
+        keyCode: key.code, modifiers: NSEvent.ModifierFlags(rawValue: UInt(key.modifierBits))))
+      let current = try #require(model.shortcutRows.first { $0.accelerator == row.accelerator })
+      let boundCommands = model.config.keys.values.sorted()
+      model.saveShortcut(current, accelerator: recorded, command: current.command)
+      #expect(model.message == nil, "Re-recording \(row.command): \(row.accelerator)")
+      #expect(model.config.keys.values.sorted() == boundCommands,
+        "Re-recording \(row.command): \(row.accelerator) changed the bound commands")
+    }
+  }
+
+  @Test
   func recordingSameShortcutAgainIsIdempotent() throws {
     let url = configURL()
     defer { removeConfig(url) }

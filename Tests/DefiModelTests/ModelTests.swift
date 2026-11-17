@@ -132,7 +132,6 @@ struct ModelTests {
     switch command {
     case "spawn-sh": "echo hi"
     case "focus-window-id": "42"
-    case "recent-windows": "next"
     default: "1"
     }
   }
