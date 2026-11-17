@@ -62,18 +62,28 @@ public final class CheatsheetController {
     let hosting = NSHostingView(rootView: CheatsheetView(groups: groups, layout: layout))
     hosting.sizingOptions = []
     panel.contentView = hosting
-    let animated = animates
-    panel.alphaValue = animated ? 0.001 : 1
-    panel.orderFrontRegardless()
-    if animated {
+    hosting.wantsLayer = true
+    if animates {
       panel.displayIfNeeded()
-      MotionSignpost.begin("cheatsheet")
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.15
-        context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        panel.animator().alphaValue = 1
-      } completionHandler: { MotionSignpost.end("cheatsheet") }
+      Self.fade(hosting, from: 0, to: 1, duration: 0.15, timing: .easeOut)
     }
+    panel.orderFrontRegardless()
+  }
+
+  /// The render server runs the fade: AppKit's window-alpha animation stepped from the main
+  /// thread, which SwiftUI's first layout keeps busy right when the panel opens.
+  private static func fade(_ view: NSView, from start: Float? = nil, to opacity: Float,
+    duration: TimeInterval, timing: CAMediaTimingFunctionName) {
+    guard let layer = view.layer else { return }
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = start ?? (layer.presentation() ?? layer).opacity
+    fade.toValue = opacity
+    fade.duration = duration
+    fade.timingFunction = CAMediaTimingFunction(name: timing)
+    fade.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+    layer.opacity = opacity
+    layer.add(fade, forKey: "fade")
+    MotionSignpost.span("cheatsheet", duration)
   }
 
   public func close() {
@@ -82,28 +92,16 @@ public final class CheatsheetController {
     guard animates else { return panel.close() }
     finishClosing()
     closingPanel = panel
-    MotionSignpost.begin("cheatsheet")
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = 0.12
-      context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-      panel.animator().alphaValue = 0
-    }
-    // Not the animation's completion: it does not always run, and an invisible panel would stay.
+    if let content = panel.contentView { Self.fade(content, to: 0, duration: 0.12, timing: .easeIn) }
     Task { [weak self] in
       try? await Task.sleep(for: .seconds(0.12))
-      MotionSignpost.end("cheatsheet")
       if self?.closingPanel === panel { self?.finishClosing() }
     }
   }
 
-  /// A zero-length animation replaces the running fade: left running, it kept the closed panel on screen.
   private func finishClosing() {
     guard let closingPanel else { return }
     self.closingPanel = nil
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = 0
-      closingPanel.animator().alphaValue = 0
-    }
     closingPanel.close()
   }
 

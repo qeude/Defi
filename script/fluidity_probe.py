@@ -195,6 +195,11 @@ def scenario(out, label, rounds, on_ready, only=None):
                     go('overview-open', 'toggle-overview', pause=1)
                     go('overview-close', 'toggle-overview', pause=1)
                 continue
+            if only == 'cheatsheet':
+                for _ in range(8):
+                    go('cheatsheet-open', 'toggle-cheatsheet', pause=.8)
+                    go('cheatsheet-close', 'toggle-cheatsheet', pause=.8)
+                continue
             for direction in ['right'] * 3 + ['left'] * 3:
                 go('column', 'focus-column', direction)
             if only == 'column':
@@ -372,7 +377,7 @@ def main():
     p.add_argument('--bundle', action='append', required=True, help='LABEL=path')
     p.add_argument('--trials', type=int, default=2, help='trials per build, alternating ABBA')
     p.add_argument('--rounds', type=int, default=1, help='workload repetitions per trial')
-    p.add_argument('--only', choices=['column', 'overview'], help='one action only')
+    p.add_argument('--only', choices=['column', 'overview', 'cheatsheet'], help='one action only')
     p.add_argument('--profile', action='store_true', help='Time Profiler instead of render gaps')
     args = p.parse_args()
     if not pe.locked():
