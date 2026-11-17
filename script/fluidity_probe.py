@@ -132,21 +132,25 @@ def scenario(out, label, rounds, on_ready, only=None):
     marks, costs = [], {}
     pid = daemon_pid()
 
-    def writes():
+    def counters():
         status = pe.command('status')
-        return sum(int(re.search(r'\b' + f + r'=(\d+)', status).group(1)) for f in ('posWrites', 'sizeWrites'))
+        snapshots = re.search(r'\bsnapshots=(\d+)/(\d+)/(\d+)', status)
+        return {'ax_writes': sum(int(re.search(r'\b' + f + r'=(\d+)', status).group(1)) for f in ('posWrites', 'sizeWrites')),
+                'full_snapshots': int(snapshots.group(1)), 'snapshots': int(snapshots.group(2)),
+                'inventories': int(re.search(r'\bappInventories=(\d+)', status).group(1))}
 
     def act(name, body, pause):
-        written = writes()
+        counted = counters()
         before = usage(pid)
         marks.append((time.time(), name))
         body()
         time.sleep(pause)
         after = usage(pid)  # before the status read, whose cost is not the action's
-        entry = costs.setdefault(name, {'cpu_ms': 0.0, 'wakeups': 0, 'ax_writes': 0})
+        entry = costs.setdefault(name, {'cpu_ms': 0.0, 'wakeups': 0})
         entry['cpu_ms'] += after['cpu_ms'] - before['cpu_ms']
         entry['wakeups'] += after['wakeups'] - before['wakeups']
-        entry['ax_writes'] += writes() - written
+        for key, value in counters().items():
+            entry[key] = entry.get(key, 0) + value - counted[key]
 
     def go(name, *args, pause=.9):
         act(name, lambda: subprocess.run([str(pe.CLI), *args], check=True, capture_output=True), pause)
@@ -259,7 +263,38 @@ def remove_new_ktraces(existing):
             os.remove(path)
 
 
-def trial(out, label, rounds, only=None):
+def profile_summary(path, top=60):
+    """Self and inclusive sample counts per function, and inclusive counts of Defi's own functions."""
+    root = ET.parse(path).getroot()
+    binaries = {b.get('id'): b.get('name') for b in root.iter('binary') if b.get('id')}
+    names, owned = {}, set()
+    for frame in root.iter('frame'):
+        if frame.get('id'):
+            names[frame.get('id')] = frame.get('name') or frame.get('addr') or '?'
+            binary = frame.find('binary')
+            if binary is not None and binaries.get(binary.get('ref') or binary.get('id')) == 'defi-daemon':
+                owned.add(frame.get('id'))
+    stacks = {b.get('id'): b for b in root.iter('tagged-backtrace') if b.get('id')}
+    leaf, total, own = {}, {}, {}
+    for row in root.iter('row'):
+        stack = row.find('tagged-backtrace')
+        if stack is not None and stack.get('ref'):
+            stack = stacks.get(stack.get('ref'))
+        if stack is None:
+            continue
+        ids = [f.get('ref') or f.get('id') for f in stack.iter('frame')]
+        if not ids:
+            continue
+        leaf[names.get(ids[0], '?')] = leaf.get(names.get(ids[0], '?'), 0) + 1
+        for name in {names.get(i, '?') for i in ids}:
+            total[name] = total.get(name, 0) + 1
+        for name in {names[i] for i in ids if i in owned and 'thunk' not in names[i]}:
+            own[name] = own.get(name, 0) + 1
+    order = lambda d: sorted(d.items(), key=lambda x: -x[1])[:top]
+    return {'samples': sum(leaf.values()), 'self': order(leaf), 'inclusive': order(total), 'defi': order(own, )}
+
+
+def trial(out, label, rounds, only=None, profile=False):
     directory, trace = out / label, out / f'{label}.trace'
     directory.mkdir()
     pid = daemon_pid()
@@ -267,8 +302,9 @@ def trial(out, label, rounds, only=None):
     existing = set(glob.glob(os.environ.get('TMPDIR', '/tmp') + '/instruments*.ktrace'))
 
     def start_trace():
-        recorders.append(subprocess.Popen(['xcrun', 'xctrace', 'record', '--instrument', 'Hitches',
-                                           '--instrument', 'Points of Interest', '--attach', pid,
+        instruments = ['Time Profiler'] if profile else ['Hitches', 'Points of Interest']
+        recorders.append(subprocess.Popen(['xcrun', 'xctrace', 'record',
+                                           *[a for i in instruments for a in ('--instrument', i)], '--attach', pid,
                                            '--output', str(trace)],
                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True))
         for line in recorders[0].stdout:
@@ -287,6 +323,17 @@ def trial(out, label, rounds, only=None):
                 recorder.terminate()
                 recorder.wait()
         remove_new_ktraces(existing)
+    if profile:
+        try:
+            export(trace, 'time-profile', directory / 'profile.xml')
+            summary = profile_summary(directory / 'profile.xml')
+        finally:
+            shutil.rmtree(trace, ignore_errors=True)
+            remove_new_ktraces(existing)
+            pass  # profile.xml kept for callee analysis; delete it once read
+        summary['costs'] = costs
+        (directory / 'profile.json').write_text(json.dumps(summary, indent=1))
+        return {'label': label, 'profile': str(directory / 'profile.json'), 'actions': costs}
     try:
         (directory / 'toc.xml').write_bytes(subprocess.run(
             ['xcrun', 'xctrace', 'export', '--input', str(trace), '--toc'], capture_output=True, check=True).stdout)
@@ -323,6 +370,7 @@ def main():
     p.add_argument('--trials', type=int, default=2, help='trials per build, alternating ABBA')
     p.add_argument('--rounds', type=int, default=1, help='workload repetitions per trial')
     p.add_argument('--only', choices=['column', 'overview'], help='one action only')
+    p.add_argument('--profile', action='store_true', help='Time Profiler instead of render gaps')
     args = p.parse_args()
     if not pe.locked():
         p.error('run under script/desktop_lock.sh --wait')
@@ -350,7 +398,7 @@ def main():
             for label, path in order:
                 install(Path(path).resolve())
                 pe.wait_for_idle()
-                result = trial(out, f'{label}-{index}', args.rounds, args.only)
+                result = trial(out, f'{label}-{index}', args.rounds, args.only, args.profile)
                 result['build'] = label
                 results.append(result)
                 print(json.dumps(result), flush=True)

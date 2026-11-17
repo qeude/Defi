@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tables a fluidity_probe.py run: per action and build, the median over trials and the trial range.
-With --noise A_A_RUN, a difference counts only beyond the spread the same build showed against itself.
-Usage: script/fluidity_report.py RUN [--noise AA_RUN] [--write-noise FILE]"""
+Noise comes from every trial of the base build across earlier runs (--pool, results.json files): a
+difference counts only when every candidate trial lies beyond every base trial, pooled and in this run. Spikes over 30 ms are shown, never judged.
+Usage: script/fluidity_report.py RUN --base LABEL --pool 'dist/bench/*/results.json'"""
 import argparse, json, statistics
 from pathlib import Path
 
@@ -48,32 +49,42 @@ def spread(table):
 
 
 def main():
+    import glob
     p = argparse.ArgumentParser()
     p.add_argument('run', type=Path)
-    p.add_argument('--noise', type=Path)
-    p.add_argument('--write-noise', type=Path)
+    p.add_argument('--base', default='base', help='base build label in RUN')
+    p.add_argument('--pool', default='dist/bench/*/results.json', help='runs whose base trials give the noise')
+    p.add_argument('--pool-labels', default='base,A,B')
     args = p.parse_args()
     table = values(json.loads((args.run / 'results.json').read_text()))
-    if args.write_noise:
-        args.write_noise.write_text(json.dumps({f'{a}|{m}': v for (a, m), v in spread(table).items()}, indent=1))
-    noise = {tuple(k.split('|')): v for k, v in json.loads(args.noise.read_text()).items()} if args.noise else spread(table)
+    labels = set(args.pool_labels.split(','))
+    pooled = {}
+    for path in glob.glob(args.pool):
+        for result in json.loads(Path(path).read_text()):
+            if result['build'] in labels and 'idle_cpu_pct' in result:
+                result = dict(result, build='pool')
+                for key, series in values([result])['pool'].items():
+                    pooled.setdefault(key, []).extend(series)
     builds = list(table)
+    candidate = next(b for b in builds if b != args.base)
     better = {name: way for name, way, _ in METRICS} | dict(TRIAL)
     keys = sorted({k for b in table.values() for k in b})
-    print('| action | metric | ' + ' | '.join(f'{b} median [range]' for b in builds) + ' | noise | verdict |')
-    print('|---|---|' + '---|' * len(builds) + '---|---|')
+    print(f'| action | metric | pooled base median [range, n] | {args.base} | {candidate} | verdict |')
+    print('|---|---|---|---|---|---|')
     for key in keys:
-        cells = []
-        for build in builds:
-            series = table[build].get(key)
-            cells.append(f'{statistics.median(series):.2f} [{min(series):.2f}–{max(series):.2f}]' if series else '—')
+        def cell(series):
+            return f'{statistics.median(series):.2f} [{min(series):.2f}–{max(series):.2f}]' if series else '—'
+        pool = pooled.get(key, [])
         verdict = ''
-        if len(builds) == 2 and all(key in table[b] for b in builds):
-            a, b = (statistics.median(table[x][key]) for x in builds)
-            delta = b - a if better[key[1]] == 'higher' else a - b
-            if abs(b - a) > noise.get(key, 0):
-                verdict = 'GAIN' if delta > 0 else 'LOSS'
-        print(f'| {key[0]} | {key[1]} | ' + ' | '.join(cells) + f' | {noise.get(key, 0):.2f} | {verdict} |')
+        if key[1] != 'spikes' and pool and all(key in table[b] for b in (args.base, candidate)):
+            # Every candidate trial beyond every base trial, pooled and in this run.
+            reference = pool + table[args.base][key]
+            trials = table[candidate][key]
+            lower, higher = max(trials) < min(reference), min(trials) > max(reference)
+            if lower or higher:
+                verdict = 'GAIN' if lower == (better[key[1]] == 'lower') else 'LOSS'
+        print(f'| {key[0]} | {key[1]} | {cell(pool)}, {len(pool)} | {cell(table[args.base].get(key))} | '
+              f'{cell(table[candidate].get(key))} | {verdict} |')
 
 
 if __name__ == '__main__':
