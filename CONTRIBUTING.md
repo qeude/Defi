@@ -191,7 +191,9 @@ tart set defi-e2e --cpu 4 --memory 4096
 script/test_vm.sh                                # or DesktopE2ETests/<test>
 ```
 
-Plan for about 50 GB of disk and 4 GB of memory while it runs. Runs queue on a
+Plan for about 40 GB of disk and 4 GB of memory while it runs. Each run deletes
+everything in the guest home except `~/defi-e2e` and `~/defi-perf`, clears guest
+caches, and turns off guest macOS updates, so the image stays near its minimum. Runs queue on a
 per-VM lock, and `DEFI_VM_SECOND_DISPLAY=1` adds a virtual second display for
 the two-display tests.
 
