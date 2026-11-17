@@ -231,6 +231,7 @@ final class OverviewPanel {
     surfaceStartPending = false
     surfaceTask?.cancel()
     scene.animate(opening: true, duration: duration)
+    MotionSignpost.span("overview-zoom", duration)
     fadeGlass(to: 1, duration: duration)
     coverChrome(1, duration: duration)
     surfaceTask = Task { [weak self] in
@@ -263,6 +264,7 @@ final class OverviewPanel {
   func restoreSurfaceScene(duration: TimeInterval) {
     guard !openingTransitionInProgress, let surfaceScene else { return }
     surfaceScene.animate(opening: true, duration: duration)
+    MotionSignpost.span("overview-zoom", duration)
     fadeGlass(to: 1, duration: duration)
     coverChrome(1, duration: duration)
     let generation = surfaceGeneration
@@ -286,6 +288,7 @@ final class OverviewPanel {
     view.suppressedSurfaceWindowIDs = Set(surfaceScene.nativeFrames.keys)
     rootView.layer?.addSublayer(surfaceScene.layer)
     surfaceScene.animate(opening: false, duration: duration)
+    MotionSignpost.span("overview-zoom", duration)
     fadeGlass(to: 0, duration: duration)
     coverChrome(0, duration: duration)
     surfaceTask = Task { [weak self] in
@@ -303,6 +306,7 @@ final class OverviewPanel {
     let zoomsWallpaper = scene.zoomsWallpaper
     rootView.layer?.addSublayer(scene.layer)
     scene.animate(duration: duration)
+    MotionSignpost.span("overview-zoom", duration)
     fadeGlass(to: 0, duration: duration)
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }

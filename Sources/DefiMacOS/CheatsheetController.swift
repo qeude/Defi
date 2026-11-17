@@ -63,11 +63,12 @@ public final class CheatsheetController {
     panel.orderFrontRegardless()
     if animated {
       panel.displayIfNeeded()
+      MotionSignpost.begin("cheatsheet")
       NSAnimationContext.runAnimationGroup { context in
         context.duration = 0.15
         context.timingFunction = CAMediaTimingFunction(name: .easeOut)
         panel.animator().alphaValue = 1
-      }
+      } completionHandler: { MotionSignpost.end("cheatsheet") }
     }
   }
 
@@ -77,6 +78,7 @@ public final class CheatsheetController {
     guard animates else { return panel.close() }
     finishClosing()
     closingPanel = panel
+    MotionSignpost.begin("cheatsheet")
     NSAnimationContext.runAnimationGroup { context in
       context.duration = 0.12
       context.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -85,6 +87,7 @@ public final class CheatsheetController {
     // Not the animation's completion: it does not always run, and an invisible panel would stay.
     Task { [weak self] in
       try? await Task.sleep(for: .seconds(0.12))
+      MotionSignpost.end("cheatsheet")
       if self?.closingPanel === panel { self?.finishClosing() }
     }
   }

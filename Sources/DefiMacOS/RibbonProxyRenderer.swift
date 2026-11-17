@@ -697,6 +697,7 @@ final class RibbonProxyPresenter {
     holdStart = CACurrentMediaTime()
     // A hold is still: the snapshot that opens the window and fresh pictures must not wait for it.
     RibbonProxyStore.shared.setMoving(!holds, display)
+    if !holds { MotionSignpost.begin("ribbon", UInt64(display)) }
     // This display's borders only: another display's stay as they are.
     let borders = borderWindowIDs.map { $0.union(shownIDs) } ?? managed
     if !bordersHidden || hiddenBorderIDs != borders {
@@ -860,6 +861,7 @@ final class RibbonProxyPresenter {
   private func stopped(_ token: UInt64) {
     guard generation == token, presenting, drag == .idle else { return }
     springStopped = true
+    MotionSignpost.end("ribbon", UInt64(display))
     letWindowsDraw(true)
     RibbonProxyStore.shared.setMoving(false, display)
   }
@@ -1041,6 +1043,7 @@ final class RibbonProxyPresenter {
         fade.beginTime = layers.root.convertTime(CACurrentMediaTime(), from: nil)
         layers.root.add(fade, forKey: "fade")
         ribbonProxyCommit(#line)
+        MotionSignpost.begin("ribbon", UInt64(display))
         try? await Task.sleep(for: .milliseconds(Int(duration * 1_000) + 10))
         guard generation == fadeToken else { return }
         cancel("landed")
@@ -1187,6 +1190,7 @@ final class RibbonProxyPresenter {
     removePlaceholder()
     if reason != "landed" { ribbonProxyLogger.notice("cancel \(reason, privacy: .public)") }
     presenting = false
+    MotionSignpost.end("ribbon", UInt64(display))
     springStopped = true
     letWindowsDraw(true)
     RibbonProxyStore.shared.setMoving(false, display)

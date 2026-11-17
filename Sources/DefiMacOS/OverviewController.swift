@@ -1608,6 +1608,7 @@ public final class OverviewController: NSObject {
       return
     }
     link.isPaused = false
+    MotionSignpost.begin("overview")
   }
 
   private func resetPreviewFadeAnimation() {
@@ -1684,6 +1685,7 @@ public final class OverviewController: NSObject {
     )
     projectionAnimations[monitorID] = nil
     link.isPaused = false
+    MotionSignpost.begin("overview")
   }
 
   private func animateProjection(
@@ -1708,6 +1710,7 @@ public final class OverviewController: NSObject {
       duration: overviewTransitionDuration
     )
     link.isPaused = false
+    MotionSignpost.begin("overview")
   }
 
   private func displayLink(on monitorID: MonitorID) -> CADisplayLink? {
@@ -1735,6 +1738,7 @@ public final class OverviewController: NSObject {
     // once per refresh. The pending flag also submits the final momentum event.
     pendingViewportFrames.insert(monitorID)
     link.isPaused = false
+    MotionSignpost.begin("overview")
   }
 
   @objc private func viewportDisplayLinkDidFire(_ link: CADisplayLink) {
@@ -1788,6 +1792,7 @@ public final class OverviewController: NSObject {
     {
       link.isPaused = true
       lastRenderedRefresh[monitorID] = nil
+      MotionSignpost.end("overview")
       // Cards the motion brought into view: captures wait for the end, not per frame.
       schedulePreviewsIfNeeded()
       presentationChanged()
