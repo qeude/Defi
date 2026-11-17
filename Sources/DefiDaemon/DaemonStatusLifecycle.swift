@@ -408,9 +408,14 @@ extension Daemon {
     diagnostics.flush()
     platform.hideWindowBorders()
     platform.hideNativeFullscreenPlaceholders()
-    await restoreAllWindows(restoringDisplays: true)
+    if handsOffWindows {
+      await platform.prepareForRestore()
+      _ = await displayArrangement.restore()
+    } else {
+      await restoreAllWindows(restoringDisplays: true)
+    }
     server.removeSocketFile()
-    log("stopped; windows restored")
+    log(handsOffWindows ? "stopped; windows left for the next daemon" : "stopped; windows restored")
     exit(0)
   }
 

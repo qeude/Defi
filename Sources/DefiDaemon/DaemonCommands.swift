@@ -116,7 +116,7 @@ private func ipcEventHandler(
             return deferred.wasDeferred ? deferred.wait() : response
           },
           completion: { [weak daemon] request in
-            guard request.command == "quit" else { return }
+            guard request.command == "quit" || request.command == "handoff" else { return }
             NavigationActor.enqueue {
               guard let daemon, daemon.shouldShutdown else { return }
               daemon.shutdown()
@@ -382,8 +382,9 @@ extension Daemon {
       Task { await restoreAllWindows(alreadyClaimed: true) }
       return .success("restoration scheduled")
     }
-    if rawCommand == "quit" {
+    if rawCommand == "quit" || rawCommand == "handoff" {
       shouldShutdown = true
+      handsOffWindows = rawCommand == "handoff"
       return .success("stopping")
     }
     guard !shouldShutdown, !restorationInFlight else { return .failure("window restoration in progress") }

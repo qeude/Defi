@@ -151,6 +151,8 @@ final class Daemon {
   var latestMonitors: [MonitorSnapshot] = []
   var layoutPlansByMonitor: [MonitorID: MonitorLayoutPlan] = [:]
   var shouldShutdown = false
+  /// A restart: the next daemon takes the windows where they are, so they are not restored.
+  var handsOffWindows = false
   var restorationInFlight = false
   var shutdownTask: Task<Void, Never>?
   var signalSources: [DispatchSourceSignal] = []

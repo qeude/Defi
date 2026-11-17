@@ -21,7 +21,7 @@ enum ServiceManager {
       try stop()
       print("stopped")
     case "restart":
-      try stop(ignoreFailure: true)
+      try stop(ignoreFailure: true, handoff: true)
       try start()
       print("restarted")
     case "status":
@@ -51,10 +51,13 @@ enum ServiceManager {
     try SMAppService.mainApp.unregister()
   }
 
-  static func stop(ignoreFailure: Bool = false) throws {
+  static func stop(ignoreFailure: Bool = false, handoff: Bool = false) throws {
     guard (try? sendCommand("status")) != nil else { return }
-    _ = try? sendCommand("restore")
-    _ = try? sendCommand("quit")
+    // A restart leaves the windows in place for the next daemon; an older daemon restores them.
+    if !handoff || (try? sendCommand("handoff"))?.ok != true {
+      _ = try? sendCommand("restore")
+      _ = try? sendCommand("quit")
+    }
     do {
       try waitForDaemonToStop()
     } catch where ignoreFailure {}
