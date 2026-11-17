@@ -414,6 +414,7 @@ def windows(bench, rng, rounds):
             bench.log_event('close', window=number)
             fixture.ask('close', id=window_id)
             bench.judge('close', start, None, pids, until=lambda: number not in bench.window_ids())
+            (bench.out / f'close-{number}-trace.txt').write_text(bench.cli_run('trace')[0])
 
 
 def activation(bench, rng, rounds):
@@ -634,6 +635,19 @@ def load(path):
     return [json.loads(line) for line in path.open() if line.strip()] if path.exists() else []
 
 
+def window_of(events, label, before):
+    """The window that wore this colour at that time: colours are reused once a window closes."""
+    return next((e['window'] for e in reversed(events)
+                 if e['action'] == 'create' and e.get('label') == label and e['t'] <= before), None)
+
+
+def onscreen(row, displays):
+    """Widest overlap, in points, of a WindowServer frame [number,pid,layer,alpha,x,y,w,h] with a display."""
+    x, y, w, h = row[4:8]
+    return max((min(x + w, dx + dw) - max(x, dx) if min(y + h, dy + dh) > max(y, dy) else 0
+                for dx, dy, dw, dh in displays.values()), default=0)
+
+
 def analyze(out):
     events, checks, camera = load(out / 'events.jsonl'), load(out / 'checks.jsonl'), load(out / 'camera.jsonl')
     displays = {c['display']: c['frame'] for c in camera if 'frame' in c}
@@ -676,17 +690,27 @@ def analyze(out):
         by_display = collections.defaultdict(list)
         for f in span:
             by_display[f['d']].append(f)
+        settled = next((e for e in events if e['action'] == 'settled' and t0 <= e['t'] < t1), None)
+        before = next((e for e in reversed(events) if e['action'] == 'settled' and e['t'] < t0), None)
+        # A window hidden on both sides of the action does not move on screen: its colour there is another app's.
+        still_hidden = (set(settled['visible']['hidden']) & set(before['visible']['hidden'])
+                        if settled and before else set())
         for display, seq in by_display.items():
             width = displays.get(display, [0, 0, 1024, 768])[2]
+            seq = [{**f, 'rows': [[run for run in row if run[0] not in still_hidden] for row in f['rows']]} for f in seq]
             judge_motion(action, seq, width, defect)
         # Parking leak: a hidden window shows once its action settled.
-        settled = next((e for e in events if e['action'] == 'settled' and t0 <= e['t'] < t1), None)
         if settled:
             hidden = set(settled['visible']['hidden'])
             after = [f for f in span if f['t'] >= settled['t']]
             # Under 30 pt is an app's coloured icon, not a window: a parked one leaves no visible sliver.
             leaked = {run[0] for f in after for row in f['rows'] for run in row
                       if run[0] in hidden and run[2] - run[1] >= 30}
+            # Another app can show the same colour: WindowServer must also put the window on a display.
+            samples = [c for c in camera if 'windows' in c and settled['t'] <= c['t'] < t1]
+            leaked = {label for label in leaked
+                      if any(onscreen(row, displays) > 2 for c in samples for row in c['windows']
+                             if row[0] == window_of(events, label, t0))}
             if leaked:
                 defect(action['scenario'], 'parking_leak', action=action['action'], labels=sorted(leaked), t=t0)
             placeholders(action, settled, [c for c in camera if 'windows' in c and settled['t'] <= c['t'] < t1],
