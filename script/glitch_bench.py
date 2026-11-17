@@ -506,7 +506,9 @@ def fullscreen(bench, rng, rounds):
 
 
 def restart(bench, rng, rounds):
-    for _ in range(rounds):
+    topology = HOME / 'Library/Application Support/Defi/workspace-topology.json'
+    for attempt in range(rounds * 3):
+        saved = topology.read_text() if topology.exists() else ''
         layout = bench.layout()
         before = [(m['id'], m['activeWorkspace'], [(w['id'], bench.columns(w), w.get('selectedWindowID'))
                                                     for w in m['workspaces'] if w['windowCount']]) for m in layout['monitors']]
@@ -518,6 +520,9 @@ def restart(bench, rng, rounds):
         after = [(m['id'], m['activeWorkspace'], [(w['id'], bench.columns(w), w.get('selectedWindowID'))
                                                    for w in m['workspaces'] if w['windowCount']]) for m in layout['monitors']]
         bench.check('restart_state', before == after, before=before, after=after)
+        if before != after:
+            (bench.out / f'restart-{attempt}-topology.json').write_text(saved)
+            (bench.out / f'restart-{attempt}-trace.txt').write_text(bench.cli_run('trace')[0])
 
 
 def slow(bench, rng, rounds):
@@ -668,7 +673,8 @@ def judge_motion(action, frames, width, defect):
                     if not clipped and moved * sign < -3:
                         defect(scenario, 'backtrack', action=name, label=label, at=tb, dx=moved)
                         break
-                    if not clipped and abs(moved) > width * 0.3:
+                    # Per display frame: the camera itself skips frames under load.
+                    if not clipped and abs(moved) / max(1, round((tb - ta) * 60)) > width * 0.3:
                         defect(scenario, 'jump', action=name, label=label, at=tb, dx=moved)
                         break
         # Two-step: the window rests 60 ms or more short of where it lands, then moves on by itself.
