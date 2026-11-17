@@ -258,6 +258,9 @@ class Bench:
                 (self.out / f'oscillation-{round(start, 1)}-trace.txt').write_text(self.cli_run('trace')[0])
         pids = self.daemons()
         self.check('daemon_count', len(pids) == 1, action=action, pids=pids)
+        # Settled with frames off target: Defi knows a window is not where it should be.
+        drift = self.status().get('drift', '0')
+        self.check('converged', drift.split('[')[0] == '0', action=action, drift=drift)
         if before_pids is not None and action != 'restart':
             self.check('crash', pids == before_pids, action=action, before=before_pids, after=pids)
         layout = self.layout()
@@ -378,6 +381,7 @@ def columns(bench, rng, rounds):
             time.sleep(0.25)
             expected = (columns_[-1] if direction == 'right' else columns_[0])[0]
             bench.judge('column-burst', start, expected, pids)
+            (bench.out / f'burst-{round(start, 1)}-trace.txt').write_text(bench.cli_run('trace')[0])
 
 
 def workspaces(bench, rng, rounds):
@@ -802,7 +806,9 @@ def judge_motion(action, frames, width, defect, instant=False):
                         break
         # Two-step: the window rests 60 ms or more short of where it lands, then moves on by itself.
         # macOS draws its own fullscreen zoom when a window enters a Space.
-        if len(positions) > 2 and name not in ('overview-open', 'fs-overview-open', 'fs-enter'):
+        # Without the overlay each step of a burst lands for real: its intermediate rests are expected.
+        if len(positions) > 2 and name not in ('overview-open', 'fs-overview-open', 'fs-enter') \
+                and not (instant and name.endswith('burst')):
             final = positions[-1][1]
             moves = [i for i in range(1, len(positions)) if positions[i][1] != positions[i - 1][1]]
             for i in moves:
