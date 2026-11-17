@@ -78,14 +78,15 @@ def motion_windows(signposts):
 
 
 def render_gaps(windows, renders):
-    """Per window, ms gaps from its start to each render inside it; renders merged within 2 ms."""
+    """Per window, ms gaps from its start to each render inside it, with the ms offset of each
+    gap's end from the window start; renders merged within 2 ms."""
     renders = sorted(renders)
     merged = [t for i, t in enumerate(renders) if i == 0 or t - renders[i - 1] > .002]
     result = []
     for start, end in windows:
         inside = [t for t in merged if start <= t <= end]
         points = [start] + inside
-        result.append((start, [(b - a) * 1e3 for a, b in zip(points, points[1:])]))
+        result.append((start, [((b - a) * 1e3, (b - start) * 1e3) for a, b in zip(points, points[1:])]))
     return result
 
 
@@ -113,7 +114,9 @@ def attribute(marks, windows, renders, hitches):
             continue
         entry = result[action]
         entry['animations'] += 1
-        for gap in gaps:
+        for gap, offset in gaps:
+            if gap > SMOOTH_MS:
+                entry.setdefault('late_at_ms', []).append(round(offset))
             if gap > SYSTEM_SPIKE_MS:
                 entry['spikes'] += 1
                 continue
