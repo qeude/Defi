@@ -601,6 +601,8 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     switcher = null;
     switcherPanel.classList.remove('on');
   }
+  // A click takes over from the switcher, so letting go of the keys afterwards changes nothing.
+  root.addEventListener('pointerdown', closeSwitcher, true);
   function release() {
     if (!switcher) return;
     const win = switcher.list[switcher.index];
