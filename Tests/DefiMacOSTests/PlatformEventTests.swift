@@ -448,8 +448,7 @@ struct PlatformEventTests {
   @Test
   func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
     #expect(!applicationLifecycleRefreshDelays(for: .application).isEmpty)
-    #expect(applicationLifecycleRefreshDelays(for: .applicationTerminated)
-      == applicationLifecycleRefreshDelays(for: .application))
+    #expect(applicationLifecycleRefreshDelays(for: .applicationTerminated) == [50, 150, 350, 700])
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
     #expect(!applicationLifecycleRefreshDelays(for: .space).isEmpty)
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: nil) == .process(7))
