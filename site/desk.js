@@ -134,6 +134,8 @@ const KEYS = {
   KeyU: 'focus-workspace down', KeyI: 'focus-workspace up', PageDown: 'focus-workspace down', PageUp: 'focus-workspace up',
   Minus: 'cycle-width previous', Equal: 'cycle-width next', KeyR: 'cycle-width next', KeyF: 'maximize-column',
   Semicolon: 'join-window left', Quote: 'join-window right', Period: 'unjoin-windows', KeyV: 'toggle-floating',
+  KeyC: 'center-column', BracketLeft: 'consume-or-expel-window left', BracketRight: 'consume-or-expel-window right',
+  Tab: 'recent-windows next', Enter: 'activate-window',
 };
 const COMMAND_KEYS = {
   ArrowLeft: 'move-column left', ArrowRight: 'move-column right', ArrowUp: 'move-window up', ArrowDown: 'move-window down',
@@ -141,7 +143,12 @@ const COMMAND_KEYS = {
   Home: 'move-column first', End: 'move-column last',
   KeyU: 'move-column-to-workspace down', KeyI: 'move-column-to-workspace up', PageDown: 'move-column-to-workspace down', PageUp: 'move-column-to-workspace up',
 };
-const SHIFT_KEYS = { KeyV: 'activate-floating', Comma: 'focus-floating previous', Period: 'focus-floating next' };
+// The preview has one display, so the monitor shortcuts change nothing, as in Defi.
+const SHIFT_KEYS = {
+  KeyV: 'activate-floating', Comma: 'focus-floating previous', Period: 'focus-floating next',
+  KeyI: 'reorder-workspace up', KeyU: 'reorder-workspace down', PageUp: 'reorder-workspace up', PageDown: 'reorder-workspace down',
+  Tab: 'recent-windows previous', Slash: 'toggle-cheatsheet',
+};
 // The stack steps (join, move along it, unjoin, then narrow back to 0.33) leave the first workspace as it was.
 export const DEMO = ['ArrowRight', 'Semicolon', 'KeyK', 'KeyJ', 'Period', 'Minus', 'Minus', 'Minus', 'ArrowRight', 'Equal', 'ArrowLeft', 'KeyU', 'ArrowRight', 'ArrowRight', 'KeyO', 'KeyU', 'KeyO', 'KeyI', 'KeyI', 'Home'];
 
@@ -153,7 +160,7 @@ const cheatsheet = [
     ['Windows in a column', [['⌃⌥', '↑', 'Window up', '⌃⌥⌘', 'Move window up'], ['⌃⌥', '↓', 'Window down', '⌃⌥⌘', 'Move window down'], ['⌃⌥', '[', 'Join or leave stack left'], ['⌃⌥', ']', 'Join or leave stack right'], ['⌃⌥', '.', 'Unjoin'], ['⌃⌥', ';', 'Join left column'], ['⌃⌥', "'", 'Join right column']]],
   ],
   [
-    ['Workspaces', [['⌃⌥', 'I', 'Workspace up', '⌃⌥⌘', 'Move column to workspace up'], ['⌃⌥', 'U', 'Workspace down', '⌃⌥⌘', 'Move column to workspace down'], ['⌃⌥', '⇥', 'Recent windows', '⌃⌥⇧', 'Recent windows, backward'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⌘', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview'], ['⌃⌥⇧', 'I', 'Reorder workspace up'], ['⌃⌥⇧', 'U', 'Reorder workspace down']]],
+    ['Workspaces', [['⌃⌥', 'I', 'Workspace up', '⌃⌥⌘', 'Move column to workspace up'], ['⌃⌥', 'U', 'Workspace down', '⌃⌥⌘', 'Move column to workspace down'], ['⌃⌥', '⇥', 'Recent windows', '⌃⌥⇧', 'Recent windows, backward'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⌘', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview'], ['⌃⌥⇧', 'I', 'Reorder workspace up'], ['⌃⌥⇧', 'U', 'Reorder workspace down'], ['⌃⌥', '↩', 'Activate window']]],
     ['Monitors', [['⌃⌥⇧', '←↑↓→', 'Focus monitor', '⌃⌥⇧⌘', 'Move column to monitor']]],
     ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column']]],
     ['Floating', [['⌃⌥', 'V', 'Float or tile window', '⌃⌥⇧', 'Show floating layer'], ['⌃⌥⇧', ',', 'Previous floating'], ['⌃⌥⇧', '.', 'Next floating']]],
@@ -163,9 +170,10 @@ const cheatsheet = [
 const chord = (mods, key) => `<span class="chord"><kbd>${mods}</kbd><kbd>${key}</kbd></span>`;
 export const cheatsheetMarkup = () => cheatsheet.map(groups => `<div class="cs-col">${groups.map(([title, rows]) => `<h5>${title}</h5>${rows.map(([mods, key, action, shiftMods, shiftAction]) => `${chord(mods, key)}<span>${action}</span>${shiftMods ? `${chord(shiftMods, key)}<span>${shiftAction}</span>` : '<i></i><i></i>'}`).join('')}`).join('')}</div>`).join('');
 
+const shownTitle = title => (title === 'docs' ? 'Developer Documentation' : title === 'tests' ? 'swift test' : title);
+
 export function windowMarkup({ app, title }) {
-  const shown = title === 'docs' ? 'Developer Documentation' : title === 'tests' ? 'swift test' : title;
-  return `<div class="ov-title" aria-hidden="true">${appIcon(app)}<span>${shown}</span></div><div class="app app-${app}" aria-hidden="true">${CONTENT[app](title)}</div>`;
+  return `<div class="ov-title" aria-hidden="true">${appIcon(app)}<span>${shownTitle(title)}</span></div><div class="app app-${app}" aria-hidden="true">${CONTENT[app](title)}</div>`;
 }
 
 export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, size }) {
@@ -187,6 +195,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     <div class="spotlight" aria-hidden="true"><div class="sp-bar"><svg viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M13 13l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="sp-text"></span></div><div class="sp-result"><img src="${icon}" alt=""><b>Defi</b><span>Application</span></div></div>
     <div class="dock">${DOCK_APPS.map(app => `<button type="button" class="dock-item" data-app="${app}" aria-label="${APPS[app].name}">${appIcon(app)}<span class="dot"></span><span class="tip">${APPS[app].name}</span></button>`).join('')}</div>
     <div class="cheatsheet" aria-hidden="true"></div>
+    <div class="switcher" aria-hidden="true"></div>
   </div>`;
   root.style.setProperty('--spring', SPRING);
   root.style.setProperty('--spring-s', `${SPRING_S.toFixed(3)}s`);
@@ -198,9 +207,12 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   const defiButton = root.querySelector('.mb-defi');
   const defiMenu = root.querySelector('.defi-menu');
   const sheet = root.querySelector('.cheatsheet');
+  const switcherPanel = root.querySelector('.switcher');
   const spaces = initialSpaces();
   let active = 0;
   let overview = false;
+  let recent = [];
+  let switcher = null; // { list, index } while the modifiers stay down
   let zoomTimer;
   let messy = !reducedMotion.matches; // Before Defi starts, the windows overlap as on any Mac.
   const els = new Map();
@@ -218,6 +230,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
       // A pill pages the row by one column, like Defi's.
       row.querySelectorAll('.ov-more').forEach((pill, i) => pill.addEventListener('click', event => {
         event.stopPropagation();
+        hideSheet(true);
         const from = space.ovOffset ?? firstVisible(space);
         space.ovOffset = Math.min(Math.max(from + (i ? 1 : -1), 0), space.cols.length - 1);
         render();
@@ -245,6 +258,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
         el.querySelectorAll('.gh-star i, .gh-stars').forEach(count => { count.textContent = on ? 38 : 37; });
       }
       closeMenu();
+      hideSheet(true);
       if (messy) launch({ quick: true });
       focusWin(win);
       overview = false;
@@ -367,6 +381,8 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     defiButton.setAttribute('aria-label', `Defi menu, workspace ${active + 1}`);
     root.querySelectorAll('.dock-item').forEach(item => item.classList.toggle('running', spaces.some(space => [...space.cols.flatMap(c => c.wins), ...space.floats.map(f => f.win)].some(win => win.app === item.dataset.app))));
     if (!defiMenu.hidden) fillMenu();
+    // Defi's focus history, most recent first, behind the recent windows switcher.
+    if (shown && !messy && !switcher) recent = [shown, ...recent.filter(win => win !== shown)];
   }
 
   // Takes a window out of its column or the floating layer, as DefiCore's removeWindow does.
@@ -446,6 +462,35 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
         column.focus = to;
         break;
       }
+      case 'consume-or-expel-window left':
+      case 'consume-or-expel-window right': {
+        if (!column) break;
+        tiled();
+        const left = command.endsWith('left');
+        if (column.wins.length < 2) { join(left ? -1 : 1); break; }
+        const win = column.wins[column.focus];
+        detach(space, win);
+        const at = space.cols.indexOf(column) + (left ? 0 : 1);
+        space.cols.splice(at, 0, { w: DEFAULT_WIDTH, wins: [win], focus: 0 });
+        space.focus = at;
+        break;
+      }
+      case 'center-column': {
+        if (space.layer === 'floating') break;
+        const frame = layout(space)[space.focus];
+        if (frame) space.scroll = frame.x + frame.w / 2 - W / 2;
+        break;
+      }
+      case 'reorder-workspace up':
+      case 'reorder-workspace down': {
+        // The empty trailing workspace stays last.
+        const to = active + (command.endsWith('up') ? -1 : 1);
+        if (isEmpty(space) || to < 0 || to > spaces.length - 2) break;
+        [spaces[active], spaces[to]] = [spaces[to], spaces[active]];
+        active = to;
+        break;
+      }
+      case 'activate-window': overview = false; break;
       case 'join-window left': tiled(); join(-1); break;
       case 'join-window right': tiled(); join(1); break;
       case 'unjoin-windows': {
@@ -509,21 +554,70 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
 
   function press(code, shift = false, command = false) {
     if (drag) return false; // a card in hand keeps the layout still until it drops
+    if (code === 'Escape' && (switcher || pinned)) {
+      closeSwitcher();
+      hideSheet(true);
+      return true;
+    }
     const digit = code.match(/^Digit([1-9])$/);
     const action = digit ? `${command ? 'move-column-to-workspace' : 'focus-workspace'}-position ${digit[1]}` : (shift ? SHIFT_KEYS : command ? COMMAND_KEYS : KEYS)[code];
     if (!action || (digit && shift)) return false;
-    hideSheet();
+    if (action === 'toggle-cheatsheet') {
+      const open = pinned;
+      hideSheet(true);
+      if (!open) showSheet(true);
+      onCommand(code, action);
+      return true;
+    }
+    hideSheet(true);
     closeMenu();
     if (messy) launch({ quick: true });
-    act(action);
+    // Defi refuses the switcher while the Overview is open.
+    if (action.startsWith('recent-windows')) { if (!overview) stepSwitcher(action.endsWith('next') ? 1 : -1); }
+    else {
+      closeSwitcher();
+      act(action);
+    }
     onCommand(code, action);
     return true;
+  }
+
+  // The recent windows switcher, like Command-Tab for windows: each press selects the next window,
+  // letting go of the modifiers focuses it, Escape cancels.
+  function stepSwitcher(step) {
+    const live = new Set(spaces.flatMap(space => [...space.cols.flatMap(c => c.wins), ...space.floats.map(f => f.win)]));
+    if (!switcher) {
+      const list = recent.filter(win => live.has(win));
+      if (list.length < 2) return;
+      switcher = { list, index: 0 };
+    }
+    const n = switcher.list.length;
+    switcher.index = (switcher.index + step + n) % n;
+    switcherPanel.innerHTML = switcher.list.map((win, i) => `<div class="rw${i === switcher.index ? ' on' : ''}">${appIcon(win.app)}<span>${shownTitle(win.title)}</span></div>`).join('');
+    switcherPanel.classList.add('on');
+  }
+  function closeSwitcher() {
+    switcher = null;
+    switcherPanel.classList.remove('on');
+  }
+  function release() {
+    if (!switcher) return;
+    const win = switcher.list[switcher.index];
+    closeSwitcher();
+    focusWin(win);
+    overview = false;
+    onCommand(null, 'recent-windows');
+    render();
   }
 
   // In the Overview, plain arrows move the selection; Return and Escape close it.
   // Moving the selection puts its column at the row's left edge, as Defi's Overview does.
   function pressInOverview(code) {
     if (drag) return false;
+    if (code === 'Escape' && pinned) {
+      hideSheet(true);
+      return true;
+    }
     if (!overview) return false;
     if (code === 'Enter' || code === 'Escape') {
       overview = false;
@@ -654,12 +748,14 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     defiMenu.innerHTML = `<p class="mh">Workspaces</p>${spaces.map((space, i) => `<button type="button" role="menuitemradio" aria-checked="${i === active}" data-ws="${i}"><span class="check">${i === active ? '✓' : ''}</span>${i + 1}</button>`).join('')}<hr><button type="button" role="menuitem"><span class="check"></span>Settings…<kbd>⌘,</kbd></button><hr><button type="button" role="menuitem"><span class="check"></span>Quit Defi<kbd>⌘Q</kbd></button>`;
   }
   function closeMenu() {
+    hideSheet(true);
     defiMenu.hidden = true;
     defiButton.classList.remove('open');
   }
   defiButton.addEventListener('click', event => {
     event.stopPropagation();
     if (!defiMenu.hidden) return closeMenu();
+    hideSheet(true);
     fillMenu();
     defiMenu.hidden = false;
     defiButton.classList.add('open');
@@ -698,23 +794,30 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
 
   screen.addEventListener('click', () => {
     closeMenu();
+    hideSheet(true);
     if (!overview) return;
     overview = false;
     render();
   });
 
   // Holding Control-Option alone for 600 ms shows the shortcuts, like Defi's cheatsheet.
+  // Its toggle shortcut pins it open until the next command or Escape.
   let sheetTimer;
-  function hideSheet() {
+  let pinned = false;
+  function hideSheet(force = false) {
     clearTimeout(sheetTimer);
+    if (pinned && force !== true) return;
+    pinned = false;
     sheet.classList.remove('on');
+  }
+  function showSheet(pin = false) {
+    sheet.innerHTML ||= cheatsheetMarkup(); // Drawn on first use: most visitors never hold the keys.
+    sheet.classList.add('on');
+    pinned = pin;
   }
   function holdModifier() {
     clearTimeout(sheetTimer);
-    sheetTimer = setTimeout(() => {
-      sheet.innerHTML ||= cheatsheetMarkup(); // Drawn on first use: most visitors never hold the keys.
-      sheet.classList.add('on');
-    }, 600);
+    sheetTimer = setTimeout(() => { if (!switcher && !pinned) showSheet(); }, 600);
   }
 
   // Opening Defi from Spotlight: the windows leave the pile for their columns and workspaces.
@@ -961,5 +1064,5 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   syncMotion();
   // A phone's Dock is too small to tap; the keypad under the desk does its work.
   root.querySelector('.dock').inert = matchMedia('(hover:none) and (max-width:600px)').matches;
-  return { press, pressInOverview, holdModifier, hideSheet, launch };
+  return { press, pressInOverview, holdModifier, hideSheet, release, cancelSwitcher: closeSwitcher, launch };
 }

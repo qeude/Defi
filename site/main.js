@@ -215,7 +215,7 @@ holdButton.addEventListener('blur', controller.hideSheet);
 // Touch and keyboard cannot hold a button, so for them it opens and closes.
 holdButton.addEventListener('click', event => {
   if (!touchOnly && event.detail) return;
-  if (desk.querySelector('.cheatsheet').classList.contains('on')) controller.hideSheet();
+  if (desk.querySelector('.cheatsheet').classList.contains('on')) controller.hideSheet(true);
   else showSheet();
 });
 // Every shortcut works while the preview is on screen, no click needed; plain keys only act inside the Overview.
@@ -245,9 +245,14 @@ document.addEventListener('keydown', event => {
   } else if (!mod && event.key === 'Escape') desk.blur();
 });
 document.addEventListener('keyup', event => {
-  if (modifierKeys.includes(event.key)) controller.hideSheet();
+  if (!modifierKeys.includes(event.key)) return;
+  controller.hideSheet();
+  controller.release();
 });
-addEventListener('blur', () => controller.hideSheet());
+addEventListener('blur', () => {
+  controller.hideSheet();
+  controller.cancelSwitcher();
+});
 
 // Below the first screen arrives after the desk has painted, so its layout never joins the desk's in one long task.
 // The timer covers hidden tabs and crawlers, where frames may never come.
@@ -262,11 +267,11 @@ for (const section of [
     <p class="section-lede left">A tiling window manager built around one idea from Niri: columns that scroll, on the Mac you already use.</p>
     <div class="bento">
       ${card('b-hero card-video', recording('feature-overview.mp4', 'feature-overview.jpg', 'Defi Overview browsing workspace rows and their windows'), 'Every window at a glance', 'Zoom out to every workspace, with live pictures of your windows. Click one to go there, or drag it to another workspace.')}
-      ${card('b-side', `<div class="ill-native"><div class="cmdtab">${['safari', 'ghostty', 'xcode', 'messages', 'music'].map((a, i) => `<span class="${i === 2 ? 'on' : ''}">${appIcon(a)}${i === 2 ? '<em>Xcode</em>' : ''}</span>`).join('')}</div><p>${kbd(['⌘'])}<span>+</span>${kbd(['⇥'])}</p></div>`, 'Still a Mac', 'Clicks, the Dock and Command-Tab take you to the right workspace.')}
+      ${card('b-side', `<div class="ill-native"><div class="cmdtab">${['safari', 'ghostty', 'xcode', 'messages', 'music'].map((a, i) => `<span class="${i === 2 ? 'on' : ''}">${appIcon(a)}${i === 2 ? '<em>Xcode</em>' : ''}</span>`).join('')}</div><p>${kbd(['⌘'])}<span>+</span>${kbd(['⇥'])}</p></div>`, 'Still a Mac', 'Clicks, the Dock and Command-Tab take you to the right workspace. Full-screen apps keep their place in the strip.')}
       ${card('b-split', `<div class="hz-light" aria-hidden="true">${[0.33, 0.5, 0.8, 0.5, 0.33].map((w, i) => `<i class="${i === 2 ? 'on' : ''}" style="flex:${w}"></i>`).join('')}</div><p class="ill-hz" aria-label="120 Hz"><b aria-hidden="true">120</b><span>Hz</span></p>`, 'Fast as your keys', 'Animations at up to 120 Hz. Commands never wait for a slow app.')}
       ${card('b-5', `<img class="ill-shot" src="${media('feature-app-rules.webp')}" alt="Defi's Settings listing application rules, such as Xcode on the dev workspace" width="1000" height="690" loading="lazy">`, 'Every app in its place', 'Rules send an app to its named workspace, keep it floating or set its width when its window opens.')}
       ${card('b-4', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll, with an empty workspace always ready.')}
-      ${card('b-3', `<div class="ill-swipe" aria-hidden="true"><div class="swipe-view"><div class="swipe-track">${['finder', 'notes', 'safari', 'ghostty', 'xcode', 'music', 'mail', 'messages', 'safari'].map(a => miniWin(a)).join('')}</div></div><div class="trackpad"><i></i><i></i></div></div>`, 'Swipe the strip', 'Turn on trackpad swipes and slide along your columns with your fingers.')}
+      ${card('b-3', `<div class="ill-swipe" aria-hidden="true"><div class="swipe-view"><div class="swipe-track">${['finder', 'notes', 'safari', 'ghostty', 'xcode', 'music', 'mail', 'messages', 'safari'].map(a => miniWin(a)).join('')}</div></div><div class="trackpad"><i></i><i></i></div></div>`, 'Swipe the strip', 'Turn on trackpad swipes and slide along your columns with your fingers, or swipe up to the Overview.')}
     </div>
   </section>`,
   `<section class="shortcuts" id="shortcuts" aria-labelledby="shortcuts-title">
