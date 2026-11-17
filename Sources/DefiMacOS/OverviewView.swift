@@ -113,8 +113,8 @@ final class OverviewView: NSView {
     outgoingPreviews.removeAll(keepingCapacity: false)
     previewOpacities.removeAll()
     revealing.removeAll()
-    titleCache.prune(windowIDs: [])
-    // Icons stay: a few KB per app, and rasterizing them again cost every opening ~10 ms.
+    // Titles and icons stay: bounded (4 MB, current windows only), and drawing them again cost
+    // every opening ~15 ms.
     // Layers retain their textures; dropping them releases the images with the caches.
     for card in cardLayers.values { card.root.removeFromSuperlayer() }
     cardLayers.removeAll()
