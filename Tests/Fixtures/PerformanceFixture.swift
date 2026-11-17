@@ -8,6 +8,7 @@ private struct FixtureCommand: Decodable, Sendable {
   let delay: Double?
   let period: Double?
   let of: String?
+  let hue: Double?
 }
 
 @MainActor
@@ -74,7 +75,7 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
 
   /// `of` names an existing window whose title the new one copies; `tab` adds it to that window's native tab group,
   /// `over` opens it just inside that window's frame, as Ghostty opens a new window over the focused one.
-  private func create(_ id: String, of parent: NSWindow? = nil, tab: Bool = false, over: Bool = false) {
+  private func create(_ id: String, of parent: NSWindow? = nil, tab: Bool = false, over: Bool = false, hue: Double? = nil) {
     let window = NSWindow(contentRect: NSRect(x: 120, y: 160, width: 640, height: 440),
       styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
     window.title = parent?.title ?? "Defi Performance \(getpid()) \(id)"
@@ -94,7 +95,7 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
     window.contentView?.addSubview(input)
     window.contentView?.addSubview(button)
     // A distinct colour per window makes overlaps visible in screen recordings.
-    window.backgroundColor = NSColor(hue: CGFloat(windows.count) * 0.17, saturation: 0.55, brightness: 0.95, alpha: 1)
+    window.backgroundColor = NSColor(hue: hue ?? CGFloat(windows.count) * 0.17, saturation: 0.55, brightness: 0.95, alpha: 1)
     windows[id] = window
     if over, let parent { window.setFrame(parent.frame.insetBy(dx: 6, dy: 6), display: false) }
     if tab, let parent { parent.addTabbedWindow(window, ordered: .above) }
@@ -154,7 +155,7 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
       guard let id = value.id, !id.isEmpty, id.count <= 80, used.insert(id).inserted else {
         throw NSError(domain: "Invalid or reused window ID", code: 2)
       }
-      if value.command == "create" { create(id, of: try value.of.map(existing)) }
+      if value.command == "create" { create(id, of: try value.of.map(existing), hue: value.hue) }
       else {
         pending += 1
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [self] in
