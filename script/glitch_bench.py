@@ -135,10 +135,10 @@ class Bench:
             self.fixtures[name] = Fixture(self.tools / 'PerformanceFixture', self.out / 'fixtures', name)
         return self.fixtures[name]
 
-    def create(self, fixture, window_id):
+    def create(self, fixture, window_id, frame=None):
         hue = HUES[self.next_hue % len(HUES)]
         self.next_hue += 1
-        report = self.fixture(fixture).ask('create', id=window_id, hue=hue)
+        report = self.fixture(fixture).ask('create', id=window_id, hue=hue, **({'frame': frame} if frame else {}))
         number = next(w['windowNumber'] for w in report['windows'] if w['id'] == window_id)
         self.hue_of[number] = f'w{HUES.index(hue)}'
         self.log_event('create', window=number, label=self.hue_of[number], fixture=fixture)
@@ -431,8 +431,15 @@ def overview(bench, rng, rounds):
         start, pids = now(), bench.daemons()
         bench.act('overview-open', ['toggle-overview'], settle=False, pause=1.0)
         bench.act('overview-nav', ['focus-column', 'right'], settle=False, pause=0.5)
+        # An app opening a window behind the Overview must not close it.
+        name = f'o{len(bench.fixtures)}'
+        bench.create(name, 'w')
+        time.sleep(1.0)
+        bench.check('overview_kept', bench.status().get('overview') == 'open', action='overview-open-app')
         bench.act('overview-nav', ['focus-column', 'right'], settle=False, pause=0.5)
-        bench.act('overview-close', ['toggle-overview'], settle=False)
+        if bench.status().get('overview') == 'open':
+            bench.act('overview-close', ['toggle-overview'], settle=False)
+        bench.fixtures.pop(name).quit()
         bench.judge('overview', start, None, pids)
 
 
@@ -533,8 +540,71 @@ def slow(bench, rng, rounds):
         bench.fixture('a').ask('set-busy', delay=0, period=1)
 
 
+def displays(bench, rng, rounds):
+    """A fullscreen window on the second display, while the first one navigates and switches."""
+    layout = bench.layout()
+    if len(layout['monitors']) < 2:
+        bench.log_event('lane-not-run', reason='one display')
+        return
+    second = next(m for m in layout['monitors'] if not m['focused'])
+    # The second display's CG frame from the camera's display records is not known here; the
+    # VM's virtual display sits at (-1280, 768) per Tests/Fixtures/VirtualDisplayFixture.m.
+    origin = [-1280 + 100, 768 + 100, 600, 400]
+    for r in range(rounds):
+        name = f'd{r}'
+        start, pids = now(), bench.daemons()
+        window = bench.create('d', name, frame=origin)
+        fixture = bench.fixture('d')
+        activate(fixture.pid)
+        bench.judge('d-open', start, window, pids, until=lambda: bench.focused() == window)
+        where = {w['id']: m['id'] for m in bench.layout()['monitors'] for ws in m['workspaces'] for w in ws['windows']}
+        bench.check('wrong_display', where.get(window) == second['id'], window=window, display=where.get(window))
+        start = now()
+        bench.log_event('d-enter', window=window)
+        fixture.ask('fullscreen', id=name)
+        time.sleep(2.5)
+        bench.judge('d-enter', start, window, pids)
+        # The first display moves on while the second shows the fullscreen Space.
+        bench.act('d-home', ['focus-window-id', str(bench.main[0])], bench.main[0], pause=0.5)
+        for direction in ['right', 'left']:
+            bench.act('d-column', ['focus-column', direction], bench.neighbour(direction), direction, pause=0.3)
+        bench.act('d-workspace', ['workspace', bench.other_workspace], None, 'vertical', pause=0.3)
+        bench.act('d-workspace', ['workspace', bench.home], None, 'vertical', pause=0.3)
+        bench.act('d-overview-open', ['toggle-overview'], settle=False, pause=1.0)
+        bench.act('d-overview-close', ['toggle-overview'], pause=0.3)
+        # Back onto the fullscreen window by id, then out of fullscreen and closed.
+        start = now()
+        bench.log_event('d-select', window=window)
+        bench.command('focus-window-id', str(window))
+        time.sleep(2.0)
+        bench.judge('d-select', start, None, pids)
+        if r % 2 == 0:
+            start = now()
+            bench.log_event('d-exit', window=window)
+            fixture.ask('fullscreen', id=name)
+            time.sleep(2.5)
+            bench.judge('d-exit', start, window, pids)
+            fixture.ask('close', id=name)
+            bench.judge('d-close', now(), None, pids, until=lambda: window not in bench.window_ids())
+        else:
+            start = now()
+            bench.log_event('restart', window=window)
+            bench.cli_run('service', 'restart', timeout=60)
+            time.sleep(3)
+            bench.judge('restart', start, None, None)
+            start, pids = now(), bench.daemons()
+            bench.log_event('d-quit', window=window)
+            fixture.quit()
+            del bench.fixtures['d']
+            time.sleep(2.5)
+            bench.judge('d-quit', start, None, pids, until=lambda: window not in bench.window_ids())
+        bench.command('focus-window-id', str(bench.main[0]))
+        time.sleep(1)
+
+
 SCENARIOS = {'columns': columns, 'workspaces': workspaces, 'windows': windows, 'activation': activation,
-             'overview': overview, 'fullscreen': fullscreen, 'restart': restart, 'slow': slow}
+             'overview': overview, 'fullscreen': fullscreen, 'restart': restart, 'slow': slow,
+             'displays': displays}
 
 
 # -- analysis ----------------------------------------------------------------------------------------
@@ -663,7 +733,8 @@ def judge_motion(action, frames, width, defect):
                 fraction = (moving[0][edge] - positions[0][1][edge]) / travel
                 first_steps.append(round(fraction, 3))
                 if fraction > 0.25:
-                    defect(scenario, 'start_jump', action=name, label=label, fraction=round(fraction, 2))
+                    defect(scenario, 'start_jump', action=name, label=label, fraction=round(fraction, 2),
+                           at=next(t for t, p in positions if p[edge] != positions[0][1][edge]))
         if direction in ('left', 'right'):
             sign = -1 if direction == 'right' else 1
             for (ta, a), (tb, b) in zip(positions, positions[1:]):
