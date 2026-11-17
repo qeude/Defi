@@ -585,9 +585,10 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   // The recent windows switcher, like Command-Tab for windows: each press selects the next window,
   // letting go of the modifiers focuses it, Escape cancels.
   function stepSwitcher(step) {
-    const live = new Set(spaces.flatMap(space => [...space.cols.flatMap(c => c.wins), ...space.floats.map(f => f.win)]));
     if (!switcher) {
-      const list = recent.filter(win => live.has(win));
+      // By latest focus, then the others in workspace and column order, as recentWindowCandidates lists them.
+      const all = spaces.flatMap(space => [...space.cols.flatMap(c => c.wins), ...space.floats.map(f => f.win)]);
+      const list = [...recent.filter(win => all.includes(win)), ...all.filter(win => !recent.includes(win))];
       if (list.length < 2) return;
       switcher = { list, index: 0 };
     }
