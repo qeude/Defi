@@ -8,6 +8,8 @@ public final class CheatsheetController {
   private let config: Config
   private var panel: NSPanel?
   private var closingPanel: NSPanel?
+  /// Fitting sizes per column count: measuring builds a hosting view each, at every opening.
+  private var measured: (groups: [ShortcutGroup], sizes: [CGSize])?
 
   public init(config: Config) {
     self.config = config
@@ -26,10 +28,12 @@ public final class CheatsheetController {
       config: config, layout: currentKeyboardLayout(),
       displayMod: UserDefaults.standard.object(forKey: displayModDefaultsKey) as? Bool ?? false
     )
+    let sizes = measured?.groups == groups ? measured!.sizes : (1...max(1, min(4, groups.count))).map {
+      NSHostingView(rootView: CheatsheetContent(groups: groups, columnCount: $0)).fittingSize
+    }
+    measured = (groups, sizes)
     let layout = CheatsheetLayout(
-      contentSizes: (1...max(1, min(4, groups.count))).map {
-        NSHostingView(rootView: CheatsheetContent(groups: groups, columnCount: $0)).fittingSize
-      },
+      contentSizes: sizes,
       available: CGSize(width: bounds.width - 48, height: bounds.height - 48)
     )
     let size = layout.panelSize
