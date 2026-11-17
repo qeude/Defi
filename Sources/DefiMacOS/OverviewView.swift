@@ -111,7 +111,7 @@ final class OverviewView: NSView {
     outgoingPreviews.removeAll(keepingCapacity: false)
     previewOpacities.removeAll()
     titleCache.prune(windowIDs: [])
-    iconCache.removeAll()
+    // Icons stay: a few KB per app, and rasterizing them again cost every opening ~10 ms.
     // Layers retain their textures; dropping them releases the images with the caches.
     for card in cardLayers.values { card.root.removeFromSuperlayer() }
     cardLayers.removeAll()
@@ -451,11 +451,7 @@ final class OverviewView: NSView {
     guard count > 0, let image = labelImage(
       leading ? "\u{2190} \(count)" : "\(count) \u{2192}",
       size: indicatorFrame.insetBy(dx: 8, dy: 6).size,
-      attributes: [
-        .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
-        .foregroundColor: NSColor.white.withAlphaComponent(0.92),
-        .paragraphStyle: centeredParagraphStyle,
-      ]
+      attributes: overflowAttributes
     ) else {
       layer.isHidden = true
       return
@@ -664,13 +660,24 @@ final class OverviewView: NSView {
     } ?? image
   }
 
+  // Built once: each was created per card and per frame of every zoom.
+  private lazy var overflowAttributes: [NSAttributedString.Key: Any] = [
+    .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
+    .foregroundColor: NSColor.white.withAlphaComponent(0.92),
+    .paragraphStyle: centeredParagraphStyle,
+  ]
+  private var borderColors: [UInt32: CGColor] = [:]
+
   private func overviewBorderColor(_ value: UInt32) -> CGColor {
-    CGColor(
+    if let color = borderColors[value] { return color }
+    let color = CGColor(
       srgbRed: CGFloat((value >> 16) & 0xff) / 255,
       green: CGFloat((value >> 8) & 0xff) / 255,
       blue: CGFloat(value & 0xff) / 255,
       alpha: CGFloat(windowBorderAlpha(of: value)) / 255
     )
+    borderColors[value] = color
+    return color
   }
 
   override func mouseDown(with event: NSEvent) {
