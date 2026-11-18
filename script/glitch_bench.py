@@ -478,6 +478,7 @@ def fullscreen(bench, rng, rounds):
         # Leave the Space by navigating; cross the placeholder back and forth.
         for direction in ['left', 'left', 'right', 'right', 'left']:
             bench.act('fs-column', ['focus-column', direction], bench.neighbour(direction), direction, pause=0.3)
+            (bench.out / f'fs-column-{round(now(), 1)}-trace.txt').write_text(bench.cli_run('trace')[0])
         # Select the placeholder and press Return in it: the fullscreen Space shows.
         bench.act('fs-select', ['focus-window-id', str(window)], None, pause=0.5)
         start = now()
