@@ -657,8 +657,10 @@ final class RibbonProxyPresenter {
       let start = current == nil ? motionStart : now
       let launched = ribbonProxyMove(layer, from: from, to: to, velocity: velocity, at: start)
       slides[window.id] = (CGPoint(x: from.midX, y: from.midY), CGPoint(x: to.midX, y: to.midY), start, launched)
-      stop = max(stop, ribbonProxyVisualStop(travel: hypot(to.midX - from.midX, to.midY - from.midY), velocity: launched),
-        ribbonProxyVisualStop(travel: abs(to.width - from.width) + abs(to.height - from.height)))
+      // A motion from rest starts after its lead: it settles that much later than now.
+      stop = max(stop, start - now + max(
+        ribbonProxyVisualStop(travel: hypot(to.midX - from.midX, to.midY - from.midY), velocity: launched),
+        ribbonProxyVisualStop(travel: abs(to.width - from.width) + abs(to.height - from.height))))
       layer.opacity = 1
       if window.appears {
         // A new window grows in at its place, like Niri's open animation. A short reveal:

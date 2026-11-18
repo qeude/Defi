@@ -44,12 +44,14 @@ cleanup() {
   vm "if [ -f ~/.glitch-capture.orig ]; then v=\$(cat ~/.glitch-capture.orig); [ -z \"\$v\" ] || sudo -n sqlite3 '$TCC' \"update access set auth_value=\$v where client='com.qeude.defi' and service='kTCCServiceScreenCapture';\"; rm -f ~/.glitch-capture.orig; sudo -n pkill tccd; fi; true" || true
   vm "[ ! -f ~/.glitch-approvals.orig ] || mv ~/.glitch-approvals.orig '/Users/admin/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist'" || true
   vm "if [ -f ~/.glitch-config.orig ]; then mv ~/.glitch-config.orig ~/.config/defi/config.toml; else rm -f ~/.config/defi/config.toml; fi; rm -rf $G; sync" || true
+  # The guest's installed daemon runs again if it ran before the bench.
+  vm "[ ! -f ~/.glitch-daemon-was-running ] || { rm -f ~/.glitch-daemon-was-running; sudo -n launchctl asuser 501 sudo -n -u admin ~/Applications/Defi.app/Contents/MacOS/defi service start >/dev/null 2>&1; }; true" || true
   [[ "${DEFI_VM_RUNNING:-0}" == 1 ]] || { sleep 3; tart stop "$VM" >/dev/null 2>&1 || true; }
 }
 # DEFI_GLITCH_KEEP=1 leaves the guest prepared for manual experiments; run again without it to clean.
 [[ "${DEFI_GLITCH_KEEP:-0}" == 1 ]] || trap cleanup EXIT
 
-vm "pkill -x defi-daemon; [ ! -x ~/Applications/Defi.app/Contents/MacOS/defi ] || ~/Applications/Defi.app/Contents/MacOS/defi service stop >/dev/null 2>&1; rm -rf $G; mkdir -p $G/tools ~/.config/defi; [ -f ~/.glitch-config.orig ] || [ ! -f ~/.config/defi/config.toml ] || cp ~/.config/defi/config.toml ~/.glitch-config.orig; true"
+vm "[ -f ~/.glitch-daemon-was-running ] || ! pgrep -x defi-daemon >/dev/null || touch ~/.glitch-daemon-was-running; pkill -x defi-daemon; [ ! -x ~/Applications/Defi.app/Contents/MacOS/defi ] || ~/Applications/Defi.app/Contents/MacOS/defi service stop >/dev/null 2>&1; rm -rf $G; mkdir -p $G/tools ~/.config/defi; [ -f ~/.glitch-config.orig ] || [ ! -f ~/.config/defi/config.toml ] || cp ~/.config/defi/config.toml ~/.glitch-config.orig; true"
 vm "printf '[layout]\ndefault_column_width = 0.6\n\n[menu_bar]\nenabled = false\n' > ~/.config/defi/config.toml"
 for tool in PerformanceFixture GlitchCamera; do vm "cat > $G/tools/$tool && chmod +x $G/tools/$tool" < ".build/glitch/$tool"; done
 vm "cat > $G/glitch_bench.py" < script/glitch_bench.py

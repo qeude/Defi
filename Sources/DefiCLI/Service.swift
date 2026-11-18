@@ -22,7 +22,13 @@ enum ServiceManager {
       print("stopped")
     case "restart":
       try stop(ignoreFailure: true, handoff: true)
-      try start()
+      do {
+        try start()
+      } catch {
+        // The windows were left in place for the new daemon; parked ones stay offscreen until one runs.
+        FileHandle.standardError.write(Data("Defi did not start again: run `defi service start`.\n".utf8))
+        throw error
+      }
       print("restarted")
     case "status":
       let runtime = (try? sendCommand("status")) == nil ? "stopped" : "running"

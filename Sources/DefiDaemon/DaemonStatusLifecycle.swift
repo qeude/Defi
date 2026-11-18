@@ -395,6 +395,16 @@ extension Daemon {
     shutdownTask = Task { await finishShutdown() }
   }
 
+  /// A parked floating window's frame lives only in memory; without it the next daemon pins the
+  /// window to the screen edge where it is parked.
+  func saveTopologyForHandoff() {
+    var topology = state.topology
+    topology.floatingWindowFrames = floatingWindowFrames
+    do { try topologyStore.save(topology, sessionID: topologySessionID) } catch {
+      log("workspace topology persistence failed: \(error)")
+    }
+  }
+
   private func finishShutdown() async {
     await accessibilityPermissionMonitor.stop()
     handleCheatsheetInput(.dismiss)
@@ -409,6 +419,7 @@ extension Daemon {
     platform.hideWindowBorders()
     platform.hideNativeFullscreenPlaceholders()
     if handsOffWindows {
+      saveTopologyForHandoff()
       await platform.prepareForRestore()
       _ = await displayArrangement.restore()
     } else {

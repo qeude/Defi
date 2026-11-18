@@ -180,9 +180,10 @@ extension MacOSPlatform {
           let started = ProcessInfo.processInfo.systemUptime
           // WindowServer has already ordered the activated app's key window in front, and answers
           // without the app, which can spend its whole read timeout activating.
-          let front = ribbonProxyOnScreenWindows().first {
-            $0.processID == processID && $0.layer == 0 && elements.value[$0.id] != nil
-          }?.id
+          // Its front window only: a new window Defi does not know yet must not hand over to an
+          // older one, possibly on another workspace.
+          let front = ribbonProxyOnScreenWindows().first { $0.processID == processID && $0.layer == 0 }
+            .flatMap { elements.value[$0.id] == nil ? nil : $0.id }
           let focused = front == nil ? applicationFocusedWindow(processID) : nil
           let focusedID = front ?? known(focused)
           let windowID = focusedID ?? known(applicationSingleWindow(processID))

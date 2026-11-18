@@ -279,6 +279,7 @@ final class Daemon {
     let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
     state = RuntimeState(config: config, topology: restoredTopology)
     lastPersistedTopology = restoredTopology
+    floatingWindowFrames = restoredTopology?.floatingWindowFrames ?? [:]
     platform.setCommandDiagnosticHandler { [weak self, weak diagnostics] sample in
       diagnostics?.record(sample)
       if let reason = AutoMarkPolicy.reason(for: sample) {

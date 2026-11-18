@@ -29,6 +29,8 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
   // A new key: stores with the former single-entry history decode and start empty.
   public var recentWindowIDs: [WindowID]?
   public var latestWindowID: WindowID?
+  /// Written only by a restart's handoff: parked floating windows keep their frames across it.
+  public var floatingWindowFrames: [WindowID: Rect]?
 
   public init(state: RuntimeState) {
     monitorStableIDs = state.monitorStableIDs
