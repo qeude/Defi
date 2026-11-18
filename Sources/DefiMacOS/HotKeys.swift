@@ -532,10 +532,11 @@ final class InputMonitor: @unchecked Sendable {
       if let event = event.copy() {
         let runLoop = CFRunLoopGetCurrent()!, main = CFRunLoopGetMain()!
         CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) {
-          guard let touches = trackpadTouches(event) else { return }
+          guard let (touches, aspect) = trackpadTouches(event) else { return }
           CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) {
             if let swipeBits {
-              self.swipe(event, touches: touches, modifierBits: swipeBits, announcedModifierBits: announced)
+              self.swipe(event, touches: touches, aspect: aspect, modifierBits: swipeBits,
+                announcedModifierBits: announced)
             }
             self.swipeOverview(event, touches: touches)
           }
@@ -822,9 +823,9 @@ final class InputMonitor: @unchecked Sendable {
     return route(input) ? nil : Unmanaged.passUnretained(event)
   }
 
-  private func swipe(_ event: CGEvent, touches: [(id: Int, position: CGPoint)], modifierBits: UInt64,
-    announcedModifierBits: UInt64) {
-    guard let input = ScrollGestureInput(gesture: event, touches: touches, swipe: &fingerSwipe,
+  private func swipe(_ event: CGEvent, touches: [(id: Int, position: CGPoint)], aspect: Double,
+    modifierBits: UInt64, announcedModifierBits: UInt64) {
+    guard let input = ScrollGestureInput(gesture: event, touches: touches, aspect: aspect, swipe: &fingerSwipe,
       modifierBits: modifierBits, announcedModifierBits: announcedModifierBits) else { return }
     // The Trackpad settings may have changed since the last swipe Defi could take.
     if input.phase == 1, input.modifierHeld {

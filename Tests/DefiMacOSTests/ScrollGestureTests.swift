@@ -124,6 +124,21 @@ struct ScrollGestureTests {
   }
 
   @Test
+  func `The same finger travel counts the same sideways and vertically, whatever the trackpad's shape`() throws {
+    let event = try #require(CGEvent(source: nil))
+    var swipe = FingerSwipe(fingers: 3)
+    func step(_ x: Double, _ y: Double) -> ScrollGestureInput? {
+      ScrollGestureInput(gesture: event, touches: (1...3).map { (id: $0, position: CGPoint(x: x, y: y)) },
+        aspect: 0.5, swipe: &swipe, modifierBits: 0, announcedModifierBits: 0)
+    }
+    _ = step(0.5, 0.5)
+    // A trackpad twice as wide as tall: a fifth of its height is a tenth of its width.
+    let input = try #require(step(0.4, 0.3))
+    #expect(abs(input.dx + FingerSwipe.travelPerWidth / 10) < 1e-6)
+    #expect(abs(input.dy - FingerSwipe.travelPerWidth / 10) < 1e-6)
+  }
+
+  @Test
   func `A three- or four-finger swipe keeps its scroll and momentum from what lies under the pointer`() {
     let at = { (count: Int) in (1...count).map { (id: $0, position: CGPoint(x: 0.5, y: 0.5)) } }
     var swipe = FingerSwipe(fingers: 3)
