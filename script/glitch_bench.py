@@ -56,7 +56,7 @@ class Fixture:
                 raise RuntimeError(f'fixture {self.name} exited')
             report = json.loads(line)
             # A launch error answers with seq -1: waiting for our seq would hang the run.
-            if 'error' in report and report.get('seq') in (self.seq, -1):
+            if report.get('error') and report.get('seq') in (self.seq, -1):
                 raise RuntimeError(f"fixture {self.name}: {report['error']}")
             if report.get('seq') == self.seq:
                 return report

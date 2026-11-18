@@ -28,7 +28,7 @@ if [[ -z "${DEFI_VM_LOCKED:-}" ]]; then
       Tests/Fixtures/VirtualDisplayFixture.m -o .build/glitch/DefiVirtualDisplay
   fi
   export DEFI_VM_LOCKED=1
-  exec lockf -k "$HOME/.tart/$VM.lock" "$ROOT_DIR/script/glitch_vm.sh" "$OUT" "${BUNDLES[@]}" -- "${BENCH_ARGS[@]}"
+  exec lockf -k "$HOME/.tart/$VM.lock" "$ROOT_DIR/script/glitch_vm.sh" "$OUT" "${BUNDLES[@]}" -- ${BENCH_ARGS[@]+"${BENCH_ARGS[@]}"}
 fi
 
 # DEFI_VM_RUNNING=1: reuse a guest booted under a lock this shell's parent already holds.
@@ -52,7 +52,8 @@ cleanup() {
 [[ "${DEFI_GLITCH_KEEP:-0}" == 1 ]] || trap cleanup EXIT
 
 vm "[ -f ~/.glitch-daemon-was-running ] || ! pgrep -x defi-daemon >/dev/null || touch ~/.glitch-daemon-was-running; pkill -x defi-daemon; [ ! -x ~/Applications/Defi.app/Contents/MacOS/defi ] || ~/Applications/Defi.app/Contents/MacOS/defi service stop >/dev/null 2>&1; rm -rf $G; mkdir -p $G/tools ~/.config/defi; [ -f ~/.glitch-config.orig ] || [ ! -f ~/.config/defi/config.toml ] || cp ~/.config/defi/config.toml ~/.glitch-config.orig; true"
-vm "printf '[layout]\ndefault_column_width = 0.6\n\n[menu_bar]\nenabled = false\n' > ~/.config/defi/config.toml"
+# A config without its backup is never overwritten: cleanup would then delete it.
+vm "[ -f ~/.glitch-config.orig ] || [ ! -f ~/.config/defi/config.toml ] || { echo 'config.toml has no backup' >&2; exit 1; }; printf '[layout]\ndefault_column_width = 0.6\n\n[menu_bar]\nenabled = false\n' > ~/.config/defi/config.toml"
 for tool in PerformanceFixture GlitchCamera; do vm "cat > $G/tools/$tool && chmod +x $G/tools/$tool" < ".build/glitch/$tool"; done
 vm "cat > $G/glitch_bench.py" < script/glitch_bench.py
 
