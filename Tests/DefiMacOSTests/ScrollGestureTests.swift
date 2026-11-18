@@ -46,11 +46,11 @@ struct ScrollGestureTests {
   func `Three fingers swipe by how far they moved, through a finger slipping, until they lift`() {
     var swipe = FingerSwipe(fingers: 3)
     let at = { (x: Double, ids: [Int]) in ids.map { (id: $0, position: CGPoint(x: x, y: 0.5)) } }
-    let tenth = { (step: (phase: Int64, dx: Double, dy: Double, time: TimeInterval)?) in
+    let tenth = { (step: (phase: Int64, dx: Double, dy: Double)?) in
       step.map { $0.phase == 2 && abs($0.dx + FingerSwipe.travelPerWidth / 10) < 1e-6 && $0.dy == 0 } == true
     }
     #expect(swipe.update(at(0.5, [1, 2]), time: 0) == nil)
-    #expect(swipe.update(at(0.5, [1, 2, 3]), time: 0)! == (1, 0, 0, 0))
+    #expect(swipe.update(at(0.5, [1, 2, 3]), time: 0)! == (1, 0, 0))
     // Fingers moving left reveal what lies right: negative, a tenth of the trackpad.
     #expect(tenth(swipe.update(at(0.4, [1, 2, 3]), time: 0.01)))
     // A finger swapped for another: no jump.
@@ -59,24 +59,24 @@ struct ScrollGestureTests {
     #expect(tenth(swipe.update(at(0.3, [1, 2]), time: 0.03)))
     #expect(swipe.update(at(0.3, [1, 2]) + at(0.7, [5]), time: 0.04) == nil)
     #expect(tenth(swipe.update(at(0.2, [1, 2]), time: 0.05)))
-    // One gone for longer ends the swipe when it left: the wait takes nothing from the flick.
+    // One gone for longer ends the swipe.
     #expect(swipe.update(at(0.2, [1, 2]), time: 0.06) == nil)
-    #expect(swipe.update(at(0.2, [1, 2]), time: 0.06 + FingerSwipe.slip)! == (4, 0, 0, 0.05))
+    #expect(swipe.update(at(0.2, [1, 2]), time: 0.06 + FingerSwipe.slip)! == (4, 0, 0))
     #expect(swipe.update(at(0.2, [1]), time: 0.3) == nil)
     // A finger more is another gesture, such as the Overview's: it ends the swipe at once, and none begins
     // while its fingers lift, until they all have.
     _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.35)
-    #expect(swipe.update(at(0.5, [1, 2, 3, 4]), time: 0.36)! == (4, 0, 0, 0.36))
+    #expect(swipe.update(at(0.5, [1, 2, 3, 4]), time: 0.36)! == (4, 0, 0))
     #expect(swipe.update(at(0.4, [1, 2, 3, 4]), time: 0.37) == nil)
     #expect(swipe.update(at(0.3, [1, 2, 3]), time: 0.38) == nil)
     #expect(swipe.update(at(0.2, [1, 2]), time: 0.39) == nil)
     #expect(swipe.update([], time: 0.395) == nil)
     // Lifting them all ends it at once, even one after the other.
     _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.4)
-    #expect(swipe.update([], time: 0.41)! == (4, 0, 0, 0.41))
+    #expect(swipe.update([], time: 0.41)! == (4, 0, 0))
     _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.5)
     #expect(swipe.update(at(0.5, [1]), time: 0.51) == nil)
-    #expect(swipe.update([], time: 0.52)! == (4, 0, 0, 0.51))
+    #expect(swipe.update([], time: 0.52)! == (4, 0, 0))
   }
 
   @Test
@@ -123,6 +123,11 @@ struct ScrollGestureTests {
     #expect(progress(move(0.66)).map { abs($0 - along(480)) < 1e-9 } == true)
     #expect(progress(move(0.68, count: 2)).map { abs($0 - along(540)) < 1e-9 } == true)
     #expect(move(0.68, count: 2, after: FingerSwipe.slip + 0.01) == .ended(commit: true))
+    _ = lift()
+    // Fingers that rest through the rest of a slip release without momentum: short of halfway, it goes back.
+    _ = move(0.5); _ = move(0.53); _ = move(0.56)
+    _ = move(0.59, count: 3); _ = move(0.6, count: 3)
+    #expect(move(0.6, count: 3, after: FingerSwipe.slip) == .ended(commit: false))
     _ = lift()
     // Down closes an open Overview; down while closed asks nothing.
     _ = move(0.5, open: true)

@@ -215,15 +215,14 @@ struct FingerSwipe {
 
   /// The scroll phase and travel since the previous event, or nil when the fingers did not move.
   /// `current` are the identities and normalized positions (origin bottom-left) of the
-  /// fingers on the trackpad. `time` is the event's, except for a swipe that ends after a
-  /// slip: its fingers left when the slip began, so the wait takes nothing from the flick.
+  /// fingers on the trackpad, and `time` the event's, which times a slip.
   mutating func update(_ current: [(id: Int, position: CGPoint)], time: TimeInterval)
-    -> (phase: Int64, dx: Double, dy: Double, time: TimeInterval)? {
+    -> (phase: Int64, dx: Double, dy: Double)? {
     if current.isEmpty { waitsForLift = false } else if current.count > fingers { waitsForLift = true }
     guard let previous = touches else {
       guard current.count == fingers, !waitsForLift else { return nil }
       touches = Dictionary(current.map { ($0.id, $0.position) }) { $1 }
-      return (1, 0, 0, time)
+      return (1, 0, 0)
     }
     if current.count == fingers {
       slippedAt = nil
@@ -233,7 +232,7 @@ struct FingerSwipe {
       slippedAt = slipped
       if !(1..<fingers).contains(current.count) || time - slipped >= Self.slip {
         (touches, slippedAt) = (nil, nil)
-        return (4, 0, 0, slipped)
+        return (4, 0, 0)
       }
     }
     touches = Dictionary(current.map { ($0.id, $0.position) }) { $1 }
@@ -243,7 +242,7 @@ struct FingerSwipe {
     let dx = moves.reduce(0) { $0 + $1.to.x - $1.from.x } / Double(moves.count)
     let dy = moves.reduce(0) { $0 + $1.from.y - $1.to.y } / Double(moves.count)
     guard dx != 0 || dy != 0 else { return nil }
-    return (2, dx * Self.travelPerWidth, dy * Self.travelPerWidth, time)
+    return (2, dx * Self.travelPerWidth, dy * Self.travelPerWidth)
   }
 }
 
@@ -290,7 +289,7 @@ struct OverviewSwipe {
       defer { (x, y, velocity, stage) = (0, 0, 0, step.phase == 1 ? .waiting : .ignored) }
       guard stage == .opening || stage == .closing else { return nil }
       // Fingers that rested before lifting have no speed left.
-      let speed = step.time - lastMove > 0.05 ? 0 : (stage == .opening ? -velocity : velocity)
+      let speed = time - lastMove > 0.05 ? 0 : (stage == .opening ? -velocity : velocity)
       let flicked = abs(speed) >= Self.flickSpeed
       return .ended(commit: flicked ? speed > 0 && progress >= Self.flickProgress : progress >= 0.5)
     }
@@ -343,7 +342,7 @@ extension ScrollGestureInput {
     modifierHeld = held & modifierBits == modifierBits
     location = event.location
     timestamp = Double(event.timestamp) / 1_000_000_000
-    seconds = step.time
+    seconds = eventSeconds(event.timestamp)
   }
 }
 
