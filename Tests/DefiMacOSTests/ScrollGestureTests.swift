@@ -265,8 +265,12 @@ struct ScrollGestureTests {
       Issue.record("a swipe through a slip must be one pan, got \(slipped)")
       return
     }
-    // The first step picks the axis; the ten after it, slip included, are a fiftieth of 3000 points each.
-    #expect(abs(abs(travel) - 600) < 1e-6)
+    // The fingers that stayed carry the slip: the pan travels as far as without one.
+    guard case .panEnded(_, let whole, _, _)? = pans(Array(repeating: 3, count: 12)).last else {
+      Issue.record("a swipe without a slip must end its pan")
+      return
+    }
+    #expect(abs(travel - whole) < 1e-6 && travel != 0)
     #expect(pans([3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]).isEmpty)
     // Lifted one at a time, they pass three on the way down: still not a swipe of the strip.
     #expect(pans([4, 4, 4, 3, 2, 2, 1, 1]).isEmpty)
