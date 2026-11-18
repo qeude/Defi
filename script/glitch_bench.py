@@ -264,6 +264,8 @@ class Bench:
         # Settled with frames off target: Defi knows a window is not where it should be.
         drift = self.status().get('drift', '0')
         self.check('converged', drift.split('[')[0] == '0', action=action, drift=drift)
+        if drift.split('[')[0] != '0':
+            (self.out / f'drift-{round(start, 1)}-trace.txt').write_text(self.cli_run('trace')[0])
         if before_pids is not None and action != 'restart':
             self.check('crash', pids == before_pids, action=action, before=before_pids, after=pids)
         layout = self.layout()
@@ -432,9 +434,11 @@ def activation(bench, rng, rounds):
         for name in ['b', 'a', 'b', 'a']:
             fixture = bench.fixture(name)
             start, pids = now(), bench.daemons()
-            bench.log_event('activate', fixture=name)
+            sent = now()
             subprocess.run(['osascript', '-e', 'tell application "System Events" to set frontmost of '
                             f'(first process whose unix id is {fixture.pid}) to true'], capture_output=True)
+            # osascript takes ~130 ms to activate: stamped before it, the wait read as a still window.
+            bench.log_event('activate', fixture=name, sent=round(sent, 3))
             mine = {w['windowNumber'] for w in fixture.ask()['windows']}
             bench.judge('activate', start, None, pids, until=lambda: bench.focused() in mine)
             (bench.out / f'activate-{round(start, 1)}-trace.txt').write_text(bench.cli_run('trace')[0])
@@ -750,7 +754,7 @@ def judge_motion(action, frames, width, defect, instant=False):
     """Backtracks, jumps, blinks and two-step landings of each window's run on the middle row."""
     scenario, name, direction = action['scenario'], action['action'], action.get('direction')
     tracks = collections.defaultdict(list)
-    seams, changes, previous_seen = set(), [], None
+    seams, changes, previous_seen, seen_at = set(), [], None, []
     for f in frames:
         seen, merged = {}, []
         for run in f['rows'][1]:
@@ -770,9 +774,15 @@ def judge_motion(action, frames, width, defect, instant=False):
         if previous_seen is not None and seen != previous_seen:
             changes.append(f['t'])
         previous_seen = seen
+        seen_at.append((f['t'], seen))
     # A freeze mid-motion: nothing on the row changes for longer than the camera's own gaps.
-    if direction in ('left', 'right') and len(changes) > 2 and not instant:
-        gap = max(b - a for a, b in zip(changes, changes[1:]))
+    # Once every window is within 4 pt of where it ends, later 2 pt adjustments are not a frozen motion.
+    final = seen_at[-1][1] if seen_at else {}
+    landed = next((t for t, seen in seen_at if seen.keys() == final.keys() and all(
+        abs(seen[k][0] - final[k][0]) <= 4 and abs(seen[k][1] - final[k][1]) <= 4 for k in final)), None)
+    moving = [t for t in changes if landed is None or t <= landed]
+    if direction in ('left', 'right') and len(moving) > 2 and not instant:
+        gap = max(b - a for a, b in zip(moving, moving[1:]))
         stalls.append(round(gap * 1000))
         if gap > 0.12:
             defect(scenario, 'stall', action=name, at=changes[0], ms=round(gap * 1000))
