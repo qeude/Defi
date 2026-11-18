@@ -190,6 +190,8 @@ struct FingerSwipe {
   let fingers: Int
   private var touches: [Int: CGPoint]?
   private var slippedAt: TimeInterval?
+  /// More fingers touched: theirs is another gesture until every finger lifts, whatever count it passes on the way.
+  private var waitsForLift = false
 
   init(fingers: Int) { self.fingers = fingers }
 
@@ -217,8 +219,9 @@ struct FingerSwipe {
   /// slip: its fingers left when the slip began, so the wait takes nothing from the flick.
   mutating func update(_ current: [(id: Int, position: CGPoint)], time: TimeInterval)
     -> (phase: Int64, dx: Double, dy: Double, time: TimeInterval)? {
+    if current.isEmpty { waitsForLift = false } else if current.count > fingers { waitsForLift = true }
     guard let previous = touches else {
-      guard current.count == fingers else { return nil }
+      guard current.count == fingers, !waitsForLift else { return nil }
       touches = Dictionary(current.map { ($0.id, $0.position) }) { $1 }
       return (1, 0, 0, time)
     }

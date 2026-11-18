@@ -63,10 +63,14 @@ struct ScrollGestureTests {
     #expect(swipe.update(at(0.2, [1, 2]), time: 0.06) == nil)
     #expect(swipe.update(at(0.2, [1, 2]), time: 0.06 + FingerSwipe.slip)! == (4, 0, 0, 0.05))
     #expect(swipe.update(at(0.2, [1]), time: 0.3) == nil)
-    // A finger more is another gesture, such as the Overview's: it ends the swipe at once.
+    // A finger more is another gesture, such as the Overview's: it ends the swipe at once, and none begins
+    // while its fingers lift, until they all have.
     _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.35)
     #expect(swipe.update(at(0.5, [1, 2, 3, 4]), time: 0.36)! == (4, 0, 0, 0.36))
     #expect(swipe.update(at(0.4, [1, 2, 3, 4]), time: 0.37) == nil)
+    #expect(swipe.update(at(0.3, [1, 2, 3]), time: 0.38) == nil)
+    #expect(swipe.update(at(0.2, [1, 2]), time: 0.39) == nil)
+    #expect(swipe.update([], time: 0.395) == nil)
     // Lifting them all ends it at once, even one after the other.
     _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.4)
     #expect(swipe.update([], time: 0.41)! == (4, 0, 0, 0.41))
@@ -264,6 +268,8 @@ struct ScrollGestureTests {
     // The first step picks the axis; the ten after it, slip included, are a fiftieth of 3000 points each.
     #expect(abs(abs(travel) - 600) < 1e-6)
     #expect(pans([3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]).isEmpty)
+    // Lifted one at a time, they pass three on the way down: still not a swipe of the strip.
+    #expect(pans([4, 4, 4, 3, 2, 2, 1, 1]).isEmpty)
   }
 
   /// The Overview hears of the swipe before the toggle that opens it, then follows it to the lift.
