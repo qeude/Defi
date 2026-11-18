@@ -45,4 +45,79 @@ struct DaemonRecentWindowsTests {
     #expect(!daemon.recentWindows.isOpen)
     #expect(daemon.recentWindowsShowTask == nil)
   }
+
+  @Test @NavigationActor
+  func displayEventWithoutChangeKeepsTheSwitcherOpen() async throws {
+    let directory = URL(filePath: "/tmp/defi-recent-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let configURL = directory.appending(path: "config.toml")
+    try "".write(to: configURL, atomically: true, encoding: .utf8)
+    let menuBar = await MainActor.run { MenuBarState(accessibilityTrusted: { false }) }
+    let daemon = try Daemon(
+      options: DaemonOptions(arguments: [
+        "--config", configURL.path, "--socket", directory.appending(path: "daemon.sock").path,
+      ]),
+      menuBar: menuBar,
+      instanceLockURL: directory.appending(path: "daemon.lock"),
+      topologyStore: WorkspaceTopologyStore(url: directory.appending(path: "topology.json")),
+      workspaceStatePublisher: { _ in },
+      desktopSnapshotOverviewUpdater: { _ in }
+    )
+    daemon.restorationInFlight = true
+    let monitorID = MonitorID(rawValue: 1)
+    daemon.activeMonitorID = monitorID
+    daemon.state.attachMonitor(monitorID)
+    try discoverWindow(
+      Window(
+        id: WindowID(rawValue: 1), appID: "app", title: "Window",
+        frame: Rect(x: 0, y: 0, width: 500, height: 700), monitorID: monitorID),
+      decision: RuleDecision(followFocus: true), isNativelyFocused: true, state: &daemon.state)
+    #expect(daemon.handleRecentWindows(.next).ok)
+
+    // macOS posts screen-parameter changes when nothing about the displays changed.
+    daemon.scheduleDisplayReconciliation()
+
+    #expect(daemon.recentWindows.isOpen)
+  }
+
+  @Test @NavigationActor
+  func displayGeometryChangeClosesTheSwitcher() async throws {
+    let directory = URL(filePath: "/tmp/defi-recent-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let configURL = directory.appending(path: "config.toml")
+    try "".write(to: configURL, atomically: true, encoding: .utf8)
+    let menuBar = await MainActor.run { MenuBarState(accessibilityTrusted: { false }) }
+    let daemon = try Daemon(
+      options: DaemonOptions(arguments: [
+        "--config", configURL.path, "--socket", directory.appending(path: "daemon.sock").path,
+      ]),
+      menuBar: menuBar,
+      instanceLockURL: directory.appending(path: "daemon.lock"),
+      topologyStore: WorkspaceTopologyStore(url: directory.appending(path: "topology.json")),
+      workspaceStatePublisher: { _ in },
+      desktopSnapshotOverviewUpdater: { _ in }
+    )
+    daemon.restorationInFlight = true
+    let window = Window(id: WindowID(rawValue: 1), appID: "app", title: "Window",
+      frame: Rect(x: 0, y: 0, width: 500, height: 700), monitorID: MonitorID(rawValue: 1))
+    func apply(width: Double) {
+      daemon.applyDesktopSnapshot(
+        DesktopSnapshot(
+          monitors: [MonitorSnapshot(id: MonitorID(rawValue: 1), frame: Rect(x: 0, y: 0, width: width, height: 700))],
+          windows: [window], focusedWindowID: window.id),
+        nativeFocusWasPending: false, forceFullWindowRefresh: false, forceWindowListRefresh: false,
+        forceApplicationInventoryRefresh: false, targetedWindowRetryRefresh: false,
+        consumePeriodicWindowRefresh: false)
+    }
+    apply(width: 1_000)
+    #expect(daemon.handleRecentWindows(.next).ok)
+    apply(width: 1_000)
+    #expect(daemon.recentWindows.isOpen)
+
+    // A resolution change with one display: the arrangement applies nothing, the snapshot sees it.
+    apply(width: 1_200)
+    #expect(!daemon.recentWindows.isOpen)
+  }
 }

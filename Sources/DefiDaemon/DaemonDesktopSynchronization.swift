@@ -282,6 +282,13 @@ extension Daemon {
       focus.discardDisplacedFocus()
       platform.invalidateFrameStateForDisplayChange()
       platform.invalidateFocusStateForDisplayChange()
+      // A display change the arrangement did not apply (one display left, no staircase needed).
+      // The first snapshot after launch has nothing to compare and nothing open to close.
+      if !previousViewports.isEmpty {
+        closeOverview()
+        handleCheatsheetInput(.dismiss)
+        closeRecentWindows()
+      }
       invalidatePointerFocusIntent(recoveringTo: preservedLogicalFocusWindowID)
       rearmPointerFocusTransition()
       scrollAnimations.removeAll(keepingCapacity: true)
@@ -369,6 +376,7 @@ extension Daemon {
       externallyChangedWindowIDs: Set(snapshot.externallyChangedFrames.keys),
       nativeFullscreenWindowIDs: snapshot.nativeFullscreenWindowIDs,
       explicitlyRemovedWindowIDs: snapshot.explicitlyDestroyedWindowIDs,
+      pendingWindowIDs: snapshot.pendingWindowIDs,
       viewports: viewportsByMonitor,
       nativeFocusedWindowID: snapshot.focusedWindowID,
       frontmostProcessID: snapshot.frontmostProcessID,
@@ -452,7 +460,8 @@ extension Daemon {
       nativeFocusEventAfterMouseRelease:
         snapshot.nativeFocusObservedAfterMouseRelease
     )
-    if displayGeometryChanged {
+    // Without previous geometry (the first snapshot), frames restored at a restart stay as saved.
+    if displayGeometryChanged, !previousViewports.isEmpty {
       rebaseFloatingWindowFrames(
         previousViewports: previousViewports,
         nextViewports: viewportsByMonitor,

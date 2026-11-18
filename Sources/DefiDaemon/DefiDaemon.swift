@@ -151,6 +151,8 @@ final class Daemon {
   var latestMonitors: [MonitorSnapshot] = []
   var layoutPlansByMonitor: [MonitorID: MonitorLayoutPlan] = [:]
   var shouldShutdown = false
+  /// A restart: the next daemon takes the windows where they are, so they are not restored.
+  var handsOffWindows = false
   var restorationInFlight = false
   var shutdownTask: Task<Void, Never>?
   var signalSources: [DispatchSourceSignal] = []
@@ -277,6 +279,7 @@ final class Daemon {
     let restoredTopology = try? topologyStore.load(sessionID: topologySessionID)
     state = RuntimeState(config: config, topology: restoredTopology)
     lastPersistedTopology = restoredTopology
+    floatingWindowFrames = restoredTopology?.floatingWindowFrames ?? [:]
     platform.setCommandDiagnosticHandler { [weak self, weak diagnostics] sample in
       diagnostics?.record(sample)
       if let reason = AutoMarkPolicy.reason(for: sample) {
