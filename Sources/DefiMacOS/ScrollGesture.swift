@@ -185,9 +185,11 @@ struct FingerSwipe {
   /// Scroll points per trackpad width: a swipe across the whole trackpad moves the
   /// strip two displays at the default speed, whatever the trackpad's size.
   static let travelPerWidth = 3000.0
+  /// How long a finger may slip off or join before the swipe counts as ended.
+  static let slip = 0.12
   let fingers: Int
-  private var touches: Set<Int>?
-  private var last = CGPoint.zero
+  private var touches: [Int: CGPoint]?
+  private var slippedAt: TimeInterval?
 
   init(fingers: Int) { self.fingers = fingers }
 
@@ -209,24 +211,36 @@ struct FingerSwipe {
     return true
   }
 
-  /// The scroll phase and travel since the previous event, or nil when nothing changed.
-  /// `touches` are the identities and normalized positions (origin bottom-left) of the
-  /// fingers on the trackpad.
-  mutating func update(_ current: [(id: Int, position: CGPoint)]) -> (phase: Int64, dx: Double, dy: Double)? {
-    guard current.count == fingers else {
-      guard touches != nil else { return nil }
-      touches = nil
-      return (4, 0, 0)
+  /// The scroll phase and travel since the previous event, or nil when the fingers did not move.
+  /// `current` are the identities and normalized positions (origin bottom-left) of the
+  /// fingers on the trackpad. `time` is the event's, except for a swipe that ends after a
+  /// slip: its fingers left when the slip began, so the wait takes nothing from the flick.
+  mutating func update(_ current: [(id: Int, position: CGPoint)], time: TimeInterval)
+    -> (phase: Int64, dx: Double, dy: Double, time: TimeInterval)? {
+    guard let previous = touches else {
+      guard current.count == fingers else { return nil }
+      touches = Dictionary(current.map { ($0.id, $0.position) }) { $1 }
+      return (1, 0, 0, time)
     }
-    let ids = Set(current.map(\.id))
-    let mean = CGPoint(
-      x: current.reduce(0) { $0 + $1.position.x } / Double(fingers),
-      y: current.reduce(0) { $0 + $1.position.y } / Double(fingers))
-    defer { touches = ids; last = mean }
-    guard let touches else { return (1, 0, 0) }
-    // A finger swapped for another: take the new positions without a jump.
-    guard touches == ids, mean != last else { return nil }
-    return (2, (mean.x - last.x) * Self.travelPerWidth, (last.y - mean.y) * Self.travelPerWidth)
+    if current.count == fingers {
+      slippedAt = nil
+    } else {
+      // A fast swipe drops a finger for a moment; only lifting them all ends it at once.
+      let slipped = slippedAt ?? time
+      slippedAt = slipped
+      if current.isEmpty || time - slipped >= Self.slip {
+        (touches, slippedAt) = (nil, nil)
+        return (4, 0, 0, slipped)
+      }
+    }
+    touches = Dictionary(current.map { ($0.id, $0.position) }) { $1 }
+    // The fingers that stayed carry the swipe: one that slips, returns or is swapped makes no jump.
+    let moves = current.compactMap { touch in previous[touch.id].map { (from: $0, to: touch.position) } }
+    guard !moves.isEmpty else { return nil }
+    let dx = moves.reduce(0) { $0 + $1.to.x - $1.from.x } / Double(moves.count)
+    let dy = moves.reduce(0) { $0 + $1.from.y - $1.to.y } / Double(moves.count)
+    guard dx != 0 || dy != 0 else { return nil }
+    return (2, dx * Self.travelPerWidth, dy * Self.travelPerWidth, time)
   }
 }
 
@@ -249,14 +263,11 @@ struct OverviewSwipe {
   static let flickSpeed = 500.0
   /// A flick finishes only a swipe already this far along, so a twitch of the fingers opens nothing.
   static let flickProgress = 0.15
-  /// How long a finger may slip off or join before the swipe counts as ended.
-  static let slip = 0.12
   private enum Stage { case waiting, ignored, opening, closing }
   private var swipe: FingerSwipe
   private var x = 0.0, y = 0.0
   private var velocity = 0.0, lastMove = 0.0
   private var stage = Stage.ignored
-  private var slippedAt: TimeInterval?
 
   init(fingers: Int) { swipe = FingerSwipe(fingers: fingers) }
 
@@ -271,14 +282,7 @@ struct OverviewSwipe {
 
   mutating func update(_ touches: [(id: Int, position: CGPoint)], time: TimeInterval,
     overviewOpen: Bool) -> OverviewSwipeEvent? {
-    // A fast swipe drops a finger for a moment; only lifting them all ends it at once.
-    if stage == .opening || stage == .closing, !touches.isEmpty, touches.count != fingers {
-      let slippedAt = slippedAt ?? time
-      self.slippedAt = slippedAt
-      if time - slippedAt < Self.slip { return nil }
-    }
-    slippedAt = nil
-    guard let step = swipe.update(touches) else { return nil }
+    guard let step = swipe.update(touches, time: time) else { return nil }
     guard step.phase == 2 else {
       defer { (x, y, velocity, stage) = (0, 0, 0, step.phase == 1 ? .waiting : .ignored) }
       guard stage == .opening || stage == .closing else { return nil }
@@ -327,7 +331,7 @@ extension ScrollGestureInput {
   /// A gesture event's touches as one step of a finger swipe, or nil when it is none.
   init?(gesture event: CGEvent, touches: [(id: Int, position: CGPoint)], aspect: Double,
     swipe: inout FingerSwipe, modifierBits: UInt64, announcedModifierBits: UInt64) {
-    guard let step = swipe.update(touches) else { return nil }
+    guard let step = swipe.update(touches, time: eventSeconds(event.timestamp)) else { return nil }
     phase = step.phase
     dx = step.dx
     // Positions are shares of the trackpad's width and height: the same finger travel counts the same on both axes.
@@ -336,7 +340,7 @@ extension ScrollGestureInput {
     modifierHeld = held & modifierBits == modifierBits
     location = event.location
     timestamp = Double(event.timestamp) / 1_000_000_000
-    seconds = eventSeconds(event.timestamp)
+    seconds = step.time
   }
 }
 

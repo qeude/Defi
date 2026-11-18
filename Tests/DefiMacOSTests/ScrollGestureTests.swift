@@ -43,18 +43,33 @@ struct ScrollGestureTests {
   }
 
   @Test
-  func `Three fingers swipe from their mean position, and end when the count changes`() {
+  func `Three fingers swipe by how far they moved, through a finger slipping, until they lift`() {
     var swipe = FingerSwipe(fingers: 3)
     let at = { (x: Double, ids: [Int]) in ids.map { (id: $0, position: CGPoint(x: x, y: 0.5)) } }
-    #expect(swipe.update(at(0.5, [1, 2])) == nil)
-    #expect(swipe.update(at(0.5, [1, 2, 3]))! == (1, 0, 0))
+    let tenth = { (step: (phase: Int64, dx: Double, dy: Double, time: TimeInterval)?) in
+      step.map { $0.phase == 2 && abs($0.dx + FingerSwipe.travelPerWidth / 10) < 1e-6 && $0.dy == 0 } == true
+    }
+    #expect(swipe.update(at(0.5, [1, 2]), time: 0) == nil)
+    #expect(swipe.update(at(0.5, [1, 2, 3]), time: 0)! == (1, 0, 0, 0))
     // Fingers moving left reveal what lies right: negative, a tenth of the trackpad.
-    let step = swipe.update(at(0.4, [1, 2, 3]))!
-    #expect(step.phase == 2 && abs(step.dx + FingerSwipe.travelPerWidth / 10) < 1e-6 && step.dy == 0)
+    #expect(tenth(swipe.update(at(0.4, [1, 2, 3]), time: 0.01)))
     // A finger swapped for another: no jump.
-    #expect(swipe.update(at(0.1, [1, 2, 4])) == nil)
-    #expect(swipe.update(at(0.1, [1, 2, 3, 4]))! == (4, 0, 0))
-    #expect(swipe.update(at(0.1, [1])) == nil)
+    #expect(swipe.update(at(0.4, [1, 2]) + at(0.9, [4]), time: 0.02) == nil)
+    // A finger slipping off for a moment keeps the swipe, which follows those that stayed.
+    #expect(tenth(swipe.update(at(0.3, [1, 2]), time: 0.03)))
+    #expect(swipe.update(at(0.3, [1, 2]) + at(0.7, [5]), time: 0.04) == nil)
+    let joined = at(0.2, [1, 2]) + at(0.6, [5]) + at(0.9, [6])
+    #expect(tenth(swipe.update(joined, time: 0.05)))
+    // One gone for longer ends the swipe when it left: the wait takes nothing from the flick.
+    #expect(swipe.update(joined, time: 0.06) == nil)
+    #expect(swipe.update(joined, time: 0.06 + FingerSwipe.slip)! == (4, 0, 0, 0.05))
+    #expect(swipe.update(at(0.2, [1]), time: 0.3) == nil)
+    // Lifting them all ends it at once, even one after the other.
+    _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.4)
+    #expect(swipe.update([], time: 0.41)! == (4, 0, 0, 0.41))
+    _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.5)
+    #expect(swipe.update(at(0.5, [1]), time: 0.51) == nil)
+    #expect(swipe.update([], time: 0.52)! == (4, 0, 0, 0.51))
   }
 
   @Test
@@ -94,13 +109,13 @@ struct ScrollGestureTests {
     // Even past the end, fingers flicked back down go back.
     for y in [0.5, 0.53, 0.75, 0.73, 0.71, 0.69, 0.67] { _ = move(y) }
     #expect(lift() == .ended(commit: false))
-    // A finger slipping off for a moment keeps the swipe; one gone for longer ends it.
+    // A finger slipping off for a moment keeps the swipe following; one gone for longer ends it.
     _ = move(0.5); _ = move(0.53); _ = move(0.6)
-    #expect(move(0.62, count: 2) == nil)
+    #expect(progress(move(0.62, count: 2)).map { abs($0 - along(360)) < 1e-9 } == true)
     #expect(progress(move(0.64)).map { abs($0 - along(420)) < 1e-9 } == true)
     #expect(progress(move(0.66)).map { abs($0 - along(480)) < 1e-9 } == true)
-    #expect(move(0.68, count: 2, after: 0.01) == nil)
-    #expect(move(0.7, count: 2, after: OverviewSwipe.slip + 0.01) == .ended(commit: true))
+    #expect(progress(move(0.68, count: 2)).map { abs($0 - along(540)) < 1e-9 } == true)
+    #expect(move(0.68, count: 2, after: FingerSwipe.slip + 0.01) == .ended(commit: true))
     _ = lift()
     // Down closes an open Overview; down while closed asks nothing.
     _ = move(0.5, open: true)
@@ -146,22 +161,22 @@ struct ScrollGestureTests {
       swipe.takesScroll(scrollPhase: phase, momentumPhase: momentumPhase)
     }
     #expect(!takes(0))
-    _ = swipe.update(at(2))
+    _ = swipe.update(at(2), time: 0)
     #expect(!takes(0))
-    _ = swipe.update(at(3))
+    _ = swipe.update(at(3), time: 0)
     #expect(takes(0, phase: 2))
-    _ = swipe.update([])
+    _ = swipe.update([], time: 0)
     // The scroll's end can reach Defi after the lift; its momentum stays the swipe's.
     #expect(takes(0, phase: 4))
     #expect(takes(1))
     #expect(takes(3))
     #expect(!takes(2))
     // A new scroll, or a wheel step, after a swipe without momentum reaches the app again.
-    _ = swipe.update(at(3))
-    _ = swipe.update([])
+    _ = swipe.update(at(3), time: 0)
+    _ = swipe.update([], time: 0)
     #expect(!takes(0, phase: 128))
-    _ = swipe.update(at(3))
-    _ = swipe.update([])
+    _ = swipe.update(at(3), time: 0)
+    _ = swipe.update([], time: 0)
     #expect(!takes(0))
   }
 
