@@ -437,6 +437,7 @@ def activation(bench, rng, rounds):
                             f'(first process whose unix id is {fixture.pid}) to true'], capture_output=True)
             mine = {w['windowNumber'] for w in fixture.ask()['windows']}
             bench.judge('activate', start, None, pids, until=lambda: bench.focused() in mine)
+            (bench.out / f'activate-{round(start, 1)}-trace.txt').write_text(bench.cli_run('trace')[0])
 
 
 def overview(bench, rng, rounds):
@@ -549,6 +550,8 @@ def slow(bench, rng, rounds):
     bench.fixture('a').ask('set-busy', delay=0.12, period=0.3)
     try:
         columns(bench, rng, rounds)
+        # Activating an app that answers late: Defi must still reveal its window at once.
+        activation(bench, rng, rounds)
     finally:
         bench.fixture('a').ask('set-busy', delay=0, period=1)
 
