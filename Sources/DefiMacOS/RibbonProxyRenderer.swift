@@ -594,6 +594,9 @@ final class RibbonProxyPresenter {
       layer.removeFromSuperlayer(); windowLayers[id] = nil
     }
     let phaseLayers = CACurrentMediaTime()
+    // A motion from rest starts two frames after this commit: its pictures and layers reach
+    // the compositor first, and an earlier clock showed its opening frames all at once.
+    let motionStart = phaseLayers + 2 * ribbonProxyFrameInterval(screen.displayID)
     var pictured = 0, badged = 0
     var stop = 0.0
     // A released gesture moved the whole stack as one: what this motion leaves out (the
@@ -650,25 +653,29 @@ final class RibbonProxyPresenter {
       }
       // The active window travels above the windows it crosses, as in Niri.
       layer.zPosition = window.id == selectedWindowID ? 100_000 : depth[window.id] ?? 0
-      let launched = ribbonProxyMove(layer, from: from, to: to, velocity: velocity)
-      slides[window.id] = (CGPoint(x: from.midX, y: from.midY), CGPoint(x: to.midX, y: to.midY), now, launched)
-      stop = max(stop, ribbonProxyVisualStop(travel: hypot(to.midX - from.midX, to.midY - from.midY), velocity: launched),
-        ribbonProxyVisualStop(travel: abs(to.width - from.width) + abs(to.height - from.height)))
+      // Mid-flight windows retarget at once: holding them still would stall their motion.
+      let start = current == nil ? motionStart : now
+      let launched = ribbonProxyMove(layer, from: from, to: to, velocity: velocity, at: start)
+      slides[window.id] = (CGPoint(x: from.midX, y: from.midY), CGPoint(x: to.midX, y: to.midY), start, launched)
+      // A motion from rest starts after its lead: it settles that much later than now.
+      stop = max(stop, start - now + max(
+        ribbonProxyVisualStop(travel: hypot(to.midX - from.midX, to.midY - from.midY), velocity: launched),
+        ribbonProxyVisualStop(travel: abs(to.width - from.width) + abs(to.height - from.height))))
       layer.opacity = 1
       if window.appears {
         // A new window grows in at its place, like Niri's open animation. A short reveal:
         // a longer one blends it with the neighbour sliding out beneath.
         let grow = ribbonProxySpringAnimation("transform.scale")
         grow.fromValue = 0.9; grow.toValue = 1
-        ribbonProxyStartNow(grow, on: layer)
+        ribbonProxyStartNow(grow, on: layer, at: start)
         let reveal = CABasicAnimation(keyPath: "opacity")
         reveal.fromValue = 0; reveal.toValue = 1; reveal.duration = 0.1
         reveal.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        ribbonProxyStartNow(reveal, on: layer)
+        ribbonProxyStartNow(reveal, on: layer, at: start)
       }
       let starts = Dictionary(sublayerFrames(layer, size: from.size).map { (ObjectIdentifier($0.0), $0.1) }) { a, _ in a }
       for (sublayer, end) in sublayerFrames(layer, size: to.size) {
-        ribbonProxyMove(sublayer, from: starts[ObjectIdentifier(sublayer)] ?? end, to: end)
+        ribbonProxyMove(sublayer, from: starts[ObjectIdentifier(sublayer)] ?? end, to: end, at: start)
       }
     }
     if let releasedPan {
@@ -697,6 +704,7 @@ final class RibbonProxyPresenter {
     holdStart = CACurrentMediaTime()
     // A hold is still: the snapshot that opens the window and fresh pictures must not wait for it.
     RibbonProxyStore.shared.setMoving(!holds, display)
+    if !holds { MotionSignpost.begin("ribbon", UInt64(display)) }
     // This display's borders only: another display's stay as they are.
     let borders = borderWindowIDs.map { $0.union(shownIDs) } ?? managed
     if !bordersHidden || hiddenBorderIDs != borders {
@@ -860,6 +868,7 @@ final class RibbonProxyPresenter {
   private func stopped(_ token: UInt64) {
     guard generation == token, presenting, drag == .idle else { return }
     springStopped = true
+    MotionSignpost.end("ribbon", UInt64(display))
     letWindowsDraw(true)
     RibbonProxyStore.shared.setMoving(false, display)
   }
@@ -1041,6 +1050,7 @@ final class RibbonProxyPresenter {
         fade.beginTime = layers.root.convertTime(CACurrentMediaTime(), from: nil)
         layers.root.add(fade, forKey: "fade")
         ribbonProxyCommit(#line)
+        MotionSignpost.begin("ribbon", UInt64(display))
         try? await Task.sleep(for: .milliseconds(Int(duration * 1_000) + 10))
         guard generation == fadeToken else { return }
         cancel("landed")
@@ -1187,6 +1197,7 @@ final class RibbonProxyPresenter {
     removePlaceholder()
     if reason != "landed" { ribbonProxyLogger.notice("cancel \(reason, privacy: .public)") }
     presenting = false
+    MotionSignpost.end("ribbon", UInt64(display))
     springStopped = true
     letWindowsDraw(true)
     RibbonProxyStore.shared.setMoving(false, display)
@@ -1785,7 +1796,7 @@ func ribbonProxyBoundedCapture(deadline: TimeInterval,
 /// one capture of its desktop-level windows.
 func ribbonProxyDesktopImage(_ area: CGRect,
   _ capture: @Sendable ([CGWindowID]) -> [CGImage]?) -> CGImage? {
-  let infos = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+  let infos = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [NSDictionary] ?? []
   let ids = infos.compactMap { info -> CGWindowID? in
     guard let id = info[kCGWindowNumber as String] as? NSNumber,
       let layer = info[kCGWindowLayer as String] as? NSNumber, layer.intValue < 0,
@@ -1812,11 +1823,11 @@ func ribbonProxyImageIsBlack(_ image: CGImage) -> Bool {
   return pixels.enumerated().allSatisfy { $0.offset % 4 == 3 || $0.element < 8 }
 }
 
-func ribbonProxyWindowDescriptions(_ numbers: [CGWindowID]) -> [[String: Any]] {
+func ribbonProxyWindowDescriptions(_ numbers: [CGWindowID]) -> [NSDictionary] {
   // Raw window numbers, not boxed objects: bridging `as CFArray` matches no window.
   var pointers = numbers.map { UnsafeRawPointer(bitPattern: UInt($0)) }
   guard let array = CFArrayCreate(nil, &pointers, pointers.count, nil) else { return [] }
-  return CGWindowListCreateDescriptionFromArray(array) as? [[String: Any]] ?? []
+  return CGWindowListCreateDescriptionFromArray(array) as? [NSDictionary] ?? []
 }
 
 func ribbonProxyNativeFrames(_ ids: Set<WindowID>) -> [WindowID: Rect] {
@@ -1837,7 +1848,7 @@ typealias RibbonProxyOnScreenWindow = (id: WindowID, processID: Int32, layer: In
 
 func ribbonProxyOnScreenWindows() -> [RibbonProxyOnScreenWindow] {
   let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
-    kCGNullWindowID) as? [[String: Any]] ?? []
+    kCGNullWindowID) as? [NSDictionary] ?? []
   return infos.compactMap { info in
     guard let id = info[kCGWindowNumber as String] as? NSNumber,
       let owner = info[kCGWindowOwnerPID as String] as? NSNumber,
@@ -1894,19 +1905,21 @@ func ribbonProxyVisualStop(travel: Double, velocity: Double = 0) -> TimeInterval
   return min(max(Double((last ?? -1) + 1) / 240, 0.12), duration)
 }
 
-private func ribbonProxySpring(_ layer: CALayer, _ key: String, _ from: Any, _ to: Any) {
+private func ribbonProxySpring(_ layer: CALayer, _ key: String, _ from: Any, _ to: Any,
+  at start: CFTimeInterval? = nil) {
   let spring = ribbonProxySpringAnimation(key)
   spring.fromValue = from; spring.toValue = to
-  ribbonProxyStartNow(spring, on: layer)
+  ribbonProxyStartNow(spring, on: layer, at: start)
 }
 
 /// Layers are committed off the main thread, and the main run loop may commit the
 /// tree again: an animation without an explicit start would restart from its
 /// first frame, making windows jump back mid-motion.
-func ribbonProxyStartNow(_ animation: CAAnimation, on layer: CALayer, key: String? = nil) {
+func ribbonProxyStartNow(_ animation: CAAnimation, on layer: CALayer, key: String? = nil,
+  at start: CFTimeInterval? = nil) {
   // ProMotion: without a preference the compositor may settle for 60 Hz.
   animation.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
-  animation.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil)
+  animation.beginTime = layer.convertTime(start ?? CACurrentMediaTime(), from: nil)
   animation.fillMode = .backwards
   layer.add(animation, forKey: key ?? (animation as? CAPropertyAnimation)?.keyPath)
 }
@@ -1920,7 +1933,8 @@ func ribbonProxySpringVelocity(from: CGPoint, to: CGPoint, elapsed: TimeInterval
 
 /// Returns the launch velocity applied, as a fraction of the travel per second.
 @discardableResult
-func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoint = .zero) -> Double {
+func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoint = .zero,
+  at begin: CFTimeInterval? = nil) -> Double {
   layer.frame = to
   // A still layer gets no spring: a sublayer animated in place under its moving window made
   // the compositor redraw the whole tree each frame, about three dropped frames per motion.
@@ -1942,10 +1956,10 @@ func ribbonProxyMove(_ layer: CALayer, from: CGRect, to: CGRect, velocity: CGPoi
       RibbonProxyStore.shared.spring.omega)
     position.duration = position.settlingDuration
   }
-  ribbonProxyStartNow(position, on: layer)
+  ribbonProxyStartNow(position, on: layer, at: begin)
   // An unchanged size is not animated: the compositor then only translates the layer.
   if from.size != to.size {
-    ribbonProxySpring(layer, "bounds.size", NSValue(size: from.size), NSValue(size: to.size))
+    ribbonProxySpring(layer, "bounds.size", NSValue(size: from.size), NSValue(size: to.size), at: begin)
   } else {
     layer.removeAnimation(forKey: "bounds.size")
   }
@@ -2049,6 +2063,12 @@ private let ribbonProxyShadowCenter: CGRect = {
 }()
 
 /// Commits and flushes now; a commit slow enough to cost the compositor a frame is logged.
+/// One refresh of `display`, 1/60 s when the mode reports none (some built-in panels).
+func ribbonProxyFrameInterval(_ display: CGDirectDisplayID) -> CFTimeInterval {
+  let rate = CGDisplayCopyDisplayMode(display)?.refreshRate ?? 0
+  return 1 / (rate > 0 ? rate : 60)
+}
+
 func ribbonProxyCommit(_ line: Int) {
   let start = CACurrentMediaTime()
   CATransaction.commit()

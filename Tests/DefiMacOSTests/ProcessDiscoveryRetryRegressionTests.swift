@@ -36,6 +36,27 @@ struct ProcessDiscoveryRetryRegressionTests {
     }
   }
 
+  @Test func onlyWindowsOfAnUnreadableAppStayPendingUntilRetriesEnd() {
+    let identity = { (id: UInt64, pid: pid_t) in
+      CGWindowDiscoveryIdentity(windowID: WindowID(rawValue: id), processID: pid, ownerName: "App", title: "")
+    }
+    let unreadable = identity(1, 41), closed = identity(2, 42)
+    var tracker = CGWindowDiscoveryRetryTracker()
+    tracker.observe(
+      observed: [unreadable, closed],
+      unresolved: [
+        unreadable: "AX-no-window-match;process-observations=AX-window-list-unavailable",
+        closed: "AX-no-window-match",
+      ],
+      now: 0)
+    #expect(tracker.pendingWindowIDs == [WindowID(rawValue: 1)])
+    for now in [0.1, 0.4, 1.0] {
+      tracker.completeRetries(
+        processIDs: [41], now: now, unresolved: [unreadable: "AX-no-window-match;process-observations=AX-window-list-unavailable"])
+    }
+    #expect(tracker.pendingWindowIDs.isEmpty)
+  }
+
   @Test func deadlinesPreserveEarliestAndRemoveTerminatedProcesses() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     engine.applications = [41: AXUIElementCreateApplication(-41), 42: AXUIElementCreateApplication(-42)]

@@ -44,6 +44,26 @@ struct WorkspaceTests {
   }
 
   @Test
+  func `Removing a window before the focused one keeps focus on the same window`() {
+    let id = { WindowID(rawValue: $0) }
+    var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
+    for raw: UInt64 in [1, 2, 3, 8] { insertNewWindow(id(raw), into: &workspace, settings: settings) }
+    workspace.focusedColumn = 2
+    workspace.columns[2].windows = [id(3), id(4), id(5)]
+    workspace.columns[2].focusedWindow = 2
+    workspace.floatingWindows = [id(6), id(7), id(9)]
+    workspace.focusedFloatingWindow = 1
+
+    #expect(removeWindow(id(1), from: &workspace, settings: settings))
+    #expect(removeWindow(id(4), from: &workspace, settings: settings))
+    #expect(removeWindow(id(6), from: &workspace, settings: settings))
+
+    #expect(workspace.columns[workspace.focusedColumn].windows == [id(3), id(5)])
+    #expect(workspace.columns[workspace.focusedColumn].focusedWindow == 1)
+    #expect(workspace.floatingWindows[workspace.focusedFloatingWindow] == id(7))
+  }
+
+  @Test
   func `Join and unjoin round trip`() throws {
     var workspace = Workspace(id: WorkspaceID(rawValue: "1"))
     insertNewWindow(WindowID(rawValue: 1), into: &workspace, settings: settings)

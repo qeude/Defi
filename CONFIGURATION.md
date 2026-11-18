@@ -808,8 +808,8 @@ starts with the modifier held works on the display under the pointer:
 - The first 16 points of a swipe pick its axis for the whole gesture.
 - The same finger travel crosses the same share of any display. On a 1,512-point
   laptop display the strip follows two fingers about one to one at the default
-  speed. With three or four fingers, a swipe across the whole trackpad moves the
-  strip two displays.
+  speed. With three or four fingers, a swipe across the trackpad's width moves
+  the strip two displays, and the same finger travel counts the same vertically.
 - Defi keeps a gesture that starts with the modifier, momentum included, until it
   ends, so the app under the pointer never sees part of it (no half-started
   swipe back in a browser). A gesture that starts without the modifier stays the
@@ -1095,7 +1095,8 @@ shared on the desk, Defi moves it to the matching point of the neighboring
 display, while moving or dragging. Change the arrangement in System Settings at
 any time; Defi adopts it as the new desk. While System Settings is the active
 app, Defi lifts the staircase so Displays shows and edits the desk, and puts the
-staircase back when you switch away.
+staircase back when you switch away. Focus does not follow the pointer
+meanwhile; click another window to leave System Settings.
 
 When you connect another set of displays, such as a monitor at home and another
 at the office, the desk is the arrangement macOS restores for that set, as it

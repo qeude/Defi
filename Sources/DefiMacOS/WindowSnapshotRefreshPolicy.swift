@@ -114,6 +114,14 @@ struct CGWindowDiscoveryRetryTracker: Sendable {
     entries.values.compactMap(\.nextRetryAt).min()
   }
 
+  /// Windows still being retried because their app's Accessibility could not be read, as at launch.
+  /// A window missing from a readable app's list has closed and is not held.
+  var pendingWindowIDs: Set<WindowID> {
+    Set(entries.compactMap { identity, retry in
+      retry.nextRetryAt != nil && retry.lastOutcome.contains("unavailable") ? identity.windowID : nil
+    })
+  }
+
   func refreshInterval(now: TimeInterval) -> TimeInterval? {
     nextRetryAt.map { max($0 - now, 0) }
   }
@@ -341,7 +349,7 @@ func currentFrontmostProcessID(
   } else {
     let visibleWindows = CGWindowListCopyWindowInfo(
       [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-    ) as? [[String: Any]] ?? []
+    ) as? [NSDictionary] ?? []
     let frontmostWindow = visibleWindows.first {
       ($0[kCGWindowLayer as String] as? Int) == 0
         && ($0[kCGWindowOwnerPID as String] as? pid_t ?? 0) > 0

@@ -56,7 +56,7 @@ final class OverviewPreviewClosingScene {
       return
     }
     guard !desired.isEmpty else { return nil }
-    let infos = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []
+    let infos = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [NSDictionary] ?? []
     var observed: [WindowID: CGRect] = [:]
     for info in infos {
       guard let number = info[kCGWindowNumber as String] as? NSNumber,

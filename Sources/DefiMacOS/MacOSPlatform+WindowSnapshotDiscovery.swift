@@ -241,20 +241,18 @@ extension SnapshotEngine {
       )
       for processID in missingProcessIDs
       where refreshesApplicationInventory || (processIDsToRefresh?.contains(processID) ?? true) {
-        let processApplication = workspaceApplications.first(where: {
+        let facts = applicationFacts(processID, workspaceApplications.first(where: {
           $0.processID == processID
-        })?.application ?? NSRunningApplication(processIdentifier: processID)
-        let bundleID = processApplication == nil ? appBundleIdentifier(processID: processID) : nil
+        })?.application, refresh: forceApplicationInventoryRefresh)
+        let bundleID = facts == nil ? appBundleIdentifier(processID: processID) : nil
         guard missingApplicationFallbackIsEligible(
-          isTerminated: processApplication?.isTerminated ?? false,
-          isRegularApplication: processApplication.map {
-            $0.activationPolicy == .regular
-          },
+          isTerminated: facts?.terminated ?? false,
+          isRegularApplication: facts?.regular,
           hasValidatedBundle: bundleID != nil
         ) else {
-          ignoredProcessReasonsByProcess[processID] = processApplication == nil
+          ignoredProcessReasonsByProcess[processID] = facts == nil
             ? "application-identity-unverified"
-            : processApplication?.isTerminated == true
+            : facts?.terminated == true
               ? "terminated-application" : "non-regular-application"
           continue
         }
@@ -262,8 +260,8 @@ extension SnapshotEngine {
           $0.processID == processID && $0.layer == 0
         })?.ownerName
         fallbackApplicationIDs[processID] = fallbackApplicationIdentity(
-          bundleIdentifier: bundleID ?? processApplication?.bundleIdentifier,
-          ownerName: processApplication?.localizedName ?? ownerName,
+          bundleIdentifier: bundleID ?? facts?.bundleIdentifier,
+          ownerName: facts?.localizedName ?? ownerName,
           processID: processID
         )
       }
@@ -278,8 +276,9 @@ extension SnapshotEngine {
         .filter { !baseProcessIDs.contains($0) }.sorted().map { ($0, nil) }
       let readProcessIDs = Set(runningApplications.filter { candidate in
         guard candidate.processID > 0, candidate.processID != ownProcessID || readsOwnProcess else { return false }
-        if let application = candidate.application {
-          return !application.isTerminated && application.activationPolicy == .regular
+        if let application = candidate.application,
+          let facts = applicationFacts(candidate.processID, application, refresh: forceApplicationInventoryRefresh) {
+          return !facts.terminated && facts.regular
         }
         return previousApplicationIDs[candidate.processID] != nil || fallbackApplicationIDs[candidate.processID] != nil
       }.map(\.processID)).intersection(previousApplications.keys)
@@ -326,15 +325,15 @@ extension SnapshotEngine {
         transientGeometryWindows[processID] = []
         let appID: String
         if let application = runningApplication.application {
-          guard !application.isTerminated,
-            application.activationPolicy == .regular
+          guard let facts = applicationFacts(processID, application, refresh: forceApplicationInventoryRefresh),
+            !facts.terminated, facts.regular
           else {
             ignoredProcessReasonsByProcess[processID] = "non-regular-application"
             continue
           }
           appID =
-            application.bundleIdentifier
-            ?? application.localizedName
+            facts.bundleIdentifier
+            ?? facts.localizedName
             ?? "pid-\(processID)"
         } else if let fallbackAppID = fallbackApplicationIDs[processID] {
           appID = fallbackAppID

@@ -168,6 +168,7 @@ public func reconcileWindows(
   externallyChangedWindowIDs: Set<WindowID> = [],
   nativeFullscreenWindowIDs: Set<WindowID> = [],
   explicitlyRemovedWindowIDs: Set<WindowID> = [],
+  pendingWindowIDs: Set<WindowID> = [],
   viewports: [MonitorID: Rect] = [:],
   nativeFocusedWindowID: WindowID? = nil,
   frontmostProcessID: pid_t? = nil,
@@ -192,10 +193,13 @@ public func reconcileWindows(
     ),
     state: &state
   )
+  // WindowServer still shows these and discovery is retrying their app: they are not closed.
+  let unreadWindowIDs = pendingWindowIDs.subtracting(explicitlyRemovedWindowIDs)
   let fullscreenSpaceHidesOtherWindows =
     !fullscreenWindowIDs.isEmpty || !state.nativeFullscreenWindowIDs.isEmpty
   for existingID in Array(state.windows.keys)
   where !discoveredIDs.contains(existingID)
+    && !unreadWindowIDs.contains(existingID)
     && (!fullscreenSpaceHidesOtherWindows || explicitlyRemovedWindowIDs.contains(existingID))
   {
     if explicitlyRemovedWindowIDs.contains(existingID) {

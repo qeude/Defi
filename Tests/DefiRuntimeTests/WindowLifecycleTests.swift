@@ -34,6 +34,26 @@ struct WindowLifecycleTests {
     #expect(state.monitors[0].workspaces[1].columns[0].windows == [window.id])
   }
 
+  @Test
+  func `A known window discovery has not read yet keeps its column`() {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let windows = (1...3).map {
+      Window(
+        id: WindowID(rawValue: $0), appID: "app\($0)", title: "",
+        frame: Rect(x: 0, y: 0, width: 600, height: 800), processID: Int32($0), monitorID: monitorID)
+    }
+    reconcileWindows(windows, config: config, appliesOpenFocus: false, state: &state)
+    let order = state.monitors[0].workspaces[0].columns.map(\.windows)
+
+    reconcileWindows(
+      [windows[0], windows[2]], config: config, pendingWindowIDs: [windows[1].id], state: &state)
+    reconcileWindows(windows, config: config, state: &state)
+
+    #expect(state.monitors[0].workspaces[0].columns.map(\.windows) == order)
+  }
+
   private func lateTitleFixture() -> (Config, RuntimeState, (String) -> Window) {
     let config = Config(
       workspaces: WorkspacesConfig(names: ["dev", "web"]),

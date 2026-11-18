@@ -140,6 +140,8 @@ public func removeWindow(
 ) -> Bool {
   if let index = workspace.floatingWindows.firstIndex(of: windowID) {
     workspace.floatingWindows.remove(at: index)
+    // Focus stays on the same window when one before it goes.
+    if index < workspace.focusedFloatingWindow { workspace.focusedFloatingWindow -= 1 }
     if workspace.floatingWindows.isEmpty {
       workspace.focusedFloatingWindow = 0
       workspace.focusedLayer = .tiled
@@ -160,8 +162,12 @@ public func removeWindow(
 
   workspace.columns[columnIndex].windows.remove(at: windowIndex)
   workspace.columns[columnIndex].windowHeights?[windowID] = nil
+  if windowIndex < workspace.columns[columnIndex].focusedWindow {
+    workspace.columns[columnIndex].focusedWindow -= 1
+  }
   if workspace.columns[columnIndex].windows.isEmpty {
     workspace.columns.remove(at: columnIndex)
+    if columnIndex < workspace.focusedColumn { workspace.focusedColumn -= 1 }
     workspace.focusedColumn =
       workspace.columns.isEmpty
       ? 0

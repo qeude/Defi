@@ -973,6 +973,7 @@ extension SnapshotEngine {
       keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,
       freshFrameObservationIDs: freshObservationIDs.subtracting(inconclusiveObservationIDs),
       targetMismatches: targetMismatches,
+      pendingWindowIDs: cgWindowDiscoveryRetries.pendingWindowIDs,
       frontmostProcessID: frontmostProcessID
     )
   }

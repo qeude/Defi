@@ -191,7 +191,9 @@ tart set defi-e2e --cpu 4 --memory 4096
 script/test_vm.sh                                # or DesktopE2ETests/<test>
 ```
 
-Plan for about 50 GB of disk and 4 GB of memory while it runs. Runs queue on a
+Plan for about 40 GB of disk and 4 GB of memory while it runs. Each run deletes
+everything in the guest home except `~/defi-e2e` and `~/defi-perf`, clears guest
+caches, and turns off guest macOS updates, so the image stays near its minimum. Runs queue on a
 per-VM lock, and `DEFI_VM_SECOND_DISPLAY=1` adds a virtual second display for
 the two-display tests.
 
@@ -377,6 +379,6 @@ stanza, remove `com.apple.quarantine` in `postflight`, and zap:
 | `update_homebrew_release.sh` | Open a Cask update PR from a published release checksum. |
 | `install.sh` | The end-user install script the README points to. |
 | `perf_release.sh` | Release performance check: previous release against the candidate, in the VM (needs Tart, jq, Python 3). |
-| `fluidity_probe.py` | Optional: dropped frames per user action, measured with Instruments (needs Python 3). |
+| `fluidity_probe.py` | Optional: A/B of two builds per user action on the real display: render cadence inside motion signposts, hitches, daemon CPU, wakeups and AX writes, idle cost (needs Python 3); `fluidity_report.py` tables a run against pooled base trials. |
 
 See [PERFORMANCE.md](PERFORMANCE.md) for performance investigation.

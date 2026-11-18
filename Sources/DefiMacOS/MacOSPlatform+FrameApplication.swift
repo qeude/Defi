@@ -713,10 +713,13 @@ extension MacOSPlatform {
       return RibbonProxyRefresh(id: plan.id, appID: window.appID, processID: processID, frame: frame, distance: 0)
     }
     captureSpawnedWindows(spawned)
+    // macOS already shows these where they spawned: they travel from there into their slot.
+    // Faded in at the slot instead, they vanished for the first frames of the motion.
+    let spawnedFrames = Dictionary(spawned.map { ($0.id, $0.frame) }) { first, _ in first }
     var proxies = planned.compactMap { plan -> RibbonProxyWindow? in
       guard let window = windows[plan.id], let processID = window.processID else { return nil }
-      let appears = opened.contains(plan.id)
-      let from = plan.id == dropped?.0 ? dropped?.1 ?? plan.from : plan.from
+      let appears = opened.contains(plan.id) && spawnedFrames[plan.id] == nil
+      let from = plan.id == dropped?.0 ? dropped?.1 ?? plan.from : spawnedFrames[plan.id] ?? plan.from
       return RibbonProxyWindow(id: plan.id, appID: window.appID, processID: processID,
         from: from, to: plan.to, appears: appears)
     }

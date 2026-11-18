@@ -83,6 +83,8 @@ public struct DesktopSnapshot: Sendable {
   public let keyboardFocusIntentTimestamp: TimeInterval?
   public let freshFrameObservationIDs: Set<WindowID>
   public let targetMismatches: [FrameMismatch]
+  /// Windows WindowServer shows whose app discovery is still retrying.
+  public let pendingWindowIDs: Set<WindowID>
   public let frontmostProcessID: pid_t?
 
   public init(
@@ -110,6 +112,7 @@ public struct DesktopSnapshot: Sendable {
     keyboardFocusIntentTimestamp: TimeInterval? = nil,
     freshFrameObservationIDs: Set<WindowID>? = nil,
     targetMismatches: [FrameMismatch] = [],
+    pendingWindowIDs: Set<WindowID> = [],
     frontmostProcessID: pid_t? = nil
   ) {
     self.monitors = monitors
@@ -138,6 +141,7 @@ public struct DesktopSnapshot: Sendable {
     self.freshFrameObservationIDs =
       freshFrameObservationIDs ?? Set(windows.map(\.id))
     self.targetMismatches = targetMismatches
+    self.pendingWindowIDs = pendingWindowIDs
     self.frontmostProcessID = frontmostProcessID
   }
 }

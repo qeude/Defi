@@ -190,6 +190,51 @@ struct DaemonDesktopSynchronizationTests {
     #expect(late == immediate)
   }
 
+  /// A restart hands windows over where they are: a floating window parked on an inactive
+  /// workspace keeps the frame it returns to, which only the daemon's memory held.
+  @Test
+  @NavigationActor
+  func restartHandoffKeepsParkedFloatingFrames() async throws {
+    let directory = URL(filePath: "/tmp/defi-handoff-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let configURL = directory.appending(path: "config.toml")
+    try "[animation]\nenabled = false\n".write(to: configURL, atomically: true, encoding: .utf8)
+    let menuBar = await MainActor.run { MenuBarState(accessibilityTrusted: { false }) }
+    func daemon(_ name: String) throws -> Daemon {
+      try Daemon(
+        options: DaemonOptions(arguments: [
+          "--config", configURL.path, "--socket", directory.appending(path: "\(name).sock").path,
+        ]),
+        menuBar: menuBar,
+        instanceLockURL: directory.appending(path: "\(name).lock"),
+        topologyStore: WorkspaceTopologyStore(url: directory.appending(path: "topology.json")),
+        workspaceStatePublisher: { _ in },
+        desktopSnapshotOverviewUpdater: { _ in }
+      )
+    }
+    let frame = Rect(x: 300, y: 200, width: 400, height: 300)
+    let monitor = MonitorSnapshot(id: MonitorID(rawValue: 1), frame: Rect(x: 0, y: 0, width: 1_000, height: 700))
+    // Parked at the screen edge, as on an inactive workspace.
+    let parked = Window(id: WindowID(rawValue: 7), appID: "app", title: "Tool",
+      frame: Rect(x: 999, y: 200, width: 400, height: 300), monitorID: monitor.id,
+      floating: true, floatingOrigin: .automatic)
+    let first = try daemon("first")
+    first.state.attachMonitor(monitor.id)
+    try discoverWindow(parked, decision: RuleDecision(), state: &first.state)
+    first.floatingWindowFrames[parked.id] = frame
+    first.saveTopologyForHandoff()
+
+    let next = try daemon("next")
+    next.restorationInFlight = true
+    next.applyDesktopSnapshot(
+      DesktopSnapshot(monitors: [monitor], windows: [parked], focusedWindowID: nil),
+      nativeFocusWasPending: false, forceFullWindowRefresh: false, forceWindowListRefresh: false,
+      forceApplicationInventoryRefresh: false, targetedWindowRetryRefresh: false,
+      consumePeriodicWindowRefresh: false)
+    #expect(next.floatingWindowFrames[parked.id] == frame)
+  }
+
   /// A floating window an app opens on another display, such as Settings where the app last
   /// left it, moves to its app's display or else to the active one, frame included, unless
   /// the active display shows a native fullscreen Space.

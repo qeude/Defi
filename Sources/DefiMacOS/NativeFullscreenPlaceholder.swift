@@ -248,7 +248,7 @@ final class NativeFullscreenPlaceholderManager {
 func monitorsShowingFullscreenSpace(_ windows: [WindowID: pid_t], matchingProcess: Bool = true) -> Set<MonitorID> {
   guard !windows.isEmpty,
     let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-      as? [[String: Any]]
+      as? [NSDictionary]
   else { return [] }
   let ids = Set(windows.keys.compactMap { CGWindowID(exactly: $0.rawValue) })
   let processIDs = matchingProcess ? Set(windows.values) : []

@@ -178,7 +178,14 @@ extension MacOSPlatform {
           // A slow app's focused window lags its activation; one window leaves no
           // ambiguity, as in the snapshot's own fallback, so the ribbon still animates.
           let started = ProcessInfo.processInfo.systemUptime
-          let focused = applicationFocusedWindow(processID), focusedID = known(focused)
+          // WindowServer has already ordered the activated app's key window in front, and answers
+          // without the app, which can spend its whole read timeout activating.
+          // Its front window only: a new window Defi does not know yet must not hand over to an
+          // older one, possibly on another workspace.
+          let front = ribbonProxyOnScreenWindows().first { $0.processID == processID && $0.layer == 0 }
+            .flatMap { elements.value[$0.id] == nil ? nil : $0.id }
+          let focused = front == nil ? applicationFocusedWindow(processID) : nil
+          let focusedID = front ?? known(focused)
           let windowID = focusedID ?? known(applicationSingleWindow(processID))
           if focusedID == nil {
             coordinator.recordTrace("activation-read pid=\(processID) focused=\(focused == nil ? "none" : "unknown") window=\(windowID.map { String($0.rawValue) } ?? "none") ms=\(String(format: "%.1f", (ProcessInfo.processInfo.systemUptime - started) * 1_000))")
