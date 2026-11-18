@@ -85,7 +85,8 @@ def render_gaps(windows, renders):
     result = []
     for start, end in windows:
         inside = [t for t in merged if start <= t <= end]
-        points = [start] + inside
+        # The motion's end closes the last gap: renders that stop early are missing frames.
+        points = [start] + inside + ([end] if not inside or end - inside[-1] > .002 else [])
         result.append((start, [((b - a) * 1e3, (b - start) * 1e3) for a, b in zip(points, points[1:])]))
     return result
 
@@ -103,11 +104,13 @@ def owner(marks, at):
 def attribute(marks, windows, renders, hitches):
     """Per action: render gaps inside its animations and hitches after its mark.
     `marks` are (seconds, action); everything shares one clock."""
-    marks = sorted(marks)
+    marks = sorted(marks, key=lambda mark: mark[0])
+    # A None mark ends the workload: fixture teardown after it belongs to no action.
     result = {action: {'events': 0, 'gaps': 0, 'smooth': 0, 'spikes': 0, 'worst_ms': 0.0, 'hitches': 0,
-                       'animations': 0} for _, action in marks}
+                       'animations': 0} for _, action in marks if action is not None}
     for _, action in marks:
-        result[action]['events'] += 1
+        if action is not None:
+            result[action]['events'] += 1
     for start, gaps in render_gaps(windows, renders):
         action = owner(marks, start)
         if action is None:
@@ -235,6 +238,7 @@ def scenario(out, label, rounds, on_ready, only=None):
                 go('cheatsheet-close', 'toggle-cheatsheet', pause=.8)
         return marks, costs
     finally:
+        marks.append((time.time(), None))
         other.close()
         fixture.close()
 
@@ -424,9 +428,10 @@ def main():
     finally:
         try:
             install(original)
+            # Kept when the reinstall fails: it is the only copy to retry from.
+            shutil.rmtree(original, ignore_errors=True)
         finally:
             pe.session('restore', checkpoint)
-            shutil.rmtree(original, ignore_errors=True)
             print('daemons', pe.daemon_count(), flush=True)
 
 

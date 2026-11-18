@@ -17,13 +17,20 @@ class AttributeTests(unittest.TestCase):
         renders = [10.008, 10.0085, 10.016, 10.036, 10.044, 10.1, 11.008, 11.05]
         result = probe.attribute([(9.99, 'open'), (10.9, 'close')], [(10, 10.05), (11, 11.06)], renders,
                                  [(10.02, 20), (11.01, 45)])
-        # open: 8, 8, 20, 8 ms (the duplicate render merges); close: 8 ms and a 42 ms spike.
-        self.assertEqual((result['open']['gaps'], result['open']['smooth']), (4, 3))
+        # open: 8, 8, 20, 8, then 6 ms to the motion's end (the duplicate render merges);
+        # close: 8 ms, a 42 ms spike, then 10 ms to the end.
+        self.assertEqual((result['open']['gaps'], result['open']['smooth']), (5, 4))
         self.assertEqual(result['open']['worst_ms'], 20)
         self.assertEqual(result['open']['hitches'], 1)
-        self.assertEqual((result['close']['gaps'], result['close']['spikes']), (1, 1))
+        self.assertEqual((result['close']['gaps'], result['close']['spikes']), (2, 1))
         self.assertEqual(result['close']['hitches'], 0)
 
+    def test_a_motion_without_renders_is_one_gap_and_teardown_belongs_to_no_action(self):
+        result = probe.attribute([(9.99, 'open'), (10.5, None)], [(10, 10.02), (10.6, 10.7)], [],
+                                 [(10.01, 10), (10.65, 12)])
+        self.assertEqual((result['open']['gaps'], result['open']['worst_ms']), (1, 20))
+        self.assertEqual(result['open']['hitches'], 1)
+        self.assertNotIn(None, result)
 
 if __name__ == '__main__':
     unittest.main()

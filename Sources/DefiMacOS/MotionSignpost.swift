@@ -16,10 +16,14 @@ enum MotionSignpost {
     os_signpost(.event, log: log, name: "motion", "end %{public}s %llu", String(describing: kind), key)
   }
 
-  /// An animation the render server runs for a known time.
+  private static let spans = OSAllocatedUnfairLock(initialState: UInt64(0))
+
+  /// An animation the render server runs for a known time. Each span has its own key, so
+  /// overlapping spans each keep their own end.
   static func span(_ kind: StaticString, _ seconds: TimeInterval) {
     guard log.signpostsEnabled, seconds > 0 else { return }
-    begin(kind, 1)
-    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { end(kind, 1) }
+    let key = spans.withLock { $0 &+= 1; return $0 }
+    begin(kind, key)
+    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { end(kind, key) }
   }
 }

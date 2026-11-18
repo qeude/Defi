@@ -54,10 +54,10 @@ def main():
     p.add_argument('run', type=Path)
     p.add_argument('--base', default='base', help='base build label in RUN')
     p.add_argument('--pool', default='dist/bench/*/results.json', help='runs whose base trials give the noise')
-    p.add_argument('--pool-labels', default='base,A,B')
+    p.add_argument('--pool-labels', help='builds whose trials give the noise; defaults to --base')
     args = p.parse_args()
     table = values(json.loads((args.run / 'results.json').read_text()))
-    labels = set(args.pool_labels.split(','))
+    labels = set((args.pool_labels or args.base).split(','))
     pooled = {}
     for path in glob.glob(args.pool):
         for result in json.loads(Path(path).read_text()):
