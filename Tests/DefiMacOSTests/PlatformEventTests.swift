@@ -1686,6 +1686,22 @@ struct PlatformEventTests {
   }
 
   @Test
+  func applicationFactsReadDuringATerminationAreNotKept() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let alive = RunningApplicationFacts(terminated: false, regular: true, bundleIdentifier: "app", localizedName: "App")
+    var reads = 0
+    engine.readApplicationFacts = { processID, _ in
+      reads += 1
+      // The process quits while the snapshot reads it.
+      if reads == 1 { engine.recordObservation(.applicationTerminated, processID: processID) }
+      return alive
+    }
+    _ = engine.applicationFacts(42, nil, refresh: false)
+    _ = engine.applicationFacts(42, nil, refresh: false)
+    #expect(reads == 2)
+  }
+
+  @Test
   func applicationFactsStayUntilAnEventNamesTheProcess() throws {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     let own = getpid()

@@ -157,6 +157,8 @@ def scenario(out, label, rounds, on_ready, only=None):
         entry['wakeups'] += after['wakeups'] - before['wakeups']
         for key, value in counters().items():
             entry[key] = entry.get(key, 0) + value - counted[key]
+        # Unmarked steps until the next action (an activation, a window to set up) are not this one's.
+        marks.append((time.time(), None))
 
     def go(name, *args, pause=.9):
         act(name, lambda: subprocess.run([str(pe.CLI), *args], check=True, capture_output=True), pause)

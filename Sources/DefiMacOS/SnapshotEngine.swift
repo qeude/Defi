@@ -41,13 +41,21 @@ final class SnapshotEngine: @unchecked Sendable {
   /// until a lifecycle or focus event names it; a forced inventory (the watchdog) reads all afresh.
   func applicationFacts(_ processID: pid_t, _ application: NSRunningApplication?, refresh: Bool)
     -> RunningApplicationFacts? {
-    if !refresh, let cached = withLockedStorage({ $0.applicationFacts[processID] }) { return cached }
-    let facts = (application ?? NSRunningApplication(processIdentifier: processID)).map {
+    let (cached, generation) = withLockedStorage { ($0.applicationFacts[processID], $0.applicationFactsGeneration) }
+    if !refresh, let cached { return cached }
+    let facts = readApplicationFacts(processID, application)
+    // An event that named the process during the read makes this read stale: do not keep it.
+    withLockedStorage {
+      if $0.applicationFactsGeneration == generation { $0.applicationFacts[processID] = .some(facts) }
+    }
+    return facts
+  }
+
+  var readApplicationFacts: (pid_t, NSRunningApplication?) -> RunningApplicationFacts? = { processID, application in
+    (application ?? NSRunningApplication(processIdentifier: processID)).map {
       RunningApplicationFacts(terminated: $0.isTerminated, regular: $0.activationPolicy == .regular,
         bundleIdentifier: $0.bundleIdentifier, localizedName: $0.localizedName)
     }
-    withLockedStorage { $0.applicationFacts[processID] = .some(facts) }
-    return facts
   }
 
   weak var host: MacOSPlatform?
@@ -132,6 +140,7 @@ final class SnapshotEngine: @unchecked Sendable {
     withLockedStorage { storage in
       switch kind {
       case .application, .applicationTerminated, .windowCreated, .focus:
+        storage.applicationFactsGeneration &+= 1
         if let processID { storage.applicationFacts[processID] = nil } else { storage.applicationFacts.removeAll() }
       default: break
       }
@@ -1566,6 +1575,7 @@ struct RunningApplicationFacts: Equatable {
 private struct Storage {
   var processWindowRetryDeadlines: [pid_t: TimeInterval] = [:]
   var applicationFacts: [pid_t: RunningApplicationFacts?] = [:]
+  var applicationFactsGeneration: UInt64 = 0
   var discoveryMeasurementAccess: DiscoveryMeasurementAccess?
   var pendingObservations = SnapshotObservations()
   var nextBorderBindingRevision: UInt64 = 0

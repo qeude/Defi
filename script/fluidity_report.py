@@ -76,7 +76,7 @@ def main():
             return f'{statistics.median(series):.2f} [{min(series):.2f}–{max(series):.2f}]' if series else '—'
         pool = pooled.get(key, [])
         verdict = ''
-        if key[1] != 'spikes' and pool and all(key in table[b] for b in (args.base, candidate)):
+        if key[1] != 'spikes' and all(key in table[b] for b in (args.base, candidate)):
             # Every candidate trial beyond every base trial, pooled and in this run.
             reference = pool + table[args.base][key]
             trials = table[candidate][key]
