@@ -110,8 +110,11 @@ func platformEventCancelsMouseAnimation(_ kind: PlatformEventKind) -> Bool {
 
 func applicationLifecycleRefreshDelays(for kind: PlatformEventKind) -> [Int] {
   switch kind {
-  case .application, .applicationTerminated:
+  case .application:
     return [50, 150, 350, 700, 1_200, 2_000, 3_500, 5_500, 8_000, 12_000]
+  case .applicationTerminated:
+    // A quit app shows no late window; each retry is a full snapshot of every app.
+    return [50, 150, 350, 700]
   case .space:
     // Leaving a full-screen Space, apps put their window back a beat after the slide
     // and report nothing Defi observes.

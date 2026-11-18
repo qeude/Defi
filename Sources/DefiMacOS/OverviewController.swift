@@ -228,6 +228,7 @@ public final class OverviewController: NSObject {
   nonisolated(unsafe) private var viewportDisplayLinks: [MonitorID: CADisplayLink] = [:]
   private var pendingViewportFrames = Set<MonitorID>()
   private var displayLinkMonitorIDs: [ObjectIdentifier: MonitorID] = [:]
+  private var previewFadeSettles: [MonitorID: DispatchWorkItem] = [:]
 
   public var scrollOffsets: [MonitorID: [WorkspaceID: Double]] { viewports.mapValues(\.horizontalOffsets) }
   private var nativeExitCanZoom = true
@@ -984,7 +985,7 @@ public final class OverviewController: NSObject {
       windowIDs = (workspace?.columns.flatMap(\.windows) ?? []) + (workspace?.floatingWindows ?? [])
     }
     let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-      as? [[String: Any]] ?? []
+      as? [NSDictionary] ?? []
     // Windows on another Space are missing from the on-screen list.
     let onScreen = Set(infos.compactMap {
       ($0[kCGWindowNumber as String] as? NSNumber).map { WindowID(rawValue: $0.uint64Value) }
@@ -1599,21 +1600,30 @@ public final class OverviewController: NSObject {
       resetPreviewFadeAnimation()
       return
     }
-    guard let link = displayLink(on: monitorID) else {
-      if let projection = projections[monitorID] {
-        for card in projection.workspaces.flatMap(\.windows) {
-          previewRevealStartedAt[card.windowID] = nil
-        }
+    // Core Animation runs the fade (see OverviewView.renderCard); one timer settles it, so the
+    // main thread does not redraw every card per frame while previews keep arriving.
+    MotionSignpost.span("overview-fade", overviewPreviewFadeDuration)
+    schedulePreviewFadeSettle(on: monitorID, after: overviewPreviewFadeDuration)
+  }
+
+  private func schedulePreviewFadeSettle(on monitorID: MonitorID, after delay: TimeInterval) {
+    previewFadeSettles[monitorID]?.cancel()
+    let settle = DispatchWorkItem { [weak self] in
+      MainActor.assumeIsolated {
+        guard let self else { return }
+        self.previewFadeSettles[monitorID] = nil
+        if self.updatePreviewFade(on: monitorID) { self.schedulePreviewFadeSettle(on: monitorID, after: 0.05) }
       }
-      return
     }
-    link.isPaused = false
+    previewFadeSettles[monitorID] = settle
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay + 0.01, execute: settle)
   }
 
   private func resetPreviewFadeAnimation() {
     previewRevealStartedAt.removeAll(keepingCapacity: true)
   }
 
+  @discardableResult
   private func updatePreviewFade(on monitorID: MonitorID) -> Bool {
     guard let projection = projections[monitorID] else { return false }
     let now = CACurrentMediaTime()
@@ -1684,6 +1694,7 @@ public final class OverviewController: NSObject {
     )
     projectionAnimations[monitorID] = nil
     link.isPaused = false
+    MotionSignpost.begin("overview")
   }
 
   private func animateProjection(
@@ -1708,6 +1719,7 @@ public final class OverviewController: NSObject {
       duration: overviewTransitionDuration
     )
     link.isPaused = false
+    MotionSignpost.begin("overview")
   }
 
   private func displayLink(on monitorID: MonitorID) -> CADisplayLink? {
@@ -1735,6 +1747,7 @@ public final class OverviewController: NSObject {
     // once per refresh. The pending flag also submits the final momentum event.
     pendingViewportFrames.insert(monitorID)
     link.isPaused = false
+    MotionSignpost.begin("overview")
   }
 
   @objc private func viewportDisplayLinkDidFire(_ link: CADisplayLink) {
@@ -1769,7 +1782,7 @@ public final class OverviewController: NSObject {
       }
     }
     if geometryChanged { updatePanels(scheduleCaptures: false, only: monitorID) }
-    let fadePending = updatePreviewFade(on: monitorID)
+    updatePreviewFade(on: monitorID)
     view?.displayIfNeeded()
     if (view?.renderCount ?? 0) > rendersBefore {
       renderedFrames += 1
@@ -1783,11 +1796,11 @@ public final class OverviewController: NSObject {
       }
       lastRenderedRefresh[monitorID] = started
     }
-    if !fadePending, viewportAnimations[monitorID] == nil,
-      projectionAnimations[monitorID] == nil
+    if viewportAnimations[monitorID] == nil, projectionAnimations[monitorID] == nil
     {
       link.isPaused = true
       lastRenderedRefresh[monitorID] = nil
+      MotionSignpost.end("overview")
       // Cards the motion brought into view: captures wait for the end, not per frame.
       schedulePreviewsIfNeeded()
       presentationChanged()
@@ -1797,8 +1810,9 @@ public final class OverviewController: NSObject {
   private func cancelAnimations(on monitorID: MonitorID) {
     viewportAnimations[monitorID] = nil
     projectionAnimations[monitorID] = nil
-    viewportDisplayLinks[monitorID]?.isPaused = !updatePreviewFade(on: monitorID)
-    if viewportDisplayLinks[monitorID]?.isPaused == true { lastRenderedRefresh[monitorID] = nil }
+    updatePreviewFade(on: monitorID)
+    viewportDisplayLinks[monitorID]?.isPaused = true
+    lastRenderedRefresh[monitorID] = nil
   }
 
   private func stopOverviewAnimations() {

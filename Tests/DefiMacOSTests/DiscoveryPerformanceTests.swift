@@ -152,7 +152,8 @@ struct DiscoveryPerformanceTests {
     lifecycleClock.advance(23.9, lifecyclePlatform)
     #expect(lifecycleClock.timers.isEmpty)
     #expect(lifecycleClock.firedAt.contains { abs($0 - 12) < 0.001 })
-    #expect(lifecycleClock.firedAt.contains { abs($0 - 23.9) < 0.001 })
+    // The termination keeps its own (shorter) tail after the launch's.
+    #expect(lifecycleClock.firedAt.contains { abs($0 - 12.6) < 0.001 })
     emitDiscoveryPerformance("observations-late", operations: 6,
       output: ["earliest_focus_tail": 1, "latest_focus_tail": 1,
                "earliest_creation_tail": 1, "latest_creation_tail": 1,

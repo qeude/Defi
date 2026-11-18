@@ -697,6 +697,7 @@ final class RibbonProxyPresenter {
     holdStart = CACurrentMediaTime()
     // A hold is still: the snapshot that opens the window and fresh pictures must not wait for it.
     RibbonProxyStore.shared.setMoving(!holds, display)
+    if !holds { MotionSignpost.begin("ribbon", UInt64(display)) }
     // This display's borders only: another display's stay as they are.
     let borders = borderWindowIDs.map { $0.union(shownIDs) } ?? managed
     if !bordersHidden || hiddenBorderIDs != borders {
@@ -860,6 +861,7 @@ final class RibbonProxyPresenter {
   private func stopped(_ token: UInt64) {
     guard generation == token, presenting, drag == .idle else { return }
     springStopped = true
+    MotionSignpost.end("ribbon", UInt64(display))
     letWindowsDraw(true)
     RibbonProxyStore.shared.setMoving(false, display)
   }
@@ -1041,6 +1043,7 @@ final class RibbonProxyPresenter {
         fade.beginTime = layers.root.convertTime(CACurrentMediaTime(), from: nil)
         layers.root.add(fade, forKey: "fade")
         ribbonProxyCommit(#line)
+        MotionSignpost.begin("ribbon", UInt64(display))
         try? await Task.sleep(for: .milliseconds(Int(duration * 1_000) + 10))
         guard generation == fadeToken else { return }
         cancel("landed")
@@ -1187,6 +1190,7 @@ final class RibbonProxyPresenter {
     removePlaceholder()
     if reason != "landed" { ribbonProxyLogger.notice("cancel \(reason, privacy: .public)") }
     presenting = false
+    MotionSignpost.end("ribbon", UInt64(display))
     springStopped = true
     letWindowsDraw(true)
     RibbonProxyStore.shared.setMoving(false, display)
@@ -1785,7 +1789,7 @@ func ribbonProxyBoundedCapture(deadline: TimeInterval,
 /// one capture of its desktop-level windows.
 func ribbonProxyDesktopImage(_ area: CGRect,
   _ capture: @Sendable ([CGWindowID]) -> [CGImage]?) -> CGImage? {
-  let infos = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+  let infos = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [NSDictionary] ?? []
   let ids = infos.compactMap { info -> CGWindowID? in
     guard let id = info[kCGWindowNumber as String] as? NSNumber,
       let layer = info[kCGWindowLayer as String] as? NSNumber, layer.intValue < 0,
@@ -1812,11 +1816,11 @@ func ribbonProxyImageIsBlack(_ image: CGImage) -> Bool {
   return pixels.enumerated().allSatisfy { $0.offset % 4 == 3 || $0.element < 8 }
 }
 
-func ribbonProxyWindowDescriptions(_ numbers: [CGWindowID]) -> [[String: Any]] {
+func ribbonProxyWindowDescriptions(_ numbers: [CGWindowID]) -> [NSDictionary] {
   // Raw window numbers, not boxed objects: bridging `as CFArray` matches no window.
   var pointers = numbers.map { UnsafeRawPointer(bitPattern: UInt($0)) }
   guard let array = CFArrayCreate(nil, &pointers, pointers.count, nil) else { return [] }
-  return CGWindowListCreateDescriptionFromArray(array) as? [[String: Any]] ?? []
+  return CGWindowListCreateDescriptionFromArray(array) as? [NSDictionary] ?? []
 }
 
 func ribbonProxyNativeFrames(_ ids: Set<WindowID>) -> [WindowID: Rect] {
@@ -1837,7 +1841,7 @@ typealias RibbonProxyOnScreenWindow = (id: WindowID, processID: Int32, layer: In
 
 func ribbonProxyOnScreenWindows() -> [RibbonProxyOnScreenWindow] {
   let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
-    kCGNullWindowID) as? [[String: Any]] ?? []
+    kCGNullWindowID) as? [NSDictionary] ?? []
   return infos.compactMap { info in
     guard let id = info[kCGWindowNumber as String] as? NSNumber,
       let owner = info[kCGWindowOwnerPID as String] as? NSNumber,

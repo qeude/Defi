@@ -24,7 +24,12 @@ app update", few "expensive render", and gives the rest no cause.
 
 Controls vary from 1.6 to 3.8 hitches per column navigation, so a single run
 cannot judge a change: compare several runs of each variant against several
-controls.
+controls. The probe now also judges cadence: the share of render gaps of at most
+10 ms inside each `motion` signpost, and the worst gap. Column moves reach about
+96-97 % with a worst gap of one dropped frame; the late frames sit in the first
+60 ms of the motion, where the native windows move under the overlay. Base runs
+drift more between runs than within one, so a gain counts only when every trial
+lies beyond every pooled base trial (`script/fluidity_report.py`).
 
 ## Tried without a gain beyond noise
 
@@ -39,3 +44,6 @@ controls.
 - dropping layers off screen on one side for the whole motion
 - writing parked windows 220 ms later
 - removing the Overview's closing glass fade
+- capturing a new window's mid-motion picture at nominal resolution: it removes
+  the late frames around 180 ms of an opening, but the opening's cadence stays
+  within noise

@@ -8,6 +8,7 @@ import DefiModel
 import DefiRuntime
 import QuartzCore
 import ScreenCaptureKit
+import VideoToolbox
 
 struct WindowPicture: @unchecked Sendable {
   // An IOSurface or CGImage; the buffer keeps a captured surface alive.
@@ -200,29 +201,30 @@ func windowPictureReducedPixels(_ image: CGImage?) -> (width: Int, height: Int)?
   return (max(Int(Double(image.width) * scale), 1), max(Int(Double(image.height) * scale), 1))
 }
 
-/// Scaled on the CPU from a locked BGRA surface: a Core Image scale kept hundreds of
-/// megabytes of intermediate surfaces cached.
+/// The hardware scaler shrinks the picture: a 5K Lanczos downscale on the CPU was the largest
+/// cost of every budget reduction, and a Core Image scale kept hundreds of megabytes of
+/// intermediate surfaces cached. One session, serialized: reductions run one at a time.
+private let windowPictureScalerLock = NSLock()
+nonisolated(unsafe) private let windowPictureScaler: VTPixelTransferSession? = {
+  var session: VTPixelTransferSession?
+  guard VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &session) == noErr,
+    let session else { return nil }
+  VTSessionSetProperty(session, key: kVTPixelTransferPropertyKey_DownsamplingMode,
+    value: kVTDownsamplingMode_Average)
+  return session
+}()
+
 func windowPictureResized(_ source: CVPixelBuffer, width: Int, height: Int,
   colorSpace: CGColorSpace?) -> CGImage? {
-  guard let base = CVPixelBufferGetBaseAddress(source) else { return nil }
-  var input = vImage_Buffer(data: base, height: vImagePixelCount(CVPixelBufferGetHeight(source)),
-    width: vImagePixelCount(CVPixelBufferGetWidth(source)), rowBytes: CVPixelBufferGetBytesPerRow(source))
-  var pixels = Data(count: width * height * 4)
-  let flags = vImage_Flags(kvImageHighQualityResampling)
-  let scaled = pixels.withUnsafeMutableBytes { output -> Bool in
-    var result = vImage_Buffer(data: output.baseAddress, height: vImagePixelCount(height),
-      width: vImagePixelCount(width), rowBytes: width * 4)
-    let temporary = vImageScale_ARGB8888(&input, &result, nil, flags | vImage_Flags(kvImageGetTempBufferSize))
-    if temporary < 0 { return false }
-    if temporary == 0 { return vImageScale_ARGB8888(&input, &result, nil, flags) == kvImageNoError }
-    return windowPixelsScratch(temporary) { scratch, _ in
-      vImageScale_ARGB8888(&input, &result, scratch, flags) == kvImageNoError
-    } ?? false
-  }
-  guard scaled, let provider = CGDataProvider(data: pixels as CFData) else { return nil }
-  return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-    space: colorSpace ?? CGColorSpaceCreateDeviceRGB(), bitmapInfo: windowPixelsBitmapInfo, provider: provider,
-    decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+  guard let output = windowPixelsBuffer(width: width, height: height),
+    windowPictureScalerLock.withLock({
+      windowPictureScaler.map { VTPixelTransferSessionTransferImage($0, from: source, to: output) == noErr } ?? false
+    })
+  else { return nil }
+  var image: CGImage?
+  VTCreateCGImageFromCVPixelBuffer(output, options: nil, imageOut: &image)
+  guard let image else { return nil }
+  return colorSpace.flatMap { image.copy(colorSpace: $0) } ?? image
 }
 
 /// Average colour of the picture's right and bottom borders.

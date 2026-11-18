@@ -448,8 +448,7 @@ struct PlatformEventTests {
   @Test
   func applicationLifecycleRetriesTopologyAfterDelayedWindowCreation() {
     #expect(!applicationLifecycleRefreshDelays(for: .application).isEmpty)
-    #expect(applicationLifecycleRefreshDelays(for: .applicationTerminated)
-      == applicationLifecycleRefreshDelays(for: .application))
+    #expect(applicationLifecycleRefreshDelays(for: .applicationTerminated) == [50, 150, 350, 700])
     #expect(applicationLifecycleRefreshDelays(for: .focus).isEmpty)
     #expect(!applicationLifecycleRefreshDelays(for: .space).isEmpty)
     #expect(applicationLifecycleRetryInvalidation(for: .application, processID: 7, knownWindowCount: nil) == .process(7))
@@ -1684,6 +1683,37 @@ struct PlatformEventTests {
     #expect(platform.snapshotEngine.preparedWindowReadRevisions.invalidatedProcessIDs(
       since: revisions, candidates: [101, 202, 303]
     ) == (unknownScope ? [101, 202, 303] : [101, 202]))
+  }
+
+  @Test
+  func applicationFactsReadDuringATerminationAreNotKept() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let alive = RunningApplicationFacts(terminated: false, regular: true, bundleIdentifier: "app", localizedName: "App")
+    var reads = 0
+    engine.readApplicationFacts = { processID, _ in
+      reads += 1
+      // The process quits while the snapshot reads it.
+      if reads == 1 { engine.recordObservation(.applicationTerminated, processID: processID) }
+      return alive
+    }
+    _ = engine.applicationFacts(42, nil, refresh: false)
+    _ = engine.applicationFacts(42, nil, refresh: false)
+    #expect(reads == 2)
+  }
+
+  @Test
+  func applicationFactsStayUntilAnEventNamesTheProcess() throws {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let own = getpid()
+    let other = try #require(NSWorkspace.shared.runningApplications.first { $0.processIdentifier != own })
+    let first = engine.applicationFacts(own, .current, refresh: false)
+    // Cached: another application object for the same process is not read.
+    #expect(engine.applicationFacts(own, other, refresh: false) == first)
+    engine.recordObservation(.frame, processID: own)
+    #expect(engine.applicationFacts(own, other, refresh: false) == first)
+    #expect(engine.applicationFacts(own, other, refresh: true)?.bundleIdentifier == other.bundleIdentifier)
+    engine.recordObservation(.focus, processID: own)
+    #expect(engine.applicationFacts(own, .current, refresh: false) == first)
   }
 
   @Test

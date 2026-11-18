@@ -67,14 +67,15 @@ func copyCGWindowsIfAvailable(
     let info = CGWindowListCopyWindowInfo(
       options,
       kCGNullWindowID
-    ) as? [[String: Any]]
+    ) as? [NSDictionary]
   else {
     return nil
   }
+  // NSDictionary rows: bridging every entry to [String: Any] cost more than the copy.
   return info.compactMap(cgWindowRecord)
 }
 
-func cgWindowRecord(_ item: [String: Any]) -> CGWindowRecord? {
+func cgWindowRecord(_ item: NSDictionary) -> CGWindowRecord? {
   guard let layer = item[kCGWindowLayer as String] as? NSNumber,
       let number = item[kCGWindowNumber as String] as? NSNumber,
       let ownerPID = item[kCGWindowOwnerPID as String] as? NSNumber,
