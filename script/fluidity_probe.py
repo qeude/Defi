@@ -274,6 +274,8 @@ def analyze(directory, marks):
 
     def inside(times):
         return sum(any(a <= t <= b for a, b in windows) for t in times)
+    # shortcut: the display that renders most during motions, right for the one-display runs the
+    # probe makes; match the workload display's ID once two-display runs are measured.
     renders = max(by_display.values(), key=inside) if by_display else []
     hitches = {}
     for row in rows(directory / 'hitches.xml'):
