@@ -55,6 +55,9 @@ class Fixture:
             if not line:
                 raise RuntimeError(f'fixture {self.name} exited')
             report = json.loads(line)
+            # A launch error answers with seq -1: waiting for our seq would hang the run.
+            if 'error' in report and report.get('seq') in (self.seq, -1):
+                raise RuntimeError(f"fixture {self.name}: {report['error']}")
             if report.get('seq') == self.seq:
                 return report
 
@@ -207,7 +210,9 @@ class Bench:
         before = self.daemons()
         start = now()
         latency = self.command(*args)
-        record = self.log_event(action, args=list(args), latency=round(latency, 4), direction=direction,
+        # Stamped when the command was sent: Defi can start moving before the CLI returns.
+        record = self.log_event(action, t=start, completed=round(now(), 4), args=list(args),
+                                latency=round(latency, 4), direction=direction,
                                 expect=expect_focus, **fields)
         if latency > 0.5:
             self.check('slow_command', False, action=action, latency=round(latency, 3))
@@ -729,7 +734,9 @@ def analyze(out):
             leaked = {run[0] for f in after for row in f['rows'] for run in row
                       if run[0] in hidden and run[2] - run[1] >= 30}
             # Another app can show the same colour: WindowServer must also put the window on a display.
-            samples = [c for c in camera if 'windows' in c and settled['t'] <= c['t'] < t1]
+            # Bounds are logged only when they change: carry the last record before settling.
+            before_settled = [c for c in camera if 'windows' in c and c['t'] <= settled['t']]
+            samples = before_settled[-1:] + [c for c in camera if 'windows' in c and settled['t'] < c['t'] < t1]
             leaked = {label for label in leaked
                       if any(onscreen(row, displays) > 2 for c in samples for row in c['windows']
                              if row[0] == window_of(events, label, t0))}
@@ -785,8 +792,16 @@ def judge_motion(action, frames, width, defect, instant=False):
     landed = next((t for t, seen in seen_at if seen.keys() == final.keys() and all(
         abs(seen[k][0] - final[k][0]) <= 4 and abs(seen[k][1] - final[k][1]) <= 4 for k in final)), None)
     moving = [t for t in changes if landed is None or t <= landed]
-    if direction in ('left', 'right') and len(moving) > 2 and not instant:
-        gap = max(b - a for a, b in zip(moving, moving[1:]))
+    times = [f['t'] for f in frames]
+
+    def seen(a, b):
+        # The camera delivered frames all through the gap: a capture gap is not a frozen motion.
+        points = [a] + [t for t in times if a < t < b] + [b]
+        return all(y - x < 0.05 for x, y in zip(points, points[1:]))
+
+    seen_gaps = [b - a for a, b in zip(moving, moving[1:]) if seen(a, b)]
+    if direction in ('left', 'right') and len(moving) > 2 and seen_gaps and not instant:
+        gap = max(seen_gaps)
         stalls.append(round(gap * 1000))
         if gap > 0.12:
             defect(scenario, 'stall', action=name, at=changes[0], ms=round(gap * 1000))

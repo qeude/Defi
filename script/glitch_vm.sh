@@ -39,9 +39,11 @@ INSTALLED=/Users/admin/Applications/Defi.app/Contents/MacOS/defi-daemon
 
 cleanup() {
   vm "sudo -n launchctl asuser 501 sudo -n -u admin sh -c 'for b in $G/*/Defi.app; do \"\$b/Contents/MacOS/defi\" service stop >/dev/null 2>&1; done'; pkill -x defi-daemon; pkill -f $G/tools; pkill -f PerformanceFixture; pkill -f DefiVirtualDisplay; true" || true
-  vm "sudo -n sqlite3 '$TCC' \"delete from access where client like '$G/%'; update access set auth_value=0 where client='com.qeude.defi' and service='kTCCServiceScreenCapture';\"; sudo -n pkill tccd; true" || true
+  vm "sudo -n sqlite3 '$TCC' \"delete from access where client like '$G/%';\"; sudo -n pkill tccd; true" || true
+  # Put the installed app's Screen Recording row back as it was before the run.
+  vm "if [ -f ~/.glitch-capture.orig ]; then v=\$(cat ~/.glitch-capture.orig); [ -z \"\$v\" ] || sudo -n sqlite3 '$TCC' \"update access set auth_value=\$v where client='com.qeude.defi' and service='kTCCServiceScreenCapture';\"; rm -f ~/.glitch-capture.orig; sudo -n pkill tccd; fi; true" || true
   vm "[ ! -f ~/.glitch-approvals.orig ] || mv ~/.glitch-approvals.orig '/Users/admin/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist'" || true
-  vm "[ ! -f ~/.glitch-config.orig ] || mv ~/.glitch-config.orig ~/.config/defi/config.toml; rm -rf $G; sync" || true
+  vm "if [ -f ~/.glitch-config.orig ]; then mv ~/.glitch-config.orig ~/.config/defi/config.toml; else rm -f ~/.config/defi/config.toml; fi; rm -rf $G; sync" || true
   [[ "${DEFI_VM_RUNNING:-0}" == 1 ]] || { sleep 3; tart stop "$VM" >/dev/null 2>&1 || true; }
 }
 # DEFI_GLITCH_KEEP=1 leaves the guest prepared for manual experiments; run again without it to clean.
@@ -85,6 +87,8 @@ plistlib.dump(data, open(path, 'wb'))
 \" '$APPROVALS' com.qeude.defi $G/tools/GlitchCamera $(for e in "${BUNDLES[@]}"; do printf "file://$G/%s/Defi.app/ $G/%s/Defi.app/Contents/MacOS/defi-daemon " "${e%%=*}" "${e%%=*}"; done); killall UserNotificationCenter NotificationCenter 2>/dev/null; true"
 # A staged daemon opened by its bundle also needs the bundle-id row for Screen Recording.
 CAPTURE=2; [[ "${DEFI_GLITCH_NO_CAPTURE:-0}" != 1 ]] || CAPTURE=0
+# Saved once, so a killed run keeps the first copy; cleanup restores it.
+vm "[ -f ~/.glitch-capture.orig ] || sudo -n sqlite3 '$TCC' \"select auth_value from access where client='com.qeude.defi' and service='kTCCServiceScreenCapture';\" > ~/.glitch-capture.orig"
 vm "sudo -n sqlite3 '$TCC' \"update access set auth_value=$CAPTURE where client='com.qeude.defi' and service='kTCCServiceScreenCapture';\"; sudo -n pkill tccd"
 
 if [[ "${DEFI_VM_SECOND_DISPLAY:-0}" == 1 ]]; then
