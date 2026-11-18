@@ -43,18 +43,40 @@ struct ScrollGestureTests {
   }
 
   @Test
-  func `Three fingers swipe from their mean position, and end when the count changes`() {
+  func `Three fingers swipe by how far they moved, through a finger slipping, until they lift`() {
     var swipe = FingerSwipe(fingers: 3)
     let at = { (x: Double, ids: [Int]) in ids.map { (id: $0, position: CGPoint(x: x, y: 0.5)) } }
-    #expect(swipe.update(at(0.5, [1, 2])) == nil)
-    #expect(swipe.update(at(0.5, [1, 2, 3]))! == (1, 0, 0))
+    let tenth = { (step: (phase: Int64, dx: Double, dy: Double)?) in
+      step.map { $0.phase == 2 && abs($0.dx + FingerSwipe.travelPerWidth / 10) < 1e-6 && $0.dy == 0 } == true
+    }
+    #expect(swipe.update(at(0.5, [1, 2]), time: 0) == nil)
+    #expect(swipe.update(at(0.5, [1, 2, 3]), time: 0)! == (1, 0, 0))
     // Fingers moving left reveal what lies right: negative, a tenth of the trackpad.
-    let step = swipe.update(at(0.4, [1, 2, 3]))!
-    #expect(step.phase == 2 && abs(step.dx + FingerSwipe.travelPerWidth / 10) < 1e-6 && step.dy == 0)
+    #expect(tenth(swipe.update(at(0.4, [1, 2, 3]), time: 0.01)))
     // A finger swapped for another: no jump.
-    #expect(swipe.update(at(0.1, [1, 2, 4])) == nil)
-    #expect(swipe.update(at(0.1, [1, 2, 3, 4]))! == (4, 0, 0))
-    #expect(swipe.update(at(0.1, [1])) == nil)
+    #expect(swipe.update(at(0.4, [1, 2]) + at(0.9, [4]), time: 0.02) == nil)
+    // A finger slipping off for a moment keeps the swipe, which follows those that stayed.
+    #expect(tenth(swipe.update(at(0.3, [1, 2]), time: 0.03)))
+    #expect(swipe.update(at(0.3, [1, 2]) + at(0.7, [5]), time: 0.04) == nil)
+    #expect(tenth(swipe.update(at(0.2, [1, 2]), time: 0.05)))
+    // One gone for longer ends the swipe.
+    #expect(swipe.update(at(0.2, [1, 2]), time: 0.06) == nil)
+    #expect(swipe.update(at(0.2, [1, 2]), time: 0.06 + FingerSwipe.slip)! == (4, 0, 0))
+    #expect(swipe.update(at(0.2, [1]), time: 0.3) == nil)
+    // A finger more is another gesture, such as the Overview's: it ends the swipe at once, and none begins
+    // while its fingers lift, until they all have.
+    _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.35)
+    #expect(swipe.update(at(0.5, [1, 2, 3, 4]), time: 0.36)! == (4, 0, 0))
+    #expect(swipe.update(at(0.4, [1, 2, 3, 4]), time: 0.37) == nil)
+    #expect(swipe.update(at(0.3, [1, 2, 3]), time: 0.38) == nil)
+    #expect(swipe.update(at(0.2, [1, 2]), time: 0.39) == nil)
+    #expect(swipe.update([], time: 0.395) == nil)
+    // Lifting them all ends it at once, even one after the other.
+    _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.4)
+    #expect(swipe.update([], time: 0.41)! == (4, 0, 0))
+    _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.5)
+    #expect(swipe.update(at(0.5, [1]), time: 0.51) == nil)
+    #expect(swipe.update([], time: 0.52)! == (4, 0, 0))
   }
 
   @Test
@@ -94,13 +116,18 @@ struct ScrollGestureTests {
     // Even past the end, fingers flicked back down go back.
     for y in [0.5, 0.53, 0.75, 0.73, 0.71, 0.69, 0.67] { _ = move(y) }
     #expect(lift() == .ended(commit: false))
-    // A finger slipping off for a moment keeps the swipe; one gone for longer ends it.
+    // A finger slipping off for a moment keeps the swipe following; one gone for longer ends it.
     _ = move(0.5); _ = move(0.53); _ = move(0.6)
-    #expect(move(0.62, count: 2) == nil)
+    #expect(progress(move(0.62, count: 2)).map { abs($0 - along(360)) < 1e-9 } == true)
     #expect(progress(move(0.64)).map { abs($0 - along(420)) < 1e-9 } == true)
     #expect(progress(move(0.66)).map { abs($0 - along(480)) < 1e-9 } == true)
-    #expect(move(0.68, count: 2, after: 0.01) == nil)
-    #expect(move(0.7, count: 2, after: OverviewSwipe.slip + 0.01) == .ended(commit: true))
+    #expect(progress(move(0.68, count: 2)).map { abs($0 - along(540)) < 1e-9 } == true)
+    #expect(move(0.68, count: 2, after: FingerSwipe.slip + 0.01) == .ended(commit: true))
+    _ = lift()
+    // Fingers that rest through the rest of a slip release without momentum: short of halfway, it goes back.
+    _ = move(0.5); _ = move(0.53); _ = move(0.56)
+    _ = move(0.59, count: 3); _ = move(0.6, count: 3)
+    #expect(move(0.6, count: 3, after: FingerSwipe.slip) == .ended(commit: false))
     _ = lift()
     // Down closes an open Overview; down while closed asks nothing.
     _ = move(0.5, open: true)
@@ -146,22 +173,22 @@ struct ScrollGestureTests {
       swipe.takesScroll(scrollPhase: phase, momentumPhase: momentumPhase)
     }
     #expect(!takes(0))
-    _ = swipe.update(at(2))
+    _ = swipe.update(at(2), time: 0)
     #expect(!takes(0))
-    _ = swipe.update(at(3))
+    _ = swipe.update(at(3), time: 0)
     #expect(takes(0, phase: 2))
-    _ = swipe.update([])
+    _ = swipe.update([], time: 0)
     // The scroll's end can reach Defi after the lift; its momentum stays the swipe's.
     #expect(takes(0, phase: 4))
     #expect(takes(1))
     #expect(takes(3))
     #expect(!takes(2))
     // A new scroll, or a wheel step, after a swipe without momentum reaches the app again.
-    _ = swipe.update(at(3))
-    _ = swipe.update([])
+    _ = swipe.update(at(3), time: 0)
+    _ = swipe.update([], time: 0)
     #expect(!takes(0, phase: 128))
-    _ = swipe.update(at(3))
-    _ = swipe.update([])
+    _ = swipe.update(at(3), time: 0)
+    _ = swipe.update([], time: 0)
     #expect(!takes(0))
   }
 
@@ -195,6 +222,63 @@ struct ScrollGestureTests {
       return
     }
     #expect(travel != 0)
+  }
+
+  /// A finger slipping off for a moment keeps one pan; a fourth finger landing after three is
+  /// another gesture, such as macOS's, and the strip leaves it alone.
+  @MainActor
+  @Test(.enabled(if: TrackpadGesture.freeAxis != nil, "needs a trackpad with a three-finger axis left free"))
+  func `Trackpad touches keep a swipe through a slip, and leave a fourth finger's swipe alone`() throws {
+    let trackpad = try #require(TrackpadGesture()), vertical = try #require(TrackpadGesture.freeAxis as Bool?)
+    let type = try #require(CGEventType(rawValue: gestureEventType))
+    var timebase = mach_timebase_info()
+    mach_timebase_info(&timebase)
+    let nanosecondsPerTick = Double(timebase.numer) / Double(timebase.denom)
+    // One event per finger count, 8 ms apart along the free axis, a fiftieth of the trackpad each, then the lift.
+    func pans(_ fingers: [Int]) -> [ScrollGestureAction] {
+      let start = mach_absolute_time()
+      let ticks = { (step: Int) in start + UInt64(Double(step) * 0.008e9 / nanosecondsPerTick) }
+      nonisolated(unsafe) let events = fingers.enumerated().compactMap { step, count -> CGEvent? in
+        let along = 0.6 - Double(step) * 0.02
+        let event = trackpad.event(at: vertical ? CGPoint(x: 0.3, y: along) : CGPoint(x: along, y: 0.5),
+          fingers: count, flags: [])
+        event?.timestamp = ticks(step)
+        return event
+      } + [trackpad.event(at: CGPoint(x: 0.3, y: 0.3), touching: false, flags: [])].compactMap { event -> CGEvent? in
+        event?.timestamp = ticks(fingers.count)
+        return event
+      }
+      let actions = Mutex<[ScrollGestureAction]>([])
+      let monitor = InputMonitor(
+        bindings: [:], userInputTracker: UserInputTracker(), pointerMotionTracker: PointerMotionTracker(),
+        tracksPointerWindowTransitions: false, scrollGestureModifierBits: 0, scrollGestureFingers: 3,
+        deliverScrollGesture: { action in actions.withLock { $0.append(action) } },
+        deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+      // No pan is also an outcome, so both run loops wait out the touches' round trip through the main thread.
+      let deadline = Date() + 0.5
+      let tap = Thread {
+        for event in events { _ = monitor.handle(type: type, event: event) }
+        RunLoop.current.add(Timer(timeInterval: 1, repeats: false) { _ in }, forMode: .common)
+        while Date() < deadline { RunLoop.current.run(until: Date() + 0.01) }
+      }
+      tap.start()
+      while Date() < deadline { RunLoop.main.run(until: Date() + 0.01) }
+      return actions.withLock { $0 }
+    }
+    let slipped = pans([3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3])
+    guard slipped.count == 2, case .panBegan = slipped[0], case .panEnded(_, let travel, _, _) = slipped[1] else {
+      Issue.record("a swipe through a slip must be one pan, got \(slipped)")
+      return
+    }
+    // The fingers that stayed carry the slip: the pan travels as far as without one.
+    guard case .panEnded(_, let whole, _, _)? = pans(Array(repeating: 3, count: 12)).last else {
+      Issue.record("a swipe without a slip must end its pan")
+      return
+    }
+    #expect(abs(travel - whole) < 1e-6 && travel != 0)
+    #expect(pans([3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]).isEmpty)
+    // Lifted one at a time, they pass three on the way down: still not a swipe of the strip.
+    #expect(pans([4, 4, 4, 3, 2, 2, 1, 1]).isEmpty)
   }
 
   /// The Overview hears of the swipe before the toggle that opens it, then follows it to the lift.
