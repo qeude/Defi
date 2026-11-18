@@ -312,22 +312,26 @@ struct OverviewSwipe {
 
 /// The fingers touching the trackpad in a gesture event, or nil for one about no touch at all,
 /// such as macOS starting its own scroll mid-swipe. Lifted fingers still come, as ended touches.
+/// `aspect` is the trackpad's height over its width, 1 when it does not say.
 /// AppKit returns no touches off the main thread.
-func trackpadTouches(_ event: CGEvent) -> [(id: Int, position: CGPoint)]? {
+func trackpadTouches(_ event: CGEvent) -> (touches: [(id: Int, position: CGPoint)], aspect: Double)? {
   precondition(Thread.isMainThread)
-  guard let event = NSEvent(cgEvent: event), !event.touches(matching: .any, in: nil).isEmpty else { return nil }
-  return event.touches(matching: .touching, in: nil)
-    .map { (($0.identity as AnyObject).hash, $0.normalizedPosition) }
+  guard let event = NSEvent(cgEvent: event), let size = event.touches(matching: .any, in: nil).first?.deviceSize
+  else { return nil }
+  return (event.touches(matching: .touching, in: nil)
+    .map { (($0.identity as AnyObject).hash, $0.normalizedPosition) },
+    size.width > 0 && size.height > 0 ? size.height / size.width : 1)
 }
 
 extension ScrollGestureInput {
   /// A gesture event's touches as one step of a finger swipe, or nil when it is none.
-  init?(gesture event: CGEvent, touches: [(id: Int, position: CGPoint)], swipe: inout FingerSwipe,
-    modifierBits: UInt64, announcedModifierBits: UInt64) {
+  init?(gesture event: CGEvent, touches: [(id: Int, position: CGPoint)], aspect: Double,
+    swipe: inout FingerSwipe, modifierBits: UInt64, announcedModifierBits: UInt64) {
     guard let step = swipe.update(touches) else { return nil }
     phase = step.phase
     dx = step.dx
-    dy = step.dy
+    // Positions are shares of the trackpad's width and height: the same finger travel counts the same on both axes.
+    dy = step.dy * aspect
     let held = hotKeyModifierBits(event.flags) | announcedModifierBits
     modifierHeld = held & modifierBits == modifierBits
     location = event.location
