@@ -696,10 +696,13 @@ def analyze(out):
         if e['action'] == 'settled':
             settled_at.setdefault(e['of'], []).append(e)
     starts = [e['t'] for e in actions] + [float('inf')]
+    creates = [e for e in events if e['action'] == 'create']
     instant = any(e['action'] == 'mode' and e.get('instant') for e in events)
     blind = 0
     for index, action in enumerate(actions):
         t0, t1 = action['t'], starts[index + 1]
+        # A window opened between actions changes the layout on its own: it ends this action's span.
+        t1 = min([t1] + [e['t'] for e in creates if t0 < e['t'] < t1])
         span = [f for f in frames if t0 - 0.05 <= f['t'] < t1]
         if not span:
             # Every action moves or repaints something; no frame means the camera was down.
