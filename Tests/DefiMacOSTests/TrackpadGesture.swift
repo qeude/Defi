@@ -2,7 +2,7 @@ import AppKit
 import IOKit
 @testable import DefiMacOS
 
-/// Three-finger trackpad gesture events like the ones macOS sends, built with IOKit's private HID
+/// Trackpad gesture events like the ones macOS sends, built with IOKit's private HID
 /// event calls. AppKit reads their touches only for a multitouch device it finds in the registry.
 struct TrackpadGesture {
   private typealias Collection = @convention(c) (CFAllocator?, UInt64, UInt32, UInt32, UInt32, UInt32,
@@ -48,8 +48,8 @@ struct TrackpadGesture {
     (self.append, self.setInteger, self.attach, self.registryID) = (append, setInteger, attach, registryID)
   }
 
-  /// Three fingers side by side from `point`, in normalized trackpad coordinates.
-  func event(at point: CGPoint, touching: Bool = true, flags: CGEventFlags) -> CGEvent? {
+  /// Fingers side by side from `point`, in normalized trackpad coordinates.
+  func event(at point: CGPoint, fingers: Int = 3, touching: Bool = true, flags: CGEventFlags) -> CGEvent? {
     let time = mach_absolute_time(), digitizer: UInt32 = 11, touchAndPosition: UInt32 = 0x6
     let paths = collection(nil, time, 3, 0, 0, touchAndPosition, 0, point.x, point.y, 0, 0, 0,
       touching, touching, 0).takeRetainedValue()
@@ -58,7 +58,7 @@ struct TrackpadGesture {
     var device = registryID
     let data = withUnsafeBytes(of: &device) { Array($0) } + [UInt8](repeating: 0, count: 8)
     append(paths, vendor(nil, time, 0xff00, 0x1777, 1, data, data.count, 0).takeRetainedValue(), 0)
-    for index in 1...3 {
+    for index in 1...fingers {
       append(paths, finger(nil, time, UInt32(index), UInt32(index), touchAndPosition,
         point.x + Double(index) * 0.05, point.y, 0, touching ? 1 : 0, 0, touching, touching, 0).takeRetainedValue(), 0)
     }

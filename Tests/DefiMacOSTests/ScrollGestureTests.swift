@@ -215,6 +215,57 @@ struct ScrollGestureTests {
     #expect(travel != 0)
   }
 
+  /// A finger slipping off for a moment keeps one pan; a fourth finger landing after three is
+  /// another gesture, such as macOS's, and the strip leaves it alone.
+  @MainActor
+  @Test(.enabled(if: TrackpadGesture.freeAxis != nil, "needs a trackpad with a three-finger axis left free"))
+  func `Trackpad touches keep a swipe through a slip, and leave a fourth finger's swipe alone`() throws {
+    let trackpad = try #require(TrackpadGesture()), vertical = try #require(TrackpadGesture.freeAxis as Bool?)
+    let type = try #require(CGEventType(rawValue: gestureEventType))
+    var timebase = mach_timebase_info()
+    mach_timebase_info(&timebase)
+    let nanosecondsPerTick = Double(timebase.numer) / Double(timebase.denom)
+    // One event per finger count, 8 ms apart along the free axis, a fiftieth of the trackpad each, then the lift.
+    func pans(_ fingers: [Int]) -> [ScrollGestureAction] {
+      let start = mach_absolute_time()
+      let ticks = { (step: Int) in start + UInt64(Double(step) * 0.008e9 / nanosecondsPerTick) }
+      nonisolated(unsafe) let events = fingers.enumerated().compactMap { step, count -> CGEvent? in
+        let along = 0.6 - Double(step) * 0.02
+        let event = trackpad.event(at: vertical ? CGPoint(x: 0.3, y: along) : CGPoint(x: along, y: 0.5),
+          fingers: count, flags: [])
+        event?.timestamp = ticks(step)
+        return event
+      } + [trackpad.event(at: CGPoint(x: 0.3, y: 0.3), touching: false, flags: [])].compactMap { event -> CGEvent? in
+        event?.timestamp = ticks(fingers.count)
+        return event
+      }
+      let actions = Mutex<[ScrollGestureAction]>([])
+      let monitor = InputMonitor(
+        bindings: [:], userInputTracker: UserInputTracker(), pointerMotionTracker: PointerMotionTracker(),
+        tracksPointerWindowTransitions: false, scrollGestureModifierBits: 0, scrollGestureFingers: 3,
+        deliverScrollGesture: { action in actions.withLock { $0.append(action) } },
+        deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+      // No pan is also an outcome, so both run loops wait out the touches' round trip through the main thread.
+      let deadline = Date() + 0.5
+      let tap = Thread {
+        for event in events { _ = monitor.handle(type: type, event: event) }
+        RunLoop.current.add(Timer(timeInterval: 1, repeats: false) { _ in }, forMode: .common)
+        while Date() < deadline { RunLoop.current.run(until: Date() + 0.01) }
+      }
+      tap.start()
+      while Date() < deadline { RunLoop.main.run(until: Date() + 0.01) }
+      return actions.withLock { $0 }
+    }
+    let slipped = pans([3, 3, 3, 3, 2, 2, 3, 3, 3, 3, 3, 3])
+    guard slipped.count == 2, case .panBegan = slipped[0], case .panEnded(_, let travel, _, _) = slipped[1] else {
+      Issue.record("a swipe through a slip must be one pan, got \(slipped)")
+      return
+    }
+    // The first step picks the axis; the ten after it, slip included, are a fiftieth of 3000 points each.
+    #expect(abs(abs(travel) - 600) < 1e-6)
+    #expect(pans([3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]).isEmpty)
+  }
+
   /// The Overview hears of the swipe before the toggle that opens it, then follows it to the lift.
   @MainActor
   @Test(.enabled(if: TrackpadGesture() != nil && !systemTrackpadSwipes(fingers: 3).vertical,
