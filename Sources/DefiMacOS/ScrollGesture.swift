@@ -185,7 +185,7 @@ struct FingerSwipe {
   /// Scroll points per trackpad width: a swipe across the whole trackpad moves the
   /// strip two displays at the default speed, whatever the trackpad's size.
   static let travelPerWidth = 3000.0
-  /// How long a finger may slip off or join before the swipe counts as ended.
+  /// How long a finger may slip off before the swipe counts as ended.
   static let slip = 0.12
   let fingers: Int
   private var touches: [Int: CGPoint]?
@@ -225,10 +225,10 @@ struct FingerSwipe {
     if current.count == fingers {
       slippedAt = nil
     } else {
-      // A fast swipe drops a finger for a moment; only lifting them all ends it at once.
+      // A fast swipe drops a finger for a moment; lifting them all, or a finger more (another gesture), ends it at once.
       let slipped = slippedAt ?? time
       slippedAt = slipped
-      if current.isEmpty || time - slipped >= Self.slip {
+      if !(1..<fingers).contains(current.count) || time - slipped >= Self.slip {
         (touches, slippedAt) = (nil, nil)
         return (4, 0, 0, slipped)
       }
@@ -287,7 +287,7 @@ struct OverviewSwipe {
       defer { (x, y, velocity, stage) = (0, 0, 0, step.phase == 1 ? .waiting : .ignored) }
       guard stage == .opening || stage == .closing else { return nil }
       // Fingers that rested before lifting have no speed left.
-      let speed = time - lastMove > 0.05 ? 0 : (stage == .opening ? -velocity : velocity)
+      let speed = step.time - lastMove > 0.05 ? 0 : (stage == .opening ? -velocity : velocity)
       let flicked = abs(speed) >= Self.flickSpeed
       return .ended(commit: flicked ? speed > 0 && progress >= Self.flickProgress : progress >= 0.5)
     }

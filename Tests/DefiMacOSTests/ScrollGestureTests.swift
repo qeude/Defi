@@ -58,12 +58,15 @@ struct ScrollGestureTests {
     // A finger slipping off for a moment keeps the swipe, which follows those that stayed.
     #expect(tenth(swipe.update(at(0.3, [1, 2]), time: 0.03)))
     #expect(swipe.update(at(0.3, [1, 2]) + at(0.7, [5]), time: 0.04) == nil)
-    let joined = at(0.2, [1, 2]) + at(0.6, [5]) + at(0.9, [6])
-    #expect(tenth(swipe.update(joined, time: 0.05)))
+    #expect(tenth(swipe.update(at(0.2, [1, 2]), time: 0.05)))
     // One gone for longer ends the swipe when it left: the wait takes nothing from the flick.
-    #expect(swipe.update(joined, time: 0.06) == nil)
-    #expect(swipe.update(joined, time: 0.06 + FingerSwipe.slip)! == (4, 0, 0, 0.05))
+    #expect(swipe.update(at(0.2, [1, 2]), time: 0.06) == nil)
+    #expect(swipe.update(at(0.2, [1, 2]), time: 0.06 + FingerSwipe.slip)! == (4, 0, 0, 0.05))
     #expect(swipe.update(at(0.2, [1]), time: 0.3) == nil)
+    // A finger more is another gesture, such as the Overview's: it ends the swipe at once.
+    _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.35)
+    #expect(swipe.update(at(0.5, [1, 2, 3, 4]), time: 0.36)! == (4, 0, 0, 0.36))
+    #expect(swipe.update(at(0.4, [1, 2, 3, 4]), time: 0.37) == nil)
     // Lifting them all ends it at once, even one after the other.
     _ = swipe.update(at(0.5, [1, 2, 3]), time: 0.4)
     #expect(swipe.update([], time: 0.41)! == (4, 0, 0, 0.41))
