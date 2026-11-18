@@ -594,9 +594,9 @@ final class RibbonProxyPresenter {
       layer.removeFromSuperlayer(); windowLayers[id] = nil
     }
     let phaseLayers = CACurrentMediaTime()
-    // A motion from rest starts on the frame after this commit: its pictures and layers reach
-    // the compositor first, and a clock started now showed its opening frames all at once.
-    let motionStart = phaseLayers + ribbonProxyFrameInterval(screen.displayID)
+    // A motion from rest starts two frames after this commit: its pictures and layers reach
+    // the compositor first, and an earlier clock showed its opening frames all at once.
+    let motionStart = phaseLayers + 2 * ribbonProxyFrameInterval(screen.displayID)
     var pictured = 0, badged = 0
     var stop = 0.0
     // A released gesture moved the whole stack as one: what this motion leaves out (the
