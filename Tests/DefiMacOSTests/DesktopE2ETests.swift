@@ -24,8 +24,10 @@ final class DesktopE2ETests: XCTestCase {
 
   func testFullscreenPlaceholderReceivesDesktopClicks() throws {
     _ = try preflight()
-    let cursor = try XCTUnwrap(CGEvent(source: nil)?.location)
-    defer { CGWarpMouseCursorPosition(cursor) }
+    let application = NSApplication.shared
+    let originalPolicy = application.activationPolicy()
+    XCTAssertTrue(application.setActivationPolicy(.accessory))
+    defer { application.setActivationPolicy(originalPolicy) }
     let manager = NativeFullscreenPlaceholderManager()
     defer { manager.hide() }
     let displayID = CGMainDisplayID()
@@ -40,7 +42,6 @@ final class DesktopE2ETests: XCTestCase {
     sibling.orderFrontRegardless()
     defer { sibling.close() }
     let siblingID = WindowID(rawValue: UInt64(sibling.windowNumber))
-    XCTAssertEqual(CGWarpMouseCursorPosition(center), .success)
     let windowID = WindowID(rawValue: 7)
     var selected: [WindowID] = []
     var activated: [WindowID?] = []
@@ -50,17 +51,36 @@ final class DesktopE2ETests: XCTestCase {
       NativeFullscreenPlaceholder(
         windowID: windowID, monitorID: MonitorID(rawValue: UInt64(displayID)),
         appID: "com.apple.Finder", title: "Defi desktop fixture",
-        frame: Rect(x: bounds.midX - 150, y: bounds.midY - 100, width: 300, height: 200))
+        frame: Rect(x: center.x - 150, y: center.y - 100, width: 300, height: 200))
     ], selectedWindowID: nil, stackingWindowID: siblingID, accentColor: 0xffc0_99ff)
 
-    func click(_ count: Int, flags: CGEventFlags = []) throws {
-      for type: CGEventType in [.mouseMoved, .leftMouseDown, .leftMouseUp] {
-        let event = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: type,
-          mouseCursorPosition: center, mouseButton: .left))
-        event.flags = flags
-        event.setIntegerValueField(.mouseEventClickState, value: Int64(count))
-        event.post(tap: .cghidEventTap)
-        pumpApplicationEvents(until: { false }, timeout: 0.08)
+    var target: NSWindow?
+    guard pumpApplicationEvents(until: {
+      let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+        as? [[String: Any]] ?? []
+      let front = windows.first { window in
+        guard window[kCGWindowLayer as String] as? Int == 0,
+          let bounds = window[kCGWindowBounds as String] as? NSDictionary else { return false }
+        return CGRect(dictionaryRepresentation: bounds)?.contains(center) == true
+      }
+      guard let id = front?[kCGWindowNumber as String] as? CGWindowID,
+        manager.transparentSurfaceWindowIDs.contains(id) else { return false }
+      target = application.window(withWindowNumber: Int(id))
+      return target != nil
+    }, timeout: 2) else {
+      return XCTFail("The placeholder must be in front before clicking: \(windowsDescription(at: center))")
+    }
+
+    let panel = try XCTUnwrap(target)
+    func click(_ count: Int, flags: NSEvent.ModifierFlags = []) throws {
+      for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+        let event = try XCTUnwrap(NSEvent.mouseEvent(
+          with: type,
+          location: NSPoint(x: panel.frame.width / 2, y: panel.frame.height / 2),
+          modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+          windowNumber: panel.windowNumber, context: nil, eventNumber: 0,
+          clickCount: count, pressure: 1))
+        application.sendEvent(event)
       }
     }
 
@@ -70,7 +90,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(activated.isEmpty)
     try click(2)
     XCTAssertTrue(pumpApplicationEvents(until: { activated == [windowID] }, timeout: 2))
-    try click(1, flags: .maskCommand)
+    try click(1, flags: .command)
     try click(1)
     XCTAssertTrue(pumpApplicationEvents(until: { selected.count >= 2 }, timeout: 2))
     XCTAssertEqual(selected, [windowID, windowID])
