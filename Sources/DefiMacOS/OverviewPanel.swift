@@ -169,7 +169,9 @@ final class OverviewPanel {
   }
 
   /// Shows the zoom's first pose, which matches the desktop; `startSurfaceSceneWhenPresented` moves it.
-  func presentSurfaceScene(_ scene: OverviewSurfaceScene, windowIDs: Set<WindowID>) {
+  /// Only a swipe cross-fades the menu bar and Dock: the mask and a non-opaque panel cost the
+  /// first moving frame of a keyboard zoom 33-58 ms, so it covers and uncovers them at once.
+  func presentSurfaceScene(_ scene: OverviewSurfaceScene, windowIDs: Set<WindowID>, fadesChrome: Bool) {
     cancelSurfaceTransition()
     restoreWallpaperFade()
     surfaceScene = scene
@@ -179,7 +181,7 @@ final class OverviewPanel {
     // Not 0: the glass and its cards render once during the still first pose, so the first
     // moving frame of the zoom does not pay for them. The tint is invisible at this alpha.
     glassView.alphaValue = 0.002
-    coverChrome(0, duration: 0)
+    if fadesChrome { coverChrome(0, duration: 0) }
     rootView.layer?.addSublayer(scene.layer)
     window.alphaValue = 1
     window.orderFrontRegardless()
@@ -233,7 +235,7 @@ final class OverviewPanel {
     scene.animate(opening: true, duration: duration)
     MotionSignpost.span("overview-zoom", duration)
     fadeGlass(to: 1, duration: duration)
-    coverChrome(1, duration: duration)
+    if chromeMask != nil { coverChrome(1, duration: duration) }
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
@@ -290,7 +292,7 @@ final class OverviewPanel {
     surfaceScene.animate(opening: false, duration: duration)
     MotionSignpost.span("overview-zoom", duration)
     fadeGlass(to: 0, duration: duration)
-    coverChrome(0, duration: duration)
+    if chromeMask != nil { coverChrome(0, duration: duration) }
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
@@ -380,6 +382,8 @@ final class OverviewPanel {
   /// Covers the menu bar and Dock `coverage` of the way, from 0 where they show as on the desktop.
   private func coverChrome(_ coverage: Double, duration: TimeInterval) {
     guard let rootLayer = rootView.layer, let screen = window.screen else { return }
+    // A shown opaque panel, after a keyboard zoom: turning it non-opaque would flash the windows beneath.
+    if chromeMask == nil, window.isVisible, window.isOpaque { return }
     let chrome = chromeMask ?? {
       let frame = screen.frame, visible = screen.visibleFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
       let bounds = CGRect(origin: .zero, size: frame.size)

@@ -122,6 +122,7 @@ def attribute(marks, windows, renders, hitches):
                 entry.setdefault('late_at_ms', []).append(round(offset))
             if gap > SYSTEM_SPIKE_MS:
                 entry['spikes'] += 1
+                entry.setdefault('spikes_at', []).append([round(gap, 1), round(offset)])
                 continue
             entry['gaps'] += 1
             entry['smooth'] += gap <= SMOOTH_MS
