@@ -438,7 +438,7 @@ struct WindowBorderTests {
     #expect(queryCounts == [first: 1, second: 1])
   }
 
-  @Test @MainActor
+  @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
   func eachDisplayOverlayHidesOnlyItsOwnBordersUntilEveryOneLands() {
     let manager = WindowBorderManager()
     defer { manager.hide() }
@@ -464,7 +464,7 @@ struct WindowBorderTests {
     #expect(manager.showsActiveRing(for: windowID))
   }
 
-  @Test @MainActor
+  @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
   func closingWindowRingStaysHiddenWhilePlansStillTrackIt() {
     let manager = WindowBorderManager()
     defer { manager.hide() }
@@ -487,7 +487,7 @@ struct WindowBorderTests {
     #expect(!manager.showsActiveRing(for: windowID))
   }
 
-  @Test @MainActor
+  @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
   func selectionHandoffShowsTheNewWindowWhenOnlyTheOldOneWasHidden() {
     let manager = WindowBorderManager()
     defer { manager.hide() }
@@ -506,7 +506,7 @@ struct WindowBorderTests {
     #expect(manager.showsActiveRing(for: shown))
   }
 
-  @Test @MainActor
+  @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
   func suppressedBordersStayHiddenUntilRestored() {
     let manager = WindowBorderManager()
     let windowID = WindowID(rawValue: 1)
@@ -547,7 +547,7 @@ struct WindowBorderTests {
     #expect(manager.performance.visible == 1)
   }
 
-  @Test @MainActor
+  @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
   func untrackedWindowBordersAreReusedInsteadOfCreatingPanels() {
     let manager = WindowBorderManager()
     defer { manager.hide() }
@@ -628,7 +628,7 @@ struct WindowBorderTests {
     #expect(overlay.estimatedSurfacePixels == 0)
   }
 
-  @Test @MainActor
+  @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
   func translationReusesBorderPathsAndSelectionBacking() {
     let manager = WindowBorderManager()
     let first = WindowID(rawValue: 1)
@@ -890,7 +890,7 @@ struct WindowBorderTests {
     })
   }
 
-  @Test @MainActor
+  @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
   func skyLightMoveStaysAuthoritativeAcrossStackingAndReveal() {
     var batches: [[BorderSurfaceMove]] = []
     let (manager, windowID, panels) = movedBorder(
@@ -913,7 +913,7 @@ struct WindowBorderTests {
     #expect(panelFrames(panels) == expected)
   }
 
-  @Test @MainActor
+  @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
   func failedMoveNeverReplaysAFrameCapturedBeforeANewerMove() {
     var results = [false, true]
     let (manager, windowID, panels) = movedBorder(

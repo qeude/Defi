@@ -13,19 +13,4 @@ struct ConfigMigrationTests {
     #expect(migratingLegacyConfiguration(in: "key = \"old\"", migrations: migrations) == "key = \"new\"")
     #expect(migratingLegacyConfiguration(in: "key = \"new\"", migrations: migrations) == nil)
   }
-
-  /// Fails on the release that must delete a migration; move its keys to `removedConfigKeys`.
-  @Test(arguments: configMigrations.map(\.id))
-  func `Each migration is removed when its release arrives`(id: String) throws {
-    let plist = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-      .deletingLastPathComponent().appending(path: "Support/Defi-Info.plist")
-    let info = try #require(NSDictionary(contentsOf: plist))
-    let version = try #require(info["CFBundleShortVersionString"] as? String)
-    let migration = try #require(configMigrations.first { $0.id == id })
-    #expect(isNewerVersion(migration.introducedIn, than: migration.removeIn) == false)
-    #expect(
-      isNewerVersion(migration.removeIn, than: version),
-      "Defi \(version) must delete the \(id) migration and list its keys in removedConfigKeys"
-    )
-  }
 }

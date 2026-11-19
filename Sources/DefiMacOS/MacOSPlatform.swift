@@ -37,7 +37,6 @@ public final class MacOSPlatform {
   public var windowProxySpring = AnimationConfig() {
     didSet { if oldValue != windowProxySpring { RibbonProxyStore.shared.spring = windowProxySpring } }
   }
-  /// Each display moves on its own overlay.
   public var windowProxyMonitors: [WindowProxyMonitor] = []
   /// The overlay is drawing a motion; desktop reads wait for its landing.
   public nonisolated var windowProxiesMoving: Bool { RibbonProxyStore.shared.isMoving }
@@ -675,7 +674,6 @@ public final class MacOSPlatform {
     set { snapshotEngine.lastNativeFocusedWindowID = newValue }
   }
   @MainActor var borderHiddenWindowIDs = Set<WindowID>()
-  @MainActor var borderLiveWindowID: WindowID?
   public private(set) var nativeFullscreenWindowIDs = Set<WindowID>()
   /// Selecting a fullscreen window stays in the strip; only the next focus of this window switches to its Space.
   public var nativeFullscreenActivationWindowID: WindowID?
@@ -706,7 +704,6 @@ public final class MacOSPlatform {
   public var windowBorderSyncStatus: String { presentationStatus.borderSync }
   @MainActor var presentedNativeFullscreenWindowIDs = Set<WindowID>()
   @MainActor var presentedSelectedWindowID: WindowID?
-  var plannedBorderFrames: [FrameAssignment] = []
 
   var cursorWarpAppliedCount = 0
   var cursorWarpSkippedCount = 0

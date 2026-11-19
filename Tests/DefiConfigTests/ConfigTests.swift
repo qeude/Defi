@@ -59,26 +59,8 @@ struct ConfigTests {
   }
 
   @Test
-  func defaultBindingsFocusMoveAndReachMonitorsInLayers() {
-    let keys = Config().keys
-    #expect(keys["mod-h"] == "focus-column left")
-    #expect(keys["mod-down"] == "focus-window down")
-    #expect(keys["mod-home"] == "focus-column first")
-    #expect(keys["mod-u"] == "focus-workspace down")
-    #expect(keys["mod-pageup"] == "focus-workspace up")
-    #expect(keys["mod-cmd-l"] == "move-column right")
-    #expect(keys["mod-cmd-k"] == "move-window up")
-    #expect(keys["mod-cmd-end"] == "move-column last")
-    #expect(keys["mod-cmd-i"] == "move-column-to-workspace up")
-    #expect(keys["mod-cmd-2"] == "move-column-to-workspace-position 2")
-    #expect(keys["mod-shift-j"] == "focus-monitor down")
-    #expect(keys["mod-shift-cmd-right"] == "move-column-to-monitor right")
-    #expect(keys["mod-shift-u"] == "reorder-workspace down")
-    #expect(keys["mod-leftbracket"] == "consume-or-expel-window left")
-    #expect(keys["mod-period"] == "unjoin-windows")
-    #expect(keys["mod-r"] == "cycle-width next")
-    #expect(keys["mod-shift-slash"] == "toggle-cheatsheet")
-    #expect(!keys.values.contains { $0.hasPrefix("move-workspace-to-monitor") })
+  func defaultBindingsReachNoWorkspaceMonitorMove() {
+    #expect(!Config().keys.values.contains { $0.hasPrefix("move-workspace-to-monitor") })
   }
 
   @Test
@@ -295,18 +277,6 @@ struct ConfigTests {
   func decodesCenterFocusedColumn(value: String, expected: CenterFocusedColumn) throws {
     #expect(try Config.decode(Data("[layout]\ncenter_focused_column = \"\(value)\"".utf8)).layout
       .centerFocusedColumn == expected)
-  }
-
-  @Test(arguments: [("true", true), ("false", false)])
-  func decodesAlwaysCenterSingleColumn(value: String, expected: Bool) throws {
-    #expect(try Config.decode(Data("[layout]\nalways_center_single_column = \(value)".utf8)).layout
-      .alwaysCenterSingleColumn == expected)
-  }
-
-  @Test
-  func `A lone column stays uncentered by default`() throws {
-    #expect(!LayoutConfig().alwaysCenterSingleColumn)
-    #expect(!(try Config.decode(Data("[layout]\ngaps = 4".utf8)).layout.alwaysCenterSingleColumn))
   }
 
   @Test

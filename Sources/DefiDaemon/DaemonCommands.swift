@@ -8,6 +8,15 @@ import DefiRuntime
 import Foundation
 import OSLog
 
+/// How many commands each queue accepts before it drops input, and how many hot keys one
+/// tick runs so a held shortcut cannot starve the run loop.
+enum CommandQueueLimit {
+  static let acceptsPerEventLoop = 16
+  static let pendingHotKeys = 64
+  static let hotKeysPerTick = 8
+  static let deferredAfterFrameRead = 64
+}
+
 /// Lets an IPC client wait for a deferred command without occupying navigation.
 final class DeferredCommandReply: @unchecked Sendable {
   private let lock = NSLock()
@@ -49,8 +58,11 @@ final class DeferredCommandReply: @unchecked Sendable {
     ready.signal()
   }
 
-  func wait(timeout: DispatchTime = .now() + 1.5) -> CommandResponse {
-    // The Unix socket's response timeout is two seconds.
+  /// Answers before the client's socket read gives up, so a deferred command reports its
+  /// own timeout instead of the socket's.
+  func wait(
+    timeout: DispatchTime = .now() + ipcResponseTimeoutSeconds - 0.5
+  ) -> CommandResponse {
     if ready.wait(timeout: timeout) == .timedOut {
       fail("window geometry read timed out; command was not applied")
       lock.lock()
@@ -73,14 +85,14 @@ private func ipcEventHandler(
 ) -> @Sendable () -> Void {
   { [weak daemon] in
     do {
-      for _ in 0..<16 {
+      for _ in 0..<CommandQueueLimit.acceptsPerEventLoop {
         let handled = try server.poll(
           on: clientQueue,
           handler: { request in
-            if refusedOverIPC(request.command) {
+            if !verbIsAllowedOverIPC(request.command) {
               return .failure("spawn-sh runs only from a shortcut in config.toml")
             }
-            if DaemonReadResponseCache.isReadCommand(request.command),
+            if verbIsReadOnly(request.command),
               let cached = readResponseCache.response(
                 for: request.command,
                 now: ProcessInfo.processInfo.systemUptime
@@ -101,9 +113,7 @@ private func ipcEventHandler(
                   receivedAt: receivedAt,
                   deferredResponse: deferred
                 )
-                if DaemonReadResponseCache.isReadCommand(request.command),
-                  response.ok
-                {
+                if verbIsReadOnly(request.command), response.ok {
                   readResponseCache.store(
                     message: response.message,
                     for: request.command,
@@ -116,7 +126,7 @@ private func ipcEventHandler(
             return deferred.wasDeferred ? deferred.wait() : response
           },
           completion: { [weak daemon] request in
-            guard request.command == "quit" || request.command == "handoff" else { return }
+            guard case .daemon(.stop) = (try? parseVerb(request.command)) else { return }
             NavigationActor.enqueue {
               guard let daemon, daemon.shouldShutdown else { return }
               daemon.shutdown()
@@ -299,7 +309,7 @@ extension Daemon {
 
   func enqueueHotKey(_ invocation: HotKeyInvocation) {
     guard desktopSessionActive, !shouldShutdown, !restorationInFlight else { return }
-    guard pendingHotKeyCommands.count < 64 else { return }
+    guard pendingHotKeyCommands.count < CommandQueueLimit.pendingHotKeys else { return }
     if (try? parseCommand(invocation.command)) != .toggleCheatsheet {
       handleCheatsheetInput(.dismiss)
     }
@@ -311,7 +321,7 @@ extension Daemon {
     guard !processingHotKeyCommands, !shouldShutdown, !restorationInFlight else { return }
     processingHotKeyCommands = true
     defer { processingHotKeyCommands = false }
-    for _ in 0..<min(pendingHotKeyCommands.count, 8) {
+    for _ in 0..<min(pendingHotKeyCommands.count, CommandQueueLimit.hotKeysPerTick) {
       let invocation = pendingHotKeyCommands.removeFirst()
       platform.recordPerformanceTrace(
         "hotkey command=\(invocation.command) sourcePID=\(invocation.sourceProcessID.map(String.init) ?? "unknown")"
@@ -334,79 +344,22 @@ extension Daemon {
     deferredResponse: DeferredCommandReply? = nil,
     placeholderWindowID: WindowID? = nil
   ) -> CommandResponse {
-    if rawCommand == "list-workspaces" {
-      let lines = currentWorkspaceState().monitors.map { monitor in
-        let labels = monitor.workspaces.map { $0.name ?? String($0.position) }
-        return "\(monitor.display): \(labels.joined(separator: " "))"
-      }
-      return .success(lines.joined(separator: "\n"))
-    }
-    if rawCommand == "list-windows" {
-      let lines = currentWindowList().windows.map { window in
-        "\(window.id)\t\(window.appName ?? window.appID)\t\(window.title)"
-      }
-      return .success(lines.joined(separator: "\n"))
-    }
-    if rawCommand == "list-windows --json" {
-      do {
-        return .success(try sortedJSON(currentWindowList()))
-      } catch {
-        return .failure(String(describing: error))
-      }
-    }
-    if rawCommand == "list-workspaces --json" {
-      do {
-        return .success(try workspaceStateJSON())
-      } catch {
-        return .failure(String(describing: error))
-      }
-    }
-    if let response = handleReservedAreaCommand(
-      rawCommand,
-      monitorIndex: monitorIndex
-    ) {
+    let parsedVerb = Result { try parseVerb(rawCommand) }
+    if case .success(.daemon(let daemonVerb)) = parsedVerb,
+      let response = handleDaemonVerb(
+        daemonVerb, monitorIndex: monitorIndex, deferredResponse: deferredResponse)
+    {
       return response
-    }
-    if rawCommand == "status" {
-      return .success(status())
-    }
-    if rawCommand == "trace" {
-      return .success(platform.frameCoordinatorTrace)
-    }
-    if rawCommand == "border-audit" {
-      guard let deferredResponse else { return .failure("border-audit requires a client") }
-      deferredResponse.deferResponse()
-      DispatchQueue.main.async { [platform] in
-        let report = platform.auditWindowBorderGeometry()
-        NavigationActor.enqueue { deferredResponse.perform { .success(report) } }
-      }
-      return .success("deferred")
-    }
-    if rawCommand == ClientVerb.diagnosticMark.rawValue {
-      diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)
-      return .success("marked \(diagnostics.currentFileURL.path)")
-    }
-    if rawCommand == "restore", !shouldShutdown {
-      guard beginWindowRestoration() else { return .failure("window restoration in progress") }
-      Task { await restoreAllWindows(alreadyClaimed: true) }
-      return .success("restoration scheduled")
-    }
-    if rawCommand == "quit" || rawCommand == "handoff" {
-      shouldShutdown = true
-      handsOffWindows = rawCommand == "handoff"
-      return .success("stopping")
     }
     guard !shouldShutdown, !restorationInFlight else { return .failure("window restoration in progress") }
     if commandFrameReadTask != nil {
-      do {
-        _ = try parseCommand(rawCommand)
-      } catch {
-        return .failure(String(describing: error))
-      }
+      if case .failure(let error) = parsedVerb { return .failure(String(describing: error)) }
       if let monitorIndex, monitorID(atAppKitIndex: monitorIndex) == nil {
         return .failure("unknown monitor index: \(monitorIndex)")
       }
-      guard commandsAfterFrameRead.count < 64 else { return .failure("command queue full") }
+      guard commandsAfterFrameRead.count < CommandQueueLimit.deferredAfterFrameRead else {
+        return .failure("command queue full")
+      }
       deferredResponse?.deferResponse()
       if let deferredResponse { deferredFrameReplies.append(deferredResponse) }
       commandsAfterFrameRead.append { [weak self] in
@@ -422,9 +375,17 @@ extension Daemon {
       }
       return .success("queued for current window geometry")
     }
+    let parsedCommand: Command
+    switch parsedVerb {
+    case .success(.layout(let command)):
+      parsedCommand = command
+    case .failure(let error):
+      return .failure(String(describing: error))
+    case .success(.daemon):
+      return .failure("command unavailable")
+    }
     do {
       let commandStartedAt = ProcessInfo.processInfo.systemUptime
-      let parsedCommand = try parseCommand(rawCommand)
       platform.nativeFullscreenActivationWindowID = nil
       if parsedCommand == .toggleCheatsheet {
         guard desktopSessionActive, !state.monitors.isEmpty else {
@@ -954,6 +915,14 @@ extension Daemon {
           cursorWarpIsCurrentAfterCommit = nil
           focusRequestIDAfterCommit = nil
         }
+        let postCommitFocus = PostCommitFocus(
+          windowID: focusWindowIDAfterCommit,
+          inputTimestamp: workspaceFocusRequest?.focusInputTimestamp,
+          cursorWarpInputTimestamp: workspaceFocusRequest?.cursorWarpInputTimestamp,
+          isCursorWarpCurrent: cursorWarpIsCurrentAfterCommit,
+          completion: focusCompletionAfterCommit,
+          requestID: focusRequestIDAfterCommit
+        )
         if switchesWorkspace, !movedBetweenMonitors,
           let verticalTransitionIntent,
           let transition = safeWorkspaceVerticalTransition(verticalTransitionIntent)
@@ -961,14 +930,7 @@ extension Daemon {
           dispatchWorkspaceVerticalTransition(
             transition,
             affectedMonitorIDs: affectedMonitorIDs,
-            focusWindowIDAfterCommit: focusWindowIDAfterCommit,
-            focusInputTimestampAfterCommit:
-              workspaceFocusRequest?.focusInputTimestamp,
-            cursorWarpInputTimestampAfterCommit:
-              workspaceFocusRequest?.cursorWarpInputTimestamp,
-            focusCompletionAfterCommit: focusCompletionAfterCommit,
-            cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
-            focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+            postCommitFocus: postCommitFocus,
             commandPerformance: commandPerformance
           )
         } else {
@@ -979,15 +941,7 @@ extension Daemon {
             positionTimeoutSeconds: scrollAnimations.isEmpty ? 0.05 : 0.016,
             positionsOnly: speculativeRibbonNavigation,
             stagesVisibleBeforeParking: switchesWorkspace,
-            focusWindowIDAfterCommit: focusWindowIDAfterCommit,
-            focusInputTimestampAfterCommit:
-              workspaceFocusRequest?.focusInputTimestamp,
-            cursorWarpInputTimestampAfterCommit:
-              workspaceFocusRequest?.cursorWarpInputTimestamp,
-            focusCompletionAfterCommit: focusCompletionAfterCommit,
-            cursorWarpIsCurrentAfterCommit:
-              cursorWarpIsCurrentAfterCommit,
-            focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+            postCommitFocus: postCommitFocus,
             forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
             commandPerformance: commandPerformance,
             source: switchesWorkspace ? "workspace-command" : "command"
@@ -1146,12 +1100,6 @@ private func monitorIDsByWindow(
     monitorIDs[windowID] = location.monitorID
   }
   return monitorIDs
-}
-
-/// Any local process can reach the socket, and the shell would inherit Defi's TCC grants.
-func refusedOverIPC(_ rawCommand: String) -> Bool {
-  if case .spawnShell = try? parseCommand(rawCommand) { return true }
-  return false
 }
 
 /// Runs a `spawn-sh` command line without waiting for it, as Niri does.

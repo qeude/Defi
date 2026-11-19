@@ -145,7 +145,6 @@ struct RibbonProxyRefresh: Sendable {
 final class RibbonProxyStore: @unchecked Sendable {
   static let shared = RibbonProxyStore()
   private let lock = NSLock()
-  private var icons: [Int32: CGImage] = [:]
   private var screens: [RibbonProxyScreen] = []
   private var authorized = false
   private var reducesMotion = false
@@ -301,7 +300,7 @@ final class RibbonProxyRenderer {
   func prepareSurface(area: Rect, display: CGDirectDisplayID) -> RibbonProxyLayers? {
     guard enabled else { return nil }
     let appKitFrame = appKitFrame(area)
-    let panel = panels[display] ?? makePanel(frame: appKitFrame)
+    let panel = panels[display] ?? Self.overlayPanel(frame: appKitFrame)
     panels[display] = panel
     if panel.frame != appKitFrame { panel.setFrame(appKitFrame, display: false) }
     guard let root = panel.contentView?.layer, let backdrop = root.sublayers?.first else { return nil }
@@ -313,7 +312,9 @@ final class RibbonProxyRenderer {
     return RibbonProxyLayers(root: root, backdrop: backdrop, area: area)
   }
 
-  private func makePanel(frame: CGRect) -> NSPanel {
+  /// The overlay panel for a display. Building it orders nothing, so tests assert its
+  /// configuration without putting a panel on screen.
+  static func overlayPanel(frame: CGRect) -> NSPanel {
     let panel = NSPanel(contentRect: frame,
       styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false

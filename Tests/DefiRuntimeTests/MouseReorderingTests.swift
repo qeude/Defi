@@ -1266,71 +1266,51 @@ struct MouseReorderingTests {
 }
 
 struct DesktopSynchronizationTests {
-  struct SynchronizationCase: CustomTestStringConvertible, Sendable {
-    let name: String
-    var scrollAnimationActive = false
-    var mouseGestureSyncPending = false
-    var needsDesktopSync = true
-    var periodicSyncDue = false
-    var commandQuietPeriodElapsed = false
-    var nativeFocusSyncPending = false
-    var nativeFocusHasNewerHumanIntent = true
-    var frameDebtPending = false
-    var lifecycleEventPending = false
-    let isReady: Bool
-
-    var testDescription: String { name }
-  }
-
-  static let synchronizationCases = [
-    SynchronizationCase(
-      name: "waits for command input to settle",
-      periodicSyncDue: true,
-      isReady: false
-    ),
-    SynchronizationCase(
-      name: "native focus sync bypasses command quiet period",
-      nativeFocusSyncPending: true,
-      isReady: true
-    ),
-    SynchronizationCase(
-      name: "lifecycle event bypasses command quiet period",
-      lifecycleEventPending: true,
-      isReady: true
-    ),
-    SynchronizationCase(
-      name: "lifecycle event waits for scroll animation",
-      scrollAnimationActive: true,
-      lifecycleEventPending: true,
-      isReady: false
-    ),
-    SynchronizationCase(
-      name: "native focus sync bypasses scroll animation",
-      scrollAnimationActive: true,
-      nativeFocusSyncPending: true,
-      isReady: true
-    ),
-    SynchronizationCase(
-      name: "frame debt bypasses command quiet period",
-      frameDebtPending: true,
-      isReady: true
-    ),
-  ]
-
-  @Test(arguments: synchronizationCases)
-  func desktopSynchronizationReadinessFollowsPendingWork(_ scenario: SynchronizationCase) {
-    #expect(
+  @Test
+  func desktopSynchronizationWaitsForPendingWorkToSettle() {
+    func ready(
+      scrollAnimationActive: Bool = false,
+      commandQuietPeriodElapsed: Bool = false,
+      lifecycleEventPending: Bool = false,
+      nativeFocusSyncPending: Bool = false,
+      frameDebtPending: Bool = false,
+      needsDesktopSync: Bool = true
+    ) -> Bool {
       desktopSynchronizationIsReady(
-        scrollAnimationActive: scenario.scrollAnimationActive,
-        mouseGestureSyncPending: scenario.mouseGestureSyncPending,
-        needsDesktopSync: scenario.needsDesktopSync,
-        periodicSyncDue: scenario.periodicSyncDue,
-        commandQuietPeriodElapsed: scenario.commandQuietPeriodElapsed,
-        nativeFocusSyncPending: scenario.nativeFocusSyncPending,
-        nativeFocusHasNewerHumanIntent: scenario.nativeFocusHasNewerHumanIntent,
-        frameDebtPending: scenario.frameDebtPending,
-        lifecycleEventPending: scenario.lifecycleEventPending
-      ) == scenario.isReady
-    )
+        scrollAnimationActive: scrollAnimationActive,
+        mouseGestureSyncPending: false,
+        needsDesktopSync: needsDesktopSync,
+        periodicSyncDue: false,
+        commandQuietPeriodElapsed: commandQuietPeriodElapsed,
+        nativeFocusSyncPending: nativeFocusSyncPending,
+        frameDebtPending: frameDebtPending,
+        lifecycleEventPending: lifecycleEventPending
+      )
+    }
+
+    #expect(!ready(), "a sync hangs back while the command quiet period runs")
+    #expect(ready(commandQuietPeriodElapsed: true))
+    #expect(ready(lifecycleEventPending: true), "a lifecycle event bypasses the command quiet period")
+    #expect(ready(frameDebtPending: true), "frame debt bypasses the command quiet period")
+    #expect(
+      !ready(scrollAnimationActive: true, lifecycleEventPending: true),
+      "a lifecycle event never cuts into a scroll animation")
+    #expect(ready(scrollAnimationActive: true, nativeFocusSyncPending: true))
+    #expect(
+      !ready(commandQuietPeriodElapsed: true, needsDesktopSync: false),
+      "nothing to synchronize stays idle")
   }
+}
+
+/// The stack drop under the pointer, for tests that only care about a stacking target.
+private func mouseStackTarget(
+  _ windowID: WindowID,
+  pointer: (x: Double, y: Double),
+  state: RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> MouseStackTarget? {
+  guard case .stack(let target) = mouseDropTarget(
+    windowID, pointer: pointer, state: state, viewports: viewports)
+  else { return nil }
+  return target
 }

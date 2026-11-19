@@ -78,7 +78,6 @@ struct LosslessTOMLDocument {
     hasFinalNewline = true
   }
 
-  /// Renames a key in place, keeping its value, comments, and quoting style.
   /// Removes a standard table with its header and the comments right above it.
   mutating func removeTable(_ table: String) {
     guard !table.isEmpty else { return }
@@ -107,15 +106,6 @@ struct LosslessTOMLDocument {
     }
   }
 
-  func contains(table: String, key: String, occurrence: Int = 0) -> Bool {
-    let (start, end) = range(of: table, occurrence: occurrence)
-    guard let start else {
-      return false
-    }
-    let sectionStart = table.isEmpty ? 0 : start + 1
-    let sectionEnd = end ?? lines.endIndex
-    return assignmentIndex(for: key, in: sectionStart..<sectionEnd) != nil
-  }
 
   func render() -> String {
     lines.joined(separator: newline) + (hasFinalNewline ? newline : "")

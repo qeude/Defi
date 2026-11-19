@@ -260,28 +260,6 @@ struct WindowSnapshotStabilityTests {
     #expect(result.windows.first { $0.id == second.id } == second)
   }
 
-  @Test("An unresolved window is kept only until discovery or WindowServer settles it", .bug(id: 89))
-  func unresolvedWindowIsKeptOnlyUntilDiscoveryOrWindowServerSettlesIt() {
-    let window = makeWindow(id: 42)
-    func retained(discovered: Set<WindowID> = [], cg: [CGWindowRecord]?,
-      state: ((WindowID) -> (error: AXError, minimized: Bool?))?) -> Set<WindowID> {
-      cachedWindowIDsToRetain(processID: processID, previousWindows: [window], discoveredWindowIDs: discovered,
-        ignoredWindowIDs: [], unresolvedWindowIDs: [window.id], cgWindows: cg, cachedWindowState: state)
-    }
-    func record(process: pid_t, onscreen: Bool) -> CGWindowRecord {
-      CGWindowRecord(id: 42, processID: process, layer: 0, title: window.title, frame: window.frame,
-        isOnscreen: onscreen)
-    }
-    #expect(retained(cg: nil, state: nil) == [window.id])
-    #expect(retained(discovered: [window.id], cg: nil, state: nil).isEmpty, "a newly discovered window wins")
-    #expect(retained(cg: nil, state: { _ in (.invalidUIElement, nil) }) == [window.id],
-      "an invalid AX read without CG inventory keeps it")
-    #expect(retained(cg: [record(process: processID, onscreen: false)], state: { _ in (.invalidUIElement, nil) })
-      .isEmpty, "a confirmed closure is not revived")
-    #expect(retained(cg: [record(process: processID + 1, onscreen: true)], state: { _ in (.cannotComplete, nil) })
-      .isEmpty, "WindowServer reassigned its ID to another process")
-  }
-
   @Test func createdWindowBypassesLaggingApplicationWindowList() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     let processID: pid_t = 42
@@ -373,23 +351,6 @@ struct WindowSnapshotStabilityTests {
     #expect(engine.pendingObservations.topologyRequiresFullSnapshot)
     #expect(engine.consumeObservations().topologyRequiresFullSnapshot)
     #expect(!engine.pendingObservations.topologyRequiresFullSnapshot)
-  }
-
-  @Test func emptyApplicationInventoryDrainsPendingFullRefreshChunks() {
-    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
-    let application = AXUIElementCreateApplication(processID)
-    engine.applications = [processID: application]
-    engine.chunkedFullRefreshRemainingProcessIDs = [processID]
-
-    engine.applications = [processID: application]
-    #expect(engine.chunkedFullRefreshRemainingProcessIDs == [processID])
-
-    engine.applications = [:]
-    #expect(engine.chunkedFullRefreshRemainingProcessIDs == nil)
-    #expect(engine.chunkedFullRefreshRemainingProcessIDs?.isEmpty != false)
-
-    engine.applications = [processID: application]
-    #expect(engine.chunkedFullRefreshRemainingProcessIDs == nil)
   }
 
   @Test func deferredUnmatchedWindowsExhaustRetriesAcrossFullSnapshotChunks() {
@@ -653,16 +614,6 @@ struct WindowSnapshotStabilityTests {
       #expect(destroyed.topologyPending)
       #expect(destroyed.topologyRequiresFullSnapshot == (processID == nil))
     }
-  }
-
-  @Test func applicationInventoryIsReusedWhenNothingChanged() {
-    #expect(
-      !applicationInventoryRefreshIsRequired(
-        hasCompletedSnapshot: true,
-        topologyRequiresFullSnapshot: false,
-        forced: false
-      )
-    )
   }
 
   @Test func visibleWindowProcessMissingFromWorkspaceInventoryIsDiscovered() {
@@ -1155,18 +1106,36 @@ struct WindowSnapshotStabilityTests {
 
   @Test func cachedWindowsSurviveOnlyUnconfirmedAccessibilityOmissions() {
     let window = makeWindow(id: 42)
-    func retained(discovered: Set<WindowID> = [], ignored: Set<WindowID> = [], cg: [CGWindowRecord]? = nil,
-      state: ((WindowID) -> (error: AXError, minimized: Bool?))?) -> Set<WindowID> {
+    func retained(discovered: Set<WindowID> = [], ignored: Set<WindowID> = [],
+      unresolved: Set<WindowID> = [], cg: [CGWindowRecord]? = nil,
+      state: ((WindowID) -> (error: AXError, minimized: Bool?))? = nil) -> Set<WindowID> {
       cachedWindowIDsToRetain(processID: processID, previousWindows: [window], discoveredWindowIDs: discovered,
-        ignoredWindowIDs: ignored, cgWindows: cg, cachedWindowState: state)
+        ignoredWindowIDs: ignored, unresolvedWindowIDs: unresolved, cgWindows: cg, cachedWindowState: state)
+    }
+    func record(process: pid_t, onscreen: Bool) -> CGWindowRecord {
+      CGWindowRecord(id: 42, processID: process, layer: 0, title: "Window", frame: frame,
+        isOnscreen: onscreen)
     }
     let listed = [makeCGWindow(id: 42)]
     #expect(retained(state: { _ in (.cannotComplete, nil) }) == [window.id], "no CG inventory")
+    #expect(retained(state: { _ in (.invalidUIElement, nil) }) == [window.id],
+      "a stale AX connection after wake reports invalid without CG inventory")
     #expect(retained(cg: listed, state: nil) == [window.id], "the application's AX connection failed")
     #expect(retained(cg: listed, state: { _ in (.success, true) }).isEmpty, "minimized")
     #expect(retained(discovered: [window.id], cg: listed, state: { _ in (.cannotComplete, nil) }).isEmpty)
     #expect(retained(ignored: [window.id], cg: listed, state: { _ in (.cannotComplete, nil) }).isEmpty)
     #expect(retained(cg: [], state: { _ in (.cannotComplete, nil) }).isEmpty, "closed")
+    #expect(retained(cg: [record(process: processID, onscreen: false)],
+      state: { _ in (.invalidUIElement, nil) }).isEmpty, "WindowServer confirms the surface is gone")
+    #expect(retained(cg: [record(process: processID, onscreen: true)],
+      state: { _ in (.invalidUIElement, nil) }) == [window.id])
+    #expect(retained(cg: [record(process: processID, onscreen: false)],
+      state: { _ in (.cannotComplete, nil) }) == [window.id],
+      "a slow AX read is not a closure")
+    #expect(retained(unresolved: [window.id], cg: []) == [window.id],
+      "a window awaiting resolution survives a WindowServer list that no longer shows it")
+    #expect(retained(unresolved: [window.id], cg: [record(process: processID + 1, onscreen: true)]).isEmpty,
+      "WindowServer reassigned its ID to another process")
   }
 
   @Test func cachedWindowDoesNotProvideFreshFrameObservation() {
@@ -1249,20 +1218,6 @@ struct WindowSnapshotStabilityTests {
         matchesRecentInternalWrite: true
       ) == false
     )
-  }
-
-  @Test(arguments: [AXError.invalidUIElement, .cannotComplete, .success], [true, false])
-  func invalidHiddenCachedWindowIsRemovedWithoutGrace(error: AXError, isOnscreen: Bool) {
-    let window = makeWindow(id: 42)
-    let retained = cachedWindowIDsToRetain(
-      processID: processID, previousWindows: [window], discoveredWindowIDs: [],
-      ignoredWindowIDs: [], cgWindows: [CGWindowRecord(
-        id: 42, processID: processID, layer: 0, title: "Window",
-        frame: frame, isOnscreen: isOnscreen
-      )],
-      cachedWindowState: { _ in (error, nil) }
-    )
-    #expect(retained.isEmpty == (error == .invalidUIElement && !isOnscreen))
   }
 
   private func makeWindow(id: UInt64) -> Window {

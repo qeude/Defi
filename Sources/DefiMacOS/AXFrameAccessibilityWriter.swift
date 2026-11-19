@@ -29,18 +29,6 @@ final class AXFrameAccessibilityWriter {
     self.independentBorderObservationAvailable = independentBorderObservationAvailable
   }
 
-  static func readWindowServerPosition(_ windowID: WindowID, processID: pid_t) -> CGPoint? {
-    guard let rawID = CGWindowID(exactly: windowID.rawValue),
-      let rows = CGWindowListCopyWindowInfo(.optionIncludingWindow, rawID) as? [NSDictionary],
-      let record = rows.compactMap(cgWindowRecord).first(where: {
-        $0.id == rawID && $0.processID == processID
-      }), record.frame.x.isFinite, record.frame.y.isFinite,
-      record.frame.width.isFinite, record.frame.height.isFinite,
-      record.frame.width > 0, record.frame.height > 0
-    else { return nil }
-    return CGPoint(x: record.frame.x, y: record.frame.y)
-  }
-
   func applySize(
     _ write: AsyncPositionWrite,
     size: CGSize,

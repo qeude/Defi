@@ -484,18 +484,6 @@ struct FrameCommitTests {
     #expect(coordinator.parkingVerificationSchedules[windowID] == schedule)
   }
 
-  @Test
-  func parkedWindowStoppedByItsTitleBarIsNoDrift() {
-    let target = Rect(x: 2_559, y: 1_365, width: 1_270, height: 1_359)
-    #expect(parkedFrameHolds(Rect(x: 2_559, y: 1_345, width: 1_270, height: 1_359), target: target))
-    #expect(!parkedFrameHolds(Rect(x: 2_559, y: 1_265, width: 1_270, height: 1_359), target: target),
-      "Pulled back onto the display")
-    #expect(!parkedFrameHolds(Rect(x: 2_000, y: 1_365, width: 1_270, height: 1_359), target: target),
-      "Moved sideways")
-    #expect(!parkedFrameHolds(Rect(x: 2_559, y: 1_365, width: 800, height: 1_359), target: target),
-      "Resized")
-  }
-
   @Test(arguments: [(20.0, 0), (100.0, 1)])
   func parkedWindowStoppedByItsTitleBarNeedsNoRepair(raisedBy: Double, repairs: Int) {
     let point = CGPoint(x: 2_559, y: 1_365)

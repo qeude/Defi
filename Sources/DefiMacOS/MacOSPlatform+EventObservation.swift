@@ -60,7 +60,6 @@ extension MacOSPlatform {
     DispatchQueue.main.async { [self] in
       borderFrames.removeAll(keepingCapacity: true)
       borderHiddenWindowIDs.removeAll(keepingCapacity: true)
-      borderLiveWindowID = nil
       borderManager.hide()
     }
   }

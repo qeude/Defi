@@ -2,6 +2,11 @@ import Darwin
 import DefiModel
 import Foundation
 
+/// How long a client waits for a response before the socket read fails. A daemon that
+/// defers a reply must answer inside this budget; `DeferredCommandReply` derives its own
+/// deadline from it.
+public let ipcResponseTimeoutSeconds = 2.0
+
 public struct CommandRequest: Codable, Equatable, Sendable {
   public let command: String
   public let monitorIndex: Int?
@@ -123,7 +128,7 @@ public func makeWorkspaceStateSnapshot(
         workspaces: monitor.workspaces.enumerated().map { offset, workspace in
           let active = workspace.id == monitor.activeWorkspace
           let selectedWindow =
-            active ? selectedWindowID(in: workspace).flatMap { windows[$0] } : nil
+            active ? workspace.selectedWindowID.flatMap { windows[$0] } : nil
           var workspaceWindows: [WorkspaceWindowSnapshot] = []
           forEachWorkspaceWindow(in: workspace) { windowID, column, row in
             guard let window = windows[windowID] else { return }
@@ -164,18 +169,6 @@ func orderedMonitors(
   return orderedIDs.enumerated().compactMap { offset, monitorID in
     monitorByID[monitorID].map { (offset + 1, $0) }
   }
-}
-
-func selectedWindowID(in workspace: Workspace) -> WindowID? {
-  if workspace.focusedLayer == .floating,
-    workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
-  {
-    return workspace.floatingWindows[workspace.focusedFloatingWindow]
-  }
-  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
-  let column = workspace.columns[workspace.focusedColumn]
-  guard column.windows.indices.contains(column.focusedWindow) else { return nil }
-  return column.windows[column.focusedWindow]
 }
 
 func forEachWorkspaceWindow(
@@ -524,7 +517,7 @@ func configureBlocking(_ descriptor: Int32) throws {
 }
 
 func configureReadTimeout(_ descriptor: Int32) throws {
-  var timeout = timeval(tv_sec: 2, tv_usec: 0)
+  var timeout = timeval(tv_sec: __darwin_time_t(ipcResponseTimeoutSeconds), tv_usec: 0)
   guard
     setsockopt(
       descriptor,

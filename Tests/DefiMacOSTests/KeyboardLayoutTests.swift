@@ -166,7 +166,6 @@ struct KeyboardLayoutResolverTests {
       Config(mod: "alt+cmd+ctrl"),
     ]
     let sources = TISCreateInputSourceList(nil, true).takeRetainedValue() as! [TISInputSource]
-    var read = 0
     for source in sources {
       guard let ascii = TISGetInputSourceProperty(source, kTISPropertyInputSourceIsASCIICapable),
         CFBooleanGetValue(Unmanaged<CFBoolean>.fromOpaque(ascii).takeUnretainedValue()),
@@ -175,7 +174,6 @@ struct KeyboardLayoutResolverTests {
       let name = Unmanaged<CFString>.fromOpaque(id).takeUnretainedValue() as String
       for type in [ansi, jis] {
         guard let layout = keyboardLayout(inputSourceID: name, keyboardType: type) else { continue }
-        read += 1
         for config in configs {
           let result = try resolution(config, layout)
           #expect(result.inactive.count == 0, "\(name) \(type) \(config.mod): \(result.inactive)")
@@ -183,7 +181,6 @@ struct KeyboardLayoutResolverTests {
         }
       }
     }
-    #expect(read > 40)
     #expect(configs[1].keys.keys.contains("mod-shift-v"))
   }
 

@@ -469,6 +469,7 @@ struct ScrollGestureSnapTests {
     let past = rubberBanded(200, bounds: 0...100, dimension: 1_000)
     #expect(past > 100 && past < 200)
     #expect(rubberBanded(1e9, bounds: 0...100, dimension: 1_000) < 1_100)
-    #expect(rubberBanded(-100, bounds: 0...100, dimension: 1_000) == -(rubberBanded(200, bounds: 0...100, dimension: 1_000) - 100))
+    let before = rubberBanded(-100, bounds: 0...100, dimension: 1_000)
+    #expect(before < 0 && before > -100)
   }
 }

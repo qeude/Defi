@@ -43,10 +43,7 @@ struct PlatformEventTests {
     )
     let olderRequestGeneration = platform.focusRecoveryIntentGeneration
     platform.supersedeFocusRecovery()
-    #expect(!focusRecoveryIntentIsCurrent(
-      requestGeneration: olderRequestGeneration,
-      currentGeneration: platform.focusRecoveryIntentGeneration
-    ))
+    #expect(olderRequestGeneration != platform.focusRecoveryIntentGeneration)
     #expect(platform.internalFocusSuppressions[window] != nil)
   }
 
@@ -551,14 +548,6 @@ struct PlatformEventTests {
     releaseReset.signal()
     #expect(group.wait(timeout: .now() + 3) == .success)
     #expect(transitions.withLock { $0 } == [0.05, 0, 0.016, 0])
-  }
-
-  @Test
-  func focusRecoveryIntentAndLookupAreLatestWins() {
-    #expect(focusRecoveryIntentIsCurrent(requestGeneration: 8, currentGeneration: 8))
-    #expect(!focusRecoveryIntentIsCurrent(requestGeneration: 8, currentGeneration: 9))
-    #expect(focusRecoveryResolutionIsCurrent(requestGeneration: 4, currentGeneration: 4))
-    #expect(!focusRecoveryResolutionIsCurrent(requestGeneration: 3, currentGeneration: 4))
   }
 
   // event -> physical pointer motion, mouse button down, general user input

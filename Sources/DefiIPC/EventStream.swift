@@ -56,7 +56,7 @@ public func makeWindowListSnapshot(
       )
       let focusedWindowID =
         monitor.id == focusedMonitorID && workspace.id == monitor.activeWorkspace
-        ? selectedWindowID(in: workspace) : nil
+        ? workspace.selectedWindowID : nil
       forEachWorkspaceWindow(in: workspace) { windowID, column, row in
         guard let window = windows[windowID] else { return }
         result.append(WindowSnapshot(

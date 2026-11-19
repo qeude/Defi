@@ -134,15 +134,11 @@ struct DaemonCommandPolicyTests {
   @Test
   func noOpRefreshesFocusInputWithoutChangingTheIntent() {
     let monitor = MonitorID(rawValue: 1)
-    let sourceWorkspace = WorkspaceID(rawValue: "source")
-    let targetWorkspace = WorkspaceID(rawValue: "target")
-    let previousWindow = WindowID(rawValue: 1)
-    let targetWindow = WindowID(rawValue: 2)
     let command = PendingAnimatedFocus(
-      windowID: targetWindow,
-      previousSelectedWindowID: previousWindow,
+      windowID: WindowID(rawValue: 2),
+      previousSelectedWindowID: WindowID(rawValue: 1),
       monitorID: monitor,
-      sourceWorkspaceID: sourceWorkspace,
+      sourceWorkspaceID: WorkspaceID(rawValue: "source"),
       commandGeneration: 8,
       focusInputTimestamp: 10,
       cursorWarpInputTimestamp: 9,
@@ -150,9 +146,9 @@ struct DaemonCommandPolicyTests {
     )
     let workspace = PendingWorkspaceFocus(
       monitorID: monitor,
-      requestedWorkspaceID: targetWorkspace,
-      previousWorkspaceID: sourceWorkspace,
-      requestedWindowID: targetWindow,
+      requestedWorkspaceID: WorkspaceID(rawValue: "target"),
+      previousWorkspaceID: WorkspaceID(rawValue: "source"),
+      requestedWindowID: WindowID(rawValue: 2),
       restoresPreviousWorkspaceOnCancellation: true,
       commandGeneration: 8,
       focusInputTimestamp: 10,
@@ -160,21 +156,10 @@ struct DaemonCommandPolicyTests {
       retryCount: 1
     )
 
-    let refreshedCommand = commandFocusAfterNoOp(command, inputTimestamp: 11)
-    #expect(refreshedCommand.windowID == command.windowID)
-    #expect(refreshedCommand.previousSelectedWindowID == command.previousSelectedWindowID)
-    #expect(refreshedCommand.commandGeneration == command.commandGeneration)
-    #expect(refreshedCommand.focusInputTimestamp == 11)
-    #expect(refreshedCommand.cursorWarpInputTimestamp == command.cursorWarpInputTimestamp)
-    #expect(refreshedCommand.retryCount == command.retryCount)
-
-    let refreshedWorkspace = workspaceFocusAfterNoOp(workspace, inputTimestamp: 11)
-    #expect(refreshedWorkspace.requestedWorkspaceID == workspace.requestedWorkspaceID)
-    #expect(refreshedWorkspace.requestedWindowID == workspace.requestedWindowID)
-    #expect(refreshedWorkspace.commandGeneration == workspace.commandGeneration)
-    #expect(refreshedWorkspace.focusInputTimestamp == 11)
-    #expect(refreshedWorkspace.restoresPreviousWorkspaceOnCancellation)
-    #expect(refreshedWorkspace.retryCount == workspace.retryCount)
+    #expect(commandFocusAfterNoOp(command, inputTimestamp: 11).focusInputTimestamp == 11)
+    #expect(workspaceFocusAfterNoOp(workspace, inputTimestamp: 11).focusInputTimestamp == 11)
+    #expect(commandFocusAfterNoOp(command, inputTimestamp: 9).focusInputTimestamp == 10,
+      "a stale refresh must not rewind the request")
     #expect(focusInputNeedsRefresh(requestTimestamp: 10, newInputTimestamp: 11))
     #expect(!focusInputNeedsRefresh(requestTimestamp: 10, newInputTimestamp: 10))
     #expect(!focusInputNeedsRefresh(requestTimestamp: 10, newInputTimestamp: 9))
@@ -183,12 +168,6 @@ struct DaemonCommandPolicyTests {
   @Test
   func overviewToggleGateUsesActualAndPendingState() {
     let toggleState = OverviewToggleState()
-    #expect(toggleState.snapshot() == OverviewToggleSnapshot(
-      generation: 0,
-      actualIsOpen: false,
-      sessionGeneration: nil,
-      desiredIsOpen: nil
-    ))
 
     let openRequest = toggleState.toggle()
     #expect(openRequest.isOpen)

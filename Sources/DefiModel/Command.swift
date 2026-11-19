@@ -23,7 +23,6 @@ public enum WindowHeightChange: Equatable, Codable, Sendable {
   case share(Double)
   /// Change of the share, from `+N%` or `-N%`.
   case adjust(Double)
-  /// Window height in points.
   case points(Double)
 }
 

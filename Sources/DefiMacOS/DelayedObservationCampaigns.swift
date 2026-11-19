@@ -18,7 +18,10 @@ final class DelayedObservationCampaigns {
     var deadlines: [Int: Stage]
     var armedAt: TimeInterval?
     var cancel: (() -> Void)?
-    var deliver: @MainActor @Sendable (Int, UInt64) -> Void
+    /// True until the campaign's first stage is delivered, so a consumer can treat the
+    /// first retry differently from later ones without knowing the delay table.
+    var awaitsFirstDelivery = true
+    var deliver: @MainActor @Sendable (_ isFirstDelivery: Bool, _ generation: UInt64) -> Void
   }
 
   private var campaigns: [ObservationRetryLane: Campaign] = [:]
@@ -31,7 +34,7 @@ final class DelayedObservationCampaigns {
 
   func merge(
     lane: ObservationRetryLane, delays: [Int], platform: MacOSPlatform,
-    deliver: @escaping @MainActor @Sendable (Int, UInt64) -> Void
+    deliver: @escaping @MainActor @Sendable (Bool, UInt64) -> Void
   ) {
     let now = platform.observationNow
     nextGeneration &+= 1
@@ -68,8 +71,10 @@ final class DelayedObservationCampaigns {
       current.armedAt = nil
       current.cancel = nil
       let generation = self.generations.withLock { $0[lane]! }
+      let isFirstDelivery = current.awaitsFirstDelivery
+      current.awaitsFirstDelivery = false
       self.campaigns[lane] = current.deadlines.isEmpty ? nil : current
-      for delay in due.keys.sorted() { current.deliver(delay, generation) }
+      for _ in due.keys.sorted() { current.deliver(isFirstDelivery, generation) }
       if current.deadlines.isEmpty {
         platform.deliverObservation { [weak self] in
           self?.generations.withLock {

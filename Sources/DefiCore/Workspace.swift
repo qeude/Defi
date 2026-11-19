@@ -140,7 +140,6 @@ public func removeWindow(
 ) -> Bool {
   if let index = workspace.floatingWindows.firstIndex(of: windowID) {
     workspace.floatingWindows.remove(at: index)
-    // Focus stays on the same window when one before it goes.
     if index < workspace.focusedFloatingWindow { workspace.focusedFloatingWindow -= 1 }
     if workspace.floatingWindows.isEmpty {
       workspace.focusedFloatingWindow = 0

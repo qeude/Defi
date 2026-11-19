@@ -184,7 +184,6 @@ extension MacOSPlatform {
 
   public func updateWindowBorders(frames: [FrameAssignment], selectedWindowID: WindowID?,
     liveWindowID: WindowID?, config: BordersConfig) {
-    plannedBorderFrames = frames
     enqueuePresentation {
       $0.presentUpdateWindowBorders(frames: frames, selectedWindowID: selectedWindowID,
         liveWindowID: liveWindowID, config: config)

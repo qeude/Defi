@@ -44,25 +44,21 @@ struct IPCCompletionTests {
       try sendCommand("quit", to: url)
     }
 
-    var accepted = false
-    for _ in 0..<100 where accepted == false {
-      accepted = try server.poll(
-        on: clientQueue,
-        handler: { request in
-          handlerFinished.withLock { $0 = true }
-          return .success(request.command)
-        },
-        completion: { request in
-          completionEventsContinuation.yield(
-            handlerFinished.withLock { $0 } && request.command == "quit"
-          )
-          completionEventsContinuation.finish()
-        }
-      )
-      if accepted == false {
-        try await Task.sleep(for: .milliseconds(5))
+    var listening = pollfd(fd: server.listeningFileDescriptor, events: Int16(POLLIN), revents: 0)
+    #expect(Darwin.poll(&listening, 1, 5_000) == 1, "the client never connected")
+    let accepted = try server.poll(
+      on: clientQueue,
+      handler: { request in
+        handlerFinished.withLock { $0 = true }
+        return .success(request.command)
+      },
+      completion: { request in
+        completionEventsContinuation.yield(
+          handlerFinished.withLock { $0 } && request.command == "quit"
+        )
+        completionEventsContinuation.finish()
       }
-    }
+    )
 
     #expect(accepted)
     #expect(try await responseTask.value == .success("quit"))

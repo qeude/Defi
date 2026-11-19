@@ -597,17 +597,6 @@ public struct MouseStackTarget: Equatable, Sendable {
   public let row: Int
 }
 
-public func mouseStackTarget(
-  _ windowID: WindowID,
-  pointer: (x: Double, y: Double),
-  state: RuntimeState,
-  viewports: [MonitorID: Rect]
-) -> MouseStackTarget? {
-  guard case .stack(let target) = mouseDropTarget(windowID, pointer: pointer, state: state, viewports: viewports)
-  else { return nil }
-  return target
-}
-
 /// The dragged window's active workspace as the overlay shows it while held: the window
 /// out of its column, and a column it leaves empty gone.
 private struct MouseDropLayout {

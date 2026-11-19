@@ -267,9 +267,6 @@ extension AXFrameCoordinator {
     guard isCurrent(generation: frame.generation) else {
       return (0, batch.writes.count, false)
     }
-    if let batchWriter {
-      return batchWriter(batch, frame)
-    }
     if !applicationTimeoutManagedByBatch, batch.writes.count > 1,
       let first = batch.writes.first?.value,
       !hasDeferredEnhancedUIRestore(processID: batch.processID),

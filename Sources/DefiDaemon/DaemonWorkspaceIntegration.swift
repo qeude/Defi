@@ -152,15 +152,81 @@ extension Daemon {
       )
   }
 
-  func handleReservedAreaCommand(
-    _ rawCommand: String,
-    monitorIndex: Int?
+  /// Nil when the command needs no reply of its own.
+  func handleDaemonVerb(
+    _ verb: DaemonVerb,
+    monitorIndex: Int?,
+    deferredResponse: DeferredCommandReply?
   ) -> CommandResponse? {
-    let parts = rawCommand.split(whereSeparator: \.isWhitespace).map(String.init)
-    guard parts.first == "set-reserved-area" || parts.first == "clear-reserved-area"
-    else {
-      return nil
+    switch verb {
+    case .listWorkspaces(let json):
+      guard json else { return .success(handleListWorkspaces()) }
+      do {
+        return .success(try workspaceStateJSON())
+      } catch {
+        return .failure(String(describing: error))
+      }
+    case .listWindows(let json):
+      guard json else { return .success(handleListWindows()) }
+      do {
+        return .success(try sortedJSON(currentWindowList()))
+      } catch {
+        return .failure(String(describing: error))
+      }
+    case .setReservedArea(let edge, let points):
+      return applyReservedArea(.set(edge, points), monitorIndex: monitorIndex)
+    case .clearReservedArea:
+      return applyReservedArea(.clear, monitorIndex: monitorIndex)
+    case .status:
+      return .success(status())
+    case .trace:
+      return .success(platform.frameCoordinatorTrace)
+    case .borderAudit:
+      guard let deferredResponse else { return .failure("border-audit requires a client") }
+      deferredResponse.deferResponse()
+      DispatchQueue.main.async { [platform] in
+        let report = platform.auditWindowBorderGeometry()
+        NavigationActor.enqueue { deferredResponse.perform { .success(report) } }
+      }
+      return .success("deferred")
+    case .diagnosticMark:
+      diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)
+      return .success("marked \(diagnostics.currentFileURL.path)")
+    case .restore:
+      // A shutdown already under way wins over this request.
+      guard !shouldShutdown else { return nil }
+      guard beginWindowRestoration() else { return .failure("window restoration in progress") }
+      Task { await restoreAllWindows(alreadyClaimed: true) }
+      return .success("restoration scheduled")
+    case .stop(let handsOff):
+      shouldShutdown = true
+      handsOffWindows = handsOff
+      return .success("stopping")
     }
+  }
+
+  private func handleListWorkspaces() -> String {
+    currentWorkspaceState().monitors.map { monitor in
+      let labels = monitor.workspaces.map { $0.name ?? String($0.position) }
+      return "\(monitor.display): \(labels.joined(separator: " "))"
+    }.joined(separator: "\n")
+  }
+
+  private func handleListWindows() -> String {
+    currentWindowList().windows.map { window in
+      "\(window.id)\t\(window.appName ?? window.appID)\t\(window.title)"
+    }.joined(separator: "\n")
+  }
+
+  private enum ReservedAreaRequest {
+    case set(ReservedEdge, Double)
+    case clear
+  }
+
+  private func applyReservedArea(
+    _ request: ReservedAreaRequest,
+    monitorIndex: Int?
+  ) -> CommandResponse {
     let targetMonitorIDs: [MonitorID]
     if let monitorIndex {
       guard let monitorID = monitorID(atAppKitIndex: monitorIndex) else {
@@ -181,28 +247,16 @@ extension Daemon {
       }
     )
     let runtimeCommand: RuntimeCommand
-    if parts[0] == "clear-reserved-area" {
-      guard parts.count == 1 else {
-        return .failure("usage: clear-reserved-area")
-      }
+    switch request {
+    case .clear:
       runtimeCommand = .clearReservedEdges(targetMonitorIDs)
-    } else {
-      guard parts.count == 3,
-        let points = Double(parts[2]), points.isFinite,
-        (0...512).contains(points)
-      else {
-        return .failure("usage: set-reserved-area top|bottom <0...512>")
-      }
-      guard parts[1] == "top" || parts[1] == "bottom" else {
-        return .failure("usage: set-reserved-area top|bottom <0...512>")
-      }
+    case .set(let edge, let points):
       var edgesByMonitor: [MonitorID: ReservedEdges] = [:]
       for monitorID in targetMonitorIDs {
         var edges = effectiveReservedEdges(for: monitorID)
-        if parts[1] == "top" {
-          edges.top = points
-        } else {
-          edges.bottom = points
+        switch edge {
+        case .top: edges.top = points
+        case .bottom: edges.bottom = points
         }
         edgesByMonitor[monitorID] = edges
       }
