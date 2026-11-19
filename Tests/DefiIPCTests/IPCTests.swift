@@ -40,12 +40,22 @@ struct IPCCompletionTests {
     let handlerFinished = Mutex(false)
     let (completionEvents, completionEventsContinuation) =
       AsyncStream<Bool>.makeStream()
-    let responseTask = Task.detached {
-      try sendCommand("quit", to: url)
+    // Blocking socket calls stay off the cooperative pool, which a small CI runner can exhaust.
+    let response = Mutex<Result<CommandResponse, any Error>?>(nil)
+    let responseReceived = DispatchSemaphore(value: 0)
+    DispatchQueue.global().async {
+      response.withLock { $0 = Result { try sendCommand("quit", to: url) } }
+      responseReceived.signal()
     }
 
-    var listening = pollfd(fd: server.listeningFileDescriptor, events: Int16(POLLIN), revents: 0)
-    #expect(Darwin.poll(&listening, 1, 5_000) == 1, "the client never connected")
+    let descriptor = server.listeningFileDescriptor
+    let connected = await withCheckedContinuation { continuation in
+      DispatchQueue.global().async {
+        var listening = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+        continuation.resume(returning: Darwin.poll(&listening, 1, 5_000) == 1)
+      }
+    }
+    #expect(connected, "the client never connected")
     let accepted = try server.poll(
       on: clientQueue,
       handler: { request in
@@ -61,7 +71,10 @@ struct IPCCompletionTests {
     )
 
     #expect(accepted)
-    #expect(try await responseTask.value == .success("quit"))
+    await withCheckedContinuation { continuation in
+      DispatchQueue.global().async { responseReceived.wait(); continuation.resume() }
+    }
+    #expect(try response.withLock { $0 }?.get() == .success("quit"))
     var completionIterator = completionEvents.makeAsyncIterator()
     #expect(await completionIterator.next() == true)
   }
