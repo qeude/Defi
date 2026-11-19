@@ -390,6 +390,23 @@ struct WindowSnapshotStabilityTests {
     #expect(prepared.applications.isEmpty)
   }
 
+  @Test func emptyApplicationInventoryDrainsPendingFullRefreshChunks() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    let application = AXUIElementCreateApplication(processID)
+    engine.applications = [processID: application]
+    engine.chunkedFullRefreshRemainingProcessIDs = [processID]
+
+    engine.applications = [processID: application]
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs == [processID])
+
+    engine.applications = [:]
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs == nil)
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs?.isEmpty != false)
+
+    engine.applications = [processID: application]
+    #expect(engine.chunkedFullRefreshRemainingProcessIDs == nil)
+  }
+
   @Test func borderInventoryRejectsEventsDuringCaptureAndExpiredSnapshots() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     let inventory = CGWindowInventory(records: [], generation: 0, capturedAt: 10)

@@ -1274,13 +1274,14 @@ struct DesktopSynchronizationTests {
       lifecycleEventPending: Bool = false,
       nativeFocusSyncPending: Bool = false,
       frameDebtPending: Bool = false,
-      needsDesktopSync: Bool = true
+      needsDesktopSync: Bool = true,
+      periodicSyncDue: Bool = false
     ) -> Bool {
       desktopSynchronizationIsReady(
         scrollAnimationActive: scrollAnimationActive,
         mouseGestureSyncPending: false,
         needsDesktopSync: needsDesktopSync,
-        periodicSyncDue: false,
+        periodicSyncDue: periodicSyncDue,
         commandQuietPeriodElapsed: commandQuietPeriodElapsed,
         nativeFocusSyncPending: nativeFocusSyncPending,
         frameDebtPending: frameDebtPending,
@@ -1299,6 +1300,8 @@ struct DesktopSynchronizationTests {
     #expect(
       !ready(commandQuietPeriodElapsed: true, needsDesktopSync: false),
       "nothing to synchronize stays idle")
+    #expect(ready(commandQuietPeriodElapsed: true, needsDesktopSync: false, periodicSyncDue: true))
+    #expect(!ready(needsDesktopSync: false, periodicSyncDue: true), "a periodic sync waits for the quiet period")
   }
 }
 
