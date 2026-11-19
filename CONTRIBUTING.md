@@ -12,7 +12,7 @@ make verify    # build, tests, and workflow checks; never touches your desktop
 
 **Contents**: [Prerequisites](#prerequisites) · [Build and run](#build-and-run) ·
 [Checks](#checks) · [Code boundaries](#code-boundaries) ·
-[Pull requests](#pull-requests) · [Configuration migrations](#configuration-migrations) ·
+[Pull requests](#pull-requests) · [Removed configuration keys](#removed-configuration-keys) ·
 [Release packaging](#release-packaging) · [Development scripts](#development-scripts)
 
 ## Prerequisites
@@ -239,7 +239,7 @@ Use a focused branch with a conventional prefix such as `feat/`, `fix/`,
 `docs/`, or `refactor/`. Describe the user-visible change, the tests you ran,
 and known limitations. Keep alpha-scope changes small and reversible.
 
-## Configuration migrations
+## Removed configuration keys
 
 When a change renames or replaces a configuration key, Defi refuses a file that
 still sets the old key instead of silently ignoring it:
