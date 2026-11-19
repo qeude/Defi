@@ -428,12 +428,19 @@ private struct LayoutSettingsView: View {
   }
 }
 
-private enum PresetKind {
+enum PresetKind {
   case width, height
 
   var name: String { self == .width ? "width" : "height" }
   /// Matches the validation in DefiConfig: a stacked window never takes the whole column.
   var maximum: Double { self == .width ? 100 : 95 }
+
+  /// Percentages the add menu offers; a duplicate would stop the preset cycle on its first copy.
+  func addableChoices(to values: [Double]) -> [Int] {
+    [25, 33, 50, 67, 75, 100].filter { choice in
+      Double(choice) <= maximum && !values.contains { abs($0 * 100 - Double(choice)) < 0.5 }
+    }
+  }
 }
 
 private struct PresetRowID: Hashable {
@@ -518,7 +525,7 @@ private struct AddPresetMenu: View {
 
   var body: some View {
     Menu {
-      ForEach([25, 33, 50, 67, 75, 100].filter { Double($0) <= kind.maximum }, id: \.self) { percentage in
+      ForEach(kind.addableChoices(to: values), id: \.self) { percentage in
         Button("\(percentage)%") {
           save(values + [Double(percentage) / 100])
         }

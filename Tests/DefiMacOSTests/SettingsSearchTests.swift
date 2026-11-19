@@ -140,4 +140,9 @@ struct SettingsSearchTests {
     SettingsShortcutRow(accelerator: accelerator, command: command, defaultAccelerator: nil,
       canRestore: !enabled, isEnabled: enabled)
   }
+
+  @Test func presetAddMenuOffersNoDuplicateOrOutOfRangeValue() {
+    #expect(PresetKind.height.addableChoices(to: [0.33, 0.50, 0.66]) == [25, 67, 75])
+    #expect(PresetKind.width.addableChoices(to: [0.33, 0.50, 0.66, 0.80]) == [25, 67, 75, 100])
+  }
 }
