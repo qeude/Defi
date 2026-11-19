@@ -428,13 +428,17 @@ private struct LayoutSettingsView: View {
   }
 }
 
-@MainActor
 private enum PresetKind {
   case width, height
 
   var name: String { self == .width ? "width" : "height" }
   /// Matches the validation in DefiConfig: a stacked window never takes the whole column.
   var maximum: Double { self == .width ? 100 : 95 }
+}
+
+private struct PresetRowID: Hashable {
+  let kind: PresetKind
+  let index: Int
 }
 
 @MainActor
@@ -467,7 +471,9 @@ private struct PresetRows: View {
   let save: ([Double]) -> Void
 
   var body: some View {
-    ForEach(values.indices, id: \.self) { index in
+    // Form lists every section's rows together, so bare indices would collide across presets.
+    ForEach(values.indices.map { PresetRowID(kind: kind, index: $0) }, id: \.self) { row in
+      let index = row.index
       HStack {
         Text("Preset \(index + 1)")
         Slider(value: Binding(
