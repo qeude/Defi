@@ -181,13 +181,7 @@ final class OverviewPanel {
     // Not 0: the glass and its cards render once during the still first pose, so the first
     // moving frame of the zoom does not pay for them. The tint is invisible at this alpha.
     glassView.alphaValue = 0.002
-    if fadesChrome {
-      coverChrome(0, duration: 0)
-    } else if !window.isVisible {
-      // Hidden only: flipping opacity while shown lets one frame show the windows beneath.
-      window.isOpaque = usesCapturedDesktop
-      window.backgroundColor = usesCapturedDesktop ? .black : .clear
-    }
+    if fadesChrome { coverChrome(0, duration: 0) }
     rootView.layer?.addSublayer(scene.layer)
     window.alphaValue = 1
     window.orderFrontRegardless()
@@ -388,6 +382,8 @@ final class OverviewPanel {
   /// Covers the menu bar and Dock `coverage` of the way, from 0 where they show as on the desktop.
   private func coverChrome(_ coverage: Double, duration: TimeInterval) {
     guard let rootLayer = rootView.layer, let screen = window.screen else { return }
+    // A shown opaque panel, after a keyboard zoom: turning it non-opaque would flash the windows beneath.
+    if chromeMask == nil, window.isVisible, window.isOpaque { return }
     let chrome = chromeMask ?? {
       let frame = screen.frame, visible = screen.visibleFrame.offsetBy(dx: -frame.minX, dy: -frame.minY)
       let bounds = CGRect(origin: .zero, size: frame.size)
