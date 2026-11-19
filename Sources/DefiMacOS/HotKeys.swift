@@ -310,8 +310,11 @@ public final class HotKeyManager {
     context?.resetPointerWindowTransition()
   }
 
-  public func setOverviewModeEnabled(_ enabled: Bool) {
-    context?.setOverviewModeEnabled(enabled)
+  /// Synchronous on purpose: the event tap reads the mode on its own thread, so routing an
+  /// Overview key must not wait for a navigation turn.
+  public var overviewModeSetter: @Sendable (Bool) -> Void {
+    let context = context
+    return { context?.setOverviewModeEnabled($0) }
   }
 
   public func setCheatsheetVisible(_ visible: Bool) {

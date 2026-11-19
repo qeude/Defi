@@ -100,6 +100,17 @@ public enum Verb: Equatable, Sendable {
     }
   }
 
+  /// The key a read-only answer is cached under; nil for anything that changes state.
+  public var cacheKey: String? {
+    switch self {
+    case .daemon(.listWorkspaces(let json)): "list-workspaces:\(json)"
+    case .daemon(.listWindows(let json)): "list-windows:\(json)"
+    case .daemon(.status): "status"
+    case .daemon(.trace): "trace"
+    case .daemon, .layout: nil
+    }
+  }
+
   /// Runs a shell with Defi's own grants, so the socket refuses it.
   public var isAllowedOverIPC: Bool {
     if case .layout(.spawnShell) = self { return false }
@@ -310,12 +321,21 @@ public let daemonVerbSpecs: [CommandSpec] = [
   daemon("list-windows", .window) { arguments, _ in
     .listWindows(json: try jsonOption(arguments))
   },
-  daemon("status", .other) { _, _ in .status },
-  daemon("trace", .other) { _, _ in .trace },
-  daemon("border-audit", .other) { _, _ in .borderAudit },
-  daemon("restore", .other) { _, _ in .restore },
-  daemon("quit", .other) { _, _ in .stop(handsOffWindows: false) },
-  daemon("handoff", .other) { _, _ in .stop(handsOffWindows: true) },
+  daemon("status", .other) { arguments, _ in try onlyNoArguments(arguments, "status"); return .status },
+  daemon("trace", .other) { arguments, _ in try onlyNoArguments(arguments, "trace"); return .trace },
+  daemon("border-audit", .other) { arguments, _ in
+    try onlyNoArguments(arguments, "border-audit")
+    return .borderAudit
+  },
+  daemon("restore", .other) { arguments, _ in try onlyNoArguments(arguments, "restore"); return .restore },
+  daemon("quit", .other) { arguments, _ in
+    try onlyNoArguments(arguments, "quit")
+    return .stop(handsOffWindows: false)
+  },
+  daemon("handoff", .other) { arguments, _ in
+    try onlyNoArguments(arguments, "handoff")
+    return .stop(handsOffWindows: true)
+  },
   daemon(
     "set-reserved-area", .size, .keywords(["top", "bottom"])
   ) { arguments, _ in
@@ -365,9 +385,10 @@ public func parseVerb(_ input: String) throws -> Verb {
   return try spec.build(Array(arguments), remainder)
 }
 
-/// Answers without changing anything, so a recent answer may be served instead.
-public func verbIsReadOnly(_ rawCommand: String) -> Bool {
-  (try? parseVerb(rawCommand))?.isReadOnly ?? false
+/// The key a recent answer for this command line is cached under; nil when it changes state
+/// or is not a verb at all.
+public func verbCacheKey(_ rawCommand: String) -> String? {
+  (try? parseVerb(rawCommand))?.cacheKey
 }
 
 /// False for a verb that runs a shell with Defi's own grants.
@@ -426,6 +447,11 @@ private func spec(
   CommandSpec(
     name: name, category: category, argument: argument, isConfigurable: isConfigurable,
     isClientVerb: isClientVerb, build: build)
+}
+
+/// Verbs that take no argument accept none, as their exact-match readers did.
+private func onlyNoArguments(_ arguments: [String], _ name: String) throws {
+  guard arguments.isEmpty else { throw CommandParseError.missingArgument(name) }
 }
 
 /// `list-windows --json`, or the plain listing.

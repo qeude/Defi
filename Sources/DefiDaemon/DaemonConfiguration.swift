@@ -173,7 +173,7 @@ extension Daemon {
       hotKeys = nil
       pendingHotKeyCommands.removeAll(keepingCapacity: true)
       installHotKeys()
-      hotKeys?.setOverviewModeEnabled(overviewState.isOpen)
+      hotKeys?.overviewModeSetter(overviewState.isOpen)
     }
     if previousConfig.menuBar != nextConfig.menuBar {
       updateMenuBarAvailability()
@@ -362,10 +362,9 @@ extension Daemon {
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(keyboardMessage)
       }
+      let setOverviewMode = manager.overviewModeSetter
       DispatchQueue.main.async { [self] in
-        overviewInputMode = { [weak self] enabled in
-          NavigationActor.enqueue { self?.hotKeys?.setOverviewModeEnabled(enabled) }
-        }
+        overviewInputMode = setOverviewMode
         overviewInputMode(overviewController?.isOpen == true)
       }
       if let bindingError = manager.bindingError {

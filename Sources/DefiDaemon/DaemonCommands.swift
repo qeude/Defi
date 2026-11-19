@@ -92,9 +92,10 @@ private func ipcEventHandler(
             if !verbIsAllowedOverIPC(request.command) {
               return .failure("spawn-sh runs only from a shortcut in config.toml")
             }
-            if verbIsReadOnly(request.command),
+            let cacheKey = verbCacheKey(request.command)
+            if let cacheKey,
               let cached = readResponseCache.response(
-                for: request.command,
+                for: cacheKey,
                 now: ProcessInfo.processInfo.systemUptime
               )
             {
@@ -113,10 +114,10 @@ private func ipcEventHandler(
                   receivedAt: receivedAt,
                   deferredResponse: deferred
                 )
-                if verbIsReadOnly(request.command), response.ok {
+                if let cacheKey, response.ok {
                   readResponseCache.store(
                     message: response.message,
-                    for: request.command,
+                    for: cacheKey,
                     now: ProcessInfo.processInfo.systemUptime
                   )
                 }

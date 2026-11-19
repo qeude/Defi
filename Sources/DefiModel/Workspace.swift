@@ -124,7 +124,9 @@ extension Workspace {
   }
 
   public var selectedWindowID: WindowID? {
-    focusedLayer == .floating ? focusedFloatingWindowID : focusedTiledWindowID
+    // A floating layer whose index no longer resolves falls back to the tiled selection, so a
+    // stale index never drops focus from a snapshot or a fullscreen reconciliation.
+    focusedLayer == .floating ? (focusedFloatingWindowID ?? focusedTiledWindowID) : focusedTiledWindowID
   }
 }
 

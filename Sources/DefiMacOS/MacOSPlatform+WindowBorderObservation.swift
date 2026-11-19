@@ -294,9 +294,9 @@ extension MacOSPlatform {
         let lane = ObservationRetryLane.creation(processID)
         self.delayedObservationCampaigns.merge(
           lane: lane, delays: windowTopologyRefreshDelays(for: kind), platform: self
-        ) { [weak self] isFirstDelivery, generation in
+        ) { [weak self] isEarliestStage, generation in
           guard let self,
-            isFirstDelivery || self.applicationWindowCounts[processID] == previousWindowCount
+            isEarliestStage || self.applicationWindowCounts[processID] == previousWindowCount
           else { return }
           self.requestWindowTopologyRefresh(processID: processID, inputTimestamp: eventInputTimestamp)
           let campaigns = self.delayedObservationCampaigns

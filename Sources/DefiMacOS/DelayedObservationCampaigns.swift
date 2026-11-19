@@ -20,8 +20,10 @@ final class DelayedObservationCampaigns {
     var cancel: (() -> Void)?
     /// True until the campaign's first stage is delivered, so a consumer can treat the
     /// first retry differently from later ones without knowing the delay table.
-    var awaitsFirstDelivery = true
-    var deliver: @MainActor @Sendable (_ isFirstDelivery: Bool, _ generation: UInt64) -> Void
+    /// The delays this campaign was merged with, so a consumer can treat its earliest stage
+    /// differently from later ones without knowing the table.
+    var stages: Set<Int> = []
+    var deliver: @MainActor @Sendable (_ isEarliestStage: Bool, _ generation: UInt64) -> Void
   }
 
   private var campaigns: [ObservationRetryLane: Campaign] = [:]
@@ -40,6 +42,7 @@ final class DelayedObservationCampaigns {
     nextGeneration &+= 1
     generations.withLock { $0[lane] = nextGeneration }
     var campaign = campaigns[lane] ?? Campaign(deadlines: [:], deliver: deliver)
+    campaign.stages.formUnion(delays)
     for delay in delays {
       let deadline = now + Double(delay) / 1000
       let previous = campaign.deadlines[delay]
@@ -71,10 +74,9 @@ final class DelayedObservationCampaigns {
       current.armedAt = nil
       current.cancel = nil
       let generation = self.generations.withLock { $0[lane]! }
-      let isFirstDelivery = current.awaitsFirstDelivery
-      current.awaitsFirstDelivery = false
+      let earliest = current.stages.min()
       self.campaigns[lane] = current.deadlines.isEmpty ? nil : current
-      for _ in due.keys.sorted() { current.deliver(isFirstDelivery, generation) }
+      for delay in due.keys.sorted() { current.deliver(delay == earliest, generation) }
       if current.deadlines.isEmpty {
         platform.deliverObservation { [weak self] in
           self?.generations.withLock {

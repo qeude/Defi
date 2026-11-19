@@ -466,7 +466,7 @@ final class DesktopE2ETests: XCTestCase {
     let overview = onNavigation { HotKeyManager(config: Config(),
       overviewCancelHandler: { DispatchQueue.main.async { closed.value = true } }) { _ in } }
     try onNavigation { try overview.start() }
-    onNavigation { overview.setOverviewModeEnabled(true) }
+    onNavigation { overview.overviewModeSetter(true) }
     defer { onNavigation { overview.stop() } }
     let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
     NavigationActor.enqueue { entered.signal(); release.wait() }
