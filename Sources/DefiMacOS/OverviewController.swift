@@ -539,7 +539,7 @@ public final class OverviewController: NSObject {
         surfaceWindowIDs.formUnion(capturedIDs)
         attemptedPreviewWindowIDs.formUnion(capturedIDs)
         zoomedWindowIDs.formUnion(ids)
-        panel.presentSurfaceScene(scene, windowIDs: ids)
+        panel.presentSurfaceScene(scene, windowIDs: ids, fadesChrome: swipe?.opening == true)
         zooming[monitorID] = panel
         surfaceTransitionCount += 1
       } else {

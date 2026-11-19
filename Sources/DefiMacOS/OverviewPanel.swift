@@ -169,7 +169,9 @@ final class OverviewPanel {
   }
 
   /// Shows the zoom's first pose, which matches the desktop; `startSurfaceSceneWhenPresented` moves it.
-  func presentSurfaceScene(_ scene: OverviewSurfaceScene, windowIDs: Set<WindowID>) {
+  /// Only a swipe cross-fades the menu bar and Dock: the mask and a non-opaque panel cost the
+  /// first moving frame of a keyboard zoom 33-58 ms, so it covers and uncovers them at once.
+  func presentSurfaceScene(_ scene: OverviewSurfaceScene, windowIDs: Set<WindowID>, fadesChrome: Bool) {
     cancelSurfaceTransition()
     restoreWallpaperFade()
     surfaceScene = scene
@@ -179,7 +181,13 @@ final class OverviewPanel {
     // Not 0: the glass and its cards render once during the still first pose, so the first
     // moving frame of the zoom does not pay for them. The tint is invisible at this alpha.
     glassView.alphaValue = 0.002
-    coverChrome(0, duration: 0)
+    if fadesChrome {
+      coverChrome(0, duration: 0)
+    } else if !window.isVisible {
+      // Hidden only: flipping opacity while shown lets one frame show the windows beneath.
+      window.isOpaque = usesCapturedDesktop
+      window.backgroundColor = usesCapturedDesktop ? .black : .clear
+    }
     rootView.layer?.addSublayer(scene.layer)
     window.alphaValue = 1
     window.orderFrontRegardless()
@@ -233,7 +241,7 @@ final class OverviewPanel {
     scene.animate(opening: true, duration: duration)
     MotionSignpost.span("overview-zoom", duration)
     fadeGlass(to: 1, duration: duration)
-    coverChrome(1, duration: duration)
+    if chromeMask != nil { coverChrome(1, duration: duration) }
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
@@ -290,7 +298,7 @@ final class OverviewPanel {
     surfaceScene.animate(opening: false, duration: duration)
     MotionSignpost.span("overview-zoom", duration)
     fadeGlass(to: 0, duration: duration)
-    coverChrome(0, duration: duration)
+    if chromeMask != nil { coverChrome(0, duration: duration) }
     surfaceTask = Task { [weak self] in
       do { try await Task.sleep(for: .seconds(duration)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
