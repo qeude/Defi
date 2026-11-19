@@ -181,9 +181,17 @@ func workspaceTargetID(
 
 /// Strip navigation only selects a native fullscreen window; a request naming the window also enters its Space.
 func nativeFullscreenActivationTarget(
-  for command: Command, selectedWindowID: WindowID?, state: RuntimeState
+  for command: Command, selectedWindowID: WindowID?, state: RuntimeState,
+  placeholderWindowID: WindowID? = nil
 ) -> WindowID? {
-  switch command {
+  if command == .activateWindow, let placeholderWindowID {
+    guard state.nativeFullscreenWindowIDs.contains(placeholderWindowID),
+      let location = state.location(containing: placeholderWindowID),
+      state.monitors.first(where: { $0.id == location.monitorID })?.activeWorkspace == location.workspaceID
+    else { return nil }
+    return placeholderWindowID
+  }
+  return switch command {
   case .focusWindowID(let windowID): windowID
   case .focusWindowPrevious: state.previousFocusedWindowTarget
   case .activateWindow: selectedWindowID
@@ -323,7 +331,8 @@ extension Daemon {
     inputTimestamp: TimeInterval? = nil,
     receivedAt: TimeInterval? = nil,
     floatingFramesRefreshed: Bool = false,
-    deferredResponse: DeferredCommandReply? = nil
+    deferredResponse: DeferredCommandReply? = nil,
+    placeholderWindowID: WindowID? = nil
   ) -> CommandResponse {
     if rawCommand == "list-workspaces" {
       let lines = currentWorkspaceState().monitors.map { monitor in
@@ -404,7 +413,8 @@ extension Daemon {
         let command = {
           self?.handle(rawCommand, monitorIndex: monitorIndex,
             inputTimestamp: inputTimestamp ?? receivedAt,
-            receivedAt: receivedAt, floatingFramesRefreshed: true)
+            receivedAt: receivedAt, floatingFramesRefreshed: true,
+            placeholderWindowID: placeholderWindowID)
             ?? .failure("daemon unavailable")
         }
         if let deferredResponse { deferredResponse.perform(command) }
@@ -532,7 +542,7 @@ extension Daemon {
       platform.userInputTracker.record(timestamp: commandInputTimestamp)
       platform.nativeFullscreenActivationWindowID = nativeFullscreenActivationTarget(
         for: command, selectedWindowID: commandMonitorID.flatMap { state.selectedWindowID(on: $0) },
-        state: state)
+        state: state, placeholderWindowID: placeholderWindowID)
       if command == .activateWindow {
         if let windowID = platform.nativeFullscreenActivationWindowID {
           _ = platform.focus(windowID, unlessUserInputAfter: commandInputTimestamp)

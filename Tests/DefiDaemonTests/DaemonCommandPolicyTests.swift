@@ -10,7 +10,12 @@ import Testing
 struct DaemonCommandPolicyTests {
   @Test func onlyARequestNamingAWindowEntersItsFullscreenSpace() {
     let selected = WindowID(rawValue: 1), named = WindowID(rawValue: 2)
-    let state = RuntimeState(config: Config())
+    let workspaceID = WorkspaceID(rawValue: "active")
+    let workspace = Workspace(id: workspaceID, columns: [
+      Column(window: selected, width: .fraction(1)), Column(window: named, width: .fraction(1)),
+    ])
+    var state = RuntimeState(config: Config())
+    state.monitors = [Monitor(id: MonitorID(rawValue: 1), workspaces: [workspace], activeWorkspace: workspaceID)]
     let target = { nativeFullscreenActivationTarget(for: $0, selectedWindowID: selected, state: state) }
     #expect(target(.activateWindow) == selected)
     #expect(target(.focusWindowID(named)) == named)
@@ -20,6 +25,12 @@ struct DaemonCommandPolicyTests {
     ] {
       #expect(target(command) == nil, "\(command)")
     }
+    state.nativeFullscreenWindowIDs = [selected, named]
+    #expect(nativeFullscreenActivationTarget(for: .activateWindow, selectedWindowID: selected,
+      state: state, placeholderWindowID: named) == named)
+    state.monitors[0].activeWorkspace = WorkspaceID(rawValue: "other")
+    #expect(nativeFullscreenActivationTarget(for: .activateWindow, selectedWindowID: selected,
+      state: state, placeholderWindowID: named) == nil)
   }
 
   @Test func onlyACenteringChangeUsesTheScrollAnimation() {

@@ -224,8 +224,12 @@ extension MacOSPlatform {
     }
   }
   /// Called when Return is pressed on a focused placeholder.
-  public func setNativeFullscreenActivationHandler(_ handler: @escaping @MainActor (WindowID) -> Void) {
+  public func setNativeFullscreenActivationHandler(_ handler: @escaping @MainActor (WindowID?) -> Void) {
     enqueuePresentation { $0.nativeFullscreenPlaceholderManager.activationHandler = handler }
+  }
+  /// Called on a plain single click on a placeholder.
+  public func setNativeFullscreenSelectionHandler(_ handler: @escaping @MainActor (WindowID) -> Void) {
+    enqueuePresentation { $0.nativeFullscreenPlaceholderManager.selectionHandler = handler }
   }
   public func hideNativeFullscreenPlaceholders() {
     enqueuePresentation { $0.presentHideNativeFullscreenPlaceholders() }
