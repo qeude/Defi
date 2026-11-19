@@ -185,9 +185,6 @@ private func windowPixelsScratch<T>(_ capacity: Int,
   return body(pages.assumingMemoryBound(to: UInt8.self), capacity)
 }
 
-let windowPixelsBitmapInfo = CGBitmapInfo(rawValue:
-  CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)
-
 // A stand-in for the few frames a restoration takes, and for Overview cards: a quarter of a
 // 5K-wide window still reads as the window, at about 2 MB in compressible memory.
 let windowPictureReducedLongSide = 1_024

@@ -7,6 +7,9 @@ import Testing
 import ScreenCaptureKit
 @testable import DefiMacOS
 
+private let windowPixelsBitmapInfo = CGBitmapInfo(rawValue:
+  CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)
+
 struct OverviewPreviewTests {
   @MainActor @Test func emptyWorkspaceClosingZoomsWallpaperToFullScreen() throws {
     let screen = try #require(NSScreen.main)
