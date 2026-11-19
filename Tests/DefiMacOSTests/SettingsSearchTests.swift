@@ -11,6 +11,8 @@ struct SettingsSearchTests {
     ("release notes", .option(.about)), ("default gap", .option(.screenMargins)),
     ("gap between windows", .option(.screenMargins)), ("outer_left_gap", .option(.screenMargins)),
     ("screen margins", .option(.screenMargins)), ("enable animations", .option(.animations)),
+    ("preset_window_heights", .option(.heightPresets)), ("height presets", .option(.heightPresets)),
+    ("animation.stiffness", .option(.animationStiffness)), ("overshoot", .option(.animationDamping)),
   ] as [(String, SettingsDestination)])
   func queryFindsDestinationFirst(query: String, destination: SettingsDestination) {
     let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])

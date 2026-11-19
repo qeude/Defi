@@ -252,7 +252,8 @@ struct SettingsRevealModifier: ViewModifier {
           guard !Task.isCancelled else { return }
           let alignment: UnitPoint
           switch anchor {
-          case .keyboardShortcuts, .option(.widthPresets), .option(.namedWorkspaces), .option(.appRules):
+          case .keyboardShortcuts, .option(.widthPresets), .option(.heightPresets), .option(.namedWorkspaces),
+            .option(.appRules):
             alignment = .top
           default:
             alignment = .center
@@ -379,10 +380,21 @@ private struct LayoutSettingsView: View {
         )
           .settingsSearchTarget(.centerLoneColumn)
       }
-      WidthPresetsSettings(widths: model.config.layout.presetColumnWidths) {
+      PresetsSettings(
+        title: "Width presets", footer: "Cycle Width switches between these sizes in list order.",
+        kind: .width, values: model.config.layout.presetColumnWidths
+      ) {
         model.set(table: "layout", key: "preset_column_widths", value: tomlArray($0))
       }
         .settingsSearchTarget(.widthPresets)
+      PresetsSettings(
+        title: "Height presets",
+        footer: "Switch Preset Window Height gives a stacked window these shares of its column in list order.",
+        kind: .height, values: model.config.layout.presetWindowHeights
+      ) {
+        model.set(table: "layout", key: "preset_window_heights", value: tomlArray($0))
+      }
+        .settingsSearchTarget(.heightPresets)
       DisplayLayoutsSection(model: model, editing: $editingDisplay)
         .settingsSearchTarget(.displayLayouts)
       Section("Spacing") {
@@ -417,41 +429,54 @@ private struct LayoutSettingsView: View {
 }
 
 @MainActor
-private struct WidthPresetsSettings: View {
-  let widths: [Double]
+private enum PresetKind {
+  case width, height
+
+  var name: String { self == .width ? "width" : "height" }
+  /// Matches the validation in DefiConfig: a stacked window never takes the whole column.
+  var maximum: Double { self == .width ? 100 : 95 }
+}
+
+@MainActor
+private struct PresetsSettings: View {
+  let title: String
+  let footer: String
+  let kind: PresetKind
+  let values: [Double]
   let save: ([Double]) -> Void
 
   var body: some View {
     Section {
-      WidthPresetRows(widths: widths, save: save)
+      PresetRows(kind: kind, values: values, save: save)
     } header: {
       HStack {
-        Text("Width presets")
+        Text(title)
         Spacer()
-        AddWidthPresetMenu(widths: widths, save: save)
+        AddPresetMenu(kind: kind, values: values, save: save)
       }
     } footer: {
-      Text("Cycle Width switches between these sizes in list order.")
+      Text(footer)
     }
   }
 }
 
 @MainActor
-private struct WidthPresetRows: View {
-  let widths: [Double]
+private struct PresetRows: View {
+  let kind: PresetKind
+  let values: [Double]
   let save: ([Double]) -> Void
 
   var body: some View {
-    ForEach(widths.indices, id: \.self) { index in
+    ForEach(values.indices, id: \.self) { index in
       HStack {
         Text("Preset \(index + 1)")
         Slider(value: Binding(
-          get: { widths[index] * 100 },
+          get: { values[index] * 100 },
           set: { update(index, percentage: $0) }
-        ), in: 5...100, step: 5)
-        .accessibilityLabel("Preset \(index + 1) width")
-        TextField("Width", value: Binding(
-          get: { widths[index] * 100 },
+        ), in: 5...kind.maximum, step: 5)
+        .accessibilityLabel("Preset \(index + 1) \(kind.name)")
+        TextField(kind.name.capitalized, value: Binding(
+          get: { values[index] * 100 },
           set: { update(index, percentage: $0) }
         ), format: .number.precision(.fractionLength(0...2)))
         .labelsHidden()
@@ -459,36 +484,37 @@ private struct WidthPresetRows: View {
         .frame(width: 65)
         Text("%").foregroundStyle(.secondary)
         Button {
-          var widths = widths
-          widths.remove(at: index)
-          save(widths)
+          var values = values
+          values.remove(at: index)
+          save(values)
         } label: {
           Image(systemName: "minus.circle")
         }
         .buttonStyle(.borderless)
-        .disabled(widths.count == 1)
+        .disabled(values.count == 1)
         .accessibilityLabel("Remove preset \(index + 1)")
       }
     }
   }
 
   private func update(_ index: Int, percentage: Double) {
-    var widths = widths
-    widths[index] = percentage / 100
-    save(widths)
+    var values = values
+    values[index] = percentage / 100
+    save(values)
   }
 }
 
 @MainActor
-private struct AddWidthPresetMenu: View {
-  let widths: [Double]
+private struct AddPresetMenu: View {
+  let kind: PresetKind
+  let values: [Double]
   let save: ([Double]) -> Void
 
   var body: some View {
     Menu {
-      ForEach([25, 33, 50, 67, 75, 100], id: \.self) { percentage in
+      ForEach([25, 33, 50, 67, 75, 100].filter { Double($0) <= kind.maximum }, id: \.self) { percentage in
         Button("\(percentage)%") {
-          save(widths + [Double(percentage) / 100])
+          save(values + [Double(percentage) / 100])
         }
       }
     } label: {
@@ -496,7 +522,7 @@ private struct AddWidthPresetMenu: View {
     }
     .menuStyle(.borderlessButton)
     .fixedSize()
-    .accessibilityLabel("Add width preset")
+    .accessibilityLabel("Add \(kind.name) preset")
   }
 }
 
@@ -589,8 +615,8 @@ private struct DisplayLayoutEditor: View {
           ))
           if let presets = override?.presetColumnWidths {
             let save = { model.setMonitorLayout(name, key: "preset_column_widths", value: tomlArray($0)) }
-            WidthPresetRows(widths: presets, save: save)
-            LabeledContent("Add preset") { AddWidthPresetMenu(widths: presets, save: save) }
+            PresetRows(kind: .width, values: presets, save: save)
+            LabeledContent("Add preset") { AddPresetMenu(kind: .width, values: presets, save: save) }
           } else {
             LabeledContent("Presets", value: percentages(layout.presetColumnWidths))
               .foregroundStyle(.secondary)
@@ -861,6 +887,18 @@ private struct AppearanceSettingsView: View {
           value: model.config.animation.enabled
         )
           .settingsSearchTarget(.animations)
+        SettingsNumberRow(
+          title: SettingsOption.animationStiffness.title, value: model.config.animation.stiffness,
+          range: 100...2_000, step: 50, unit: "",
+          onChange: { model.set(table: "animation", key: "stiffness", value: String($0)) }
+        )
+          .settingsSearchTarget(.animationStiffness)
+        SettingsNumberRow(
+          title: SettingsOption.animationDamping.title, value: model.config.animation.dampingRatio,
+          range: 0.5...1, step: 0.05, unit: "",
+          onChange: { model.set(table: "animation", key: "damping_ratio", value: String($0)) }
+        )
+          .settingsSearchTarget(.animationDamping)
       }
       Section("Overview") {
         SettingsNumberRow(
