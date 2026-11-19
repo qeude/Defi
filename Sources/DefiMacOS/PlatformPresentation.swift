@@ -1,5 +1,4 @@
 import AppKit
-import DefiConfig
 import DefiCore
 import DefiModel
 import DefiRuntime
@@ -94,7 +93,7 @@ extension MacOSPlatform {
 
   public var frontmostProcessID: pid_t? { presentationStatus.frontmostProcessID }
   public var reduceMotion: Bool { presentationStatus.reduceMotion }
-  nonisolated func enqueuePresentation(
+  public nonisolated func enqueuePresentation(
     _ effect: @escaping @MainActor @Sendable (MacOSPlatform) -> Void
   ) {
     DispatchQueue.main.async { [self] in
@@ -151,44 +150,11 @@ extension MacOSPlatform {
     NavigationActor.enqueue { [self] in invalidatePointerHitTestCache() }
   }
 
-  func scheduleWindowBorderStackingRefresh(reusingSnapshot: Bool = false) {
-    enqueuePresentation { $0.presentScheduleWindowBorderStackingRefresh(reusingSnapshot: reusingSnapshot) }
-  }
-
-  func revealWindowBordersIfReady() {
-    enqueuePresentation { $0.presentRevealWindowBordersIfReady() }
-  }
-
-  public func startObserving(
-    _ handler: @escaping @NavigationActor @Sendable () -> Void,
-    desktopSessionHandler: @escaping @NavigationActor @Sendable (Bool) -> Void = { _ in },
-    displayConfigurationHandler: @escaping @NavigationActor @Sendable () -> Void = {},
-    mouseGestureStartedHandler: @escaping @NavigationActor @Sendable (WindowID?) -> Void = { _ in },
-    mouseGestureHandler: @escaping @NavigationActor @Sendable () -> Void = {},
-    activatedWindowHandler: @escaping @NavigationActor @Sendable (WindowID, TimeInterval) -> Void = { _, _ in }
-  ) {
-    enqueuePresentation {
-      $0.presentStartObserving(handler, desktopSessionHandler: desktopSessionHandler,
-        displayConfigurationHandler: displayConfigurationHandler,
-        mouseGestureStartedHandler: mouseGestureStartedHandler, mouseGestureHandler: mouseGestureHandler,
-        activatedWindowHandler: activatedWindowHandler)
-    }
-  }
-
   public func invalidateInputAfterEventTapReenabled(at timestamp: TimeInterval) {
     userInputTracker.invalidate(at: timestamp)
     pointerMotionTracker.invalidate(at: timestamp)
     invalidatePointerHitTestCache()
     enqueuePresentation { $0.presentInvalidateInputAfterEventTapReenabled(at: timestamp) }
-  }
-
-  public func updateWindowBorders(frames: [FrameAssignment], selectedWindowID: WindowID?,
-    liveWindowID: WindowID?, config: BordersConfig) {
-    plannedBorderFrames = frames
-    enqueuePresentation {
-      $0.presentUpdateWindowBorders(frames: frames, selectedWindowID: selectedWindowID,
-        liveWindowID: liveWindowID, config: config)
-    }
   }
 
   public func stageWindowBorderSelection(_ windowID: WindowID?) {
@@ -203,14 +169,9 @@ extension MacOSPlatform {
     enqueuePresentation { $0.presentCommitWindowBorderSelection(windowID) }
   }
 
-  public func refreshWindowBorders() { enqueuePresentation { $0.presentRefreshWindowBorders() } }
-  public func hideWindowBorders() { enqueuePresentation { $0.presentHideWindowBorders() } }
   public func setOverviewPresentationActive(_ active: Bool) {
     snapshotEngine.overviewPresentationActive = active
-    setWindowBordersSuppressed(active)
-  }
-  public func setWindowBordersSuppressed(_ suppressed: Bool) {
-    enqueuePresentation { $0.presentSetWindowBordersSuppressed(suppressed) }
+    enqueuePresentation { $0.presentSetWindowBordersSuppressed(active) }
   }
   /// A suppressed monitor shows a fullscreen Space, where an ordered-in placeholder would land.
   public func updateNativeFullscreenPlaceholders(_ placeholders: [NativeFullscreenPlaceholder],
@@ -231,12 +192,5 @@ extension MacOSPlatform {
   public func setNativeFullscreenSelectionHandler(_ handler: @escaping @MainActor (WindowID) -> Void) {
     enqueuePresentation { $0.nativeFullscreenPlaceholderManager.selectionHandler = handler }
   }
-  public func hideNativeFullscreenPlaceholders() {
-    enqueuePresentation { $0.presentHideNativeFullscreenPlaceholders() }
-  }
   public var windowBorderPerformance: WindowBorderPerformance { presentationStatus.borders }
-
-  public func setFrameNotificationsEnabled(_ enabled: Bool) {
-    enqueuePresentation { $0.presentSetFrameNotificationsEnabled(enabled) }
-  }
 }

@@ -57,7 +57,7 @@ private func suspendNativeFullscreenWindow(
     )
   else { return }
   var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
-  let selectedWindowID = selectedWindowID(in: workspace)
+  let selectedWindowID = workspace.selectedWindowID
   let targetScrollOffset = workspace.targetScrollOffset
   if workspace.floatingWindows.contains(windowID) {
     let savedColumn = state.suspendedTiledPlacements[windowID]?.column
@@ -149,7 +149,7 @@ private func resumeNativeFullscreenWindow(
       )
     else { return }
     var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
-    let selectedWindowID = selectedWindowID(in: workspace)
+    let selectedWindowID = workspace.selectedWindowID
     let targetScrollOffset = workspace.targetScrollOffset
     removeWindow(windowID, from: &workspace, settings: state.layout)
     workspace.floatingWindows.append(windowID)
@@ -165,7 +165,7 @@ private func resumeNativeFullscreenWindow(
     )
   else { return }
   var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
-  let selectedWindowID = selectedWindowID(in: workspace)
+  let selectedWindowID = workspace.selectedWindowID
   let targetScrollOffset = workspace.targetScrollOffset
   removeWindow(windowID, from: &workspace, settings: state.layout)
   normalizeNativeFullscreenColumns(
@@ -244,7 +244,7 @@ private func normalizeNativeFullscreenColumns(
   fullscreenWindowIDs: Set<WindowID>,
   placements: [WindowID: SuspendedTiledPlacement]
 ) {
-  let selectedWindowID = selectedWindowID(in: workspace)
+  let selectedWindowID = workspace.selectedWindowID
   var visibleColumns: [Column] = []
   var fullscreenColumns: [Column] = []
   for column in workspace.columns {

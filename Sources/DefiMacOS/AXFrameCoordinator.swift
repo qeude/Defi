@@ -30,16 +30,12 @@ func completeSupersededFrame(_ frame: QueuedPositionFrame?) {
 
 final class AXFrameCoordinator: @unchecked Sendable {
   typealias BatchResult = (applied: Int, stale: Int, attempted: Bool)
-  typealias BatchWriter = @Sendable (ProcessWriteBatch, QueuedPositionFrame) -> BatchResult
   weak var snapshotEngine: SnapshotEngine?
-  let batchWriter: BatchWriter?
 
   init(
-    batchWriter: BatchWriter? = nil,
     accessibilityWriter: AXFrameAccessibilityWriter = AXFrameAccessibilityWriter(),
     messagingTimeoutAccess: AXMessagingTimeoutAccess = .shared
   ) {
-    self.batchWriter = batchWriter
     self.accessibilityWriter = accessibilityWriter
     self.messagingTimeoutAccess = messagingTimeoutAccess
   }
@@ -63,11 +59,6 @@ final class AXFrameCoordinator: @unchecked Sendable {
     label: "com.qeude.defi.ax-frame-coordinator",
     qos: .userInteractive
   )
-  let parkingSettlementQueue = DispatchQueue(
-    label: "com.qeude.defi.ax-parking-settlement",
-    qos: .utility
-  )
-  let parkingSettlementGroup = DispatchGroup()
   let enhancedUIRestoreGroup = DispatchGroup()
   let lock = NSLock()
   let accessibilityWriter: AXFrameAccessibilityWriter
@@ -280,9 +271,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
     invalidate(reason: "synchronous-restore")
     queue.sync {}
     enhancedUIRestoreGroup.wait()
-    parkingSettlementGroup.wait()
     borderGeometryReadGroup.wait()
-    parkingSettlementQueue.sync {}
     restoreDeferredEnhancedUserInterfaces()
   }
 

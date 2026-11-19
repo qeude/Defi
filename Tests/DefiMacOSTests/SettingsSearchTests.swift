@@ -11,6 +11,8 @@ struct SettingsSearchTests {
     ("release notes", .option(.about)), ("default gap", .option(.screenMargins)),
     ("gap between windows", .option(.screenMargins)), ("outer_left_gap", .option(.screenMargins)),
     ("screen margins", .option(.screenMargins)), ("enable animations", .option(.animations)),
+    ("preset_window_heights", .option(.heightPresets)), ("height presets", .option(.heightPresets)),
+    ("animation.stiffness", .option(.animationStiffness)), ("overshoot", .option(.animationDamping)),
   ] as [(String, SettingsDestination)])
   func queryFindsDestinationFirst(query: String, destination: SettingsDestination) {
     let results = SettingsSearchCatalog.results(matching: query, config: Config(), shortcuts: [])
@@ -137,5 +139,12 @@ struct SettingsSearchTests {
   private func binding(_ accelerator: String, _ command: String, enabled: Bool = true) -> SettingsShortcutRow {
     SettingsShortcutRow(accelerator: accelerator, command: command, defaultAccelerator: nil,
       canRestore: !enabled, isEnabled: enabled)
+  }
+
+  @Test func presetAddMenuOffersNoDuplicateOrOutOfRangeValue() {
+    #expect(PresetKind.height.addableChoices(to: [0.33, 0.50, 0.66]) == [25, 67, 75])
+    #expect(PresetKind.width.addableChoices(to: [0.33, 0.50, 0.66, 0.80]) == [25, 67, 75, 100])
+    #expect(PresetKind.duplicates(50, in: [0.33, 0.50, 0.66], except: 0))
+    #expect(!PresetKind.duplicates(50, in: [0.33, 0.50, 0.66], except: 1), "an unchanged edit is not a duplicate")
   }
 }

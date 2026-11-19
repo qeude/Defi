@@ -12,7 +12,7 @@ make verify    # build, tests, and workflow checks; never touches your desktop
 
 **Contents**: [Prerequisites](#prerequisites) · [Build and run](#build-and-run) ·
 [Checks](#checks) · [Code boundaries](#code-boundaries) ·
-[Pull requests](#pull-requests) · [Configuration migrations](#configuration-migrations) ·
+[Pull requests](#pull-requests) · [Removed configuration keys](#removed-configuration-keys) ·
 [Release packaging](#release-packaging) · [Development scripts](#development-scripts)
 
 ## Prerequisites
@@ -239,25 +239,18 @@ Use a focused branch with a conventional prefix such as `feat/`, `fix/`,
 `docs/`, or `refactor/`. Describe the user-visible change, the tests you ran,
 and known limitations. Keep alpha-scope changes small and reversible.
 
-## Configuration migrations
+## Removed configuration keys
 
-When a change renames or replaces a configuration key, Defi rewrites old files
-in place, keeping comments and layout, so users never edit their file by hand:
+When a change renames or replaces a configuration key, Defi refuses a file that
+still sets the old key instead of silently ignoring it:
 
-1. Add a function to `Sources/DefiMacOS/ConfigMigration.swift` that returns the
-   rewritten source, or nil when nothing needs migrating, and test it with a
-   before/after fixture.
-2. Append it to `configMigrations` with `introducedIn` set to the next release
-   and `removeIn` two minor releases later.
-3. List the old and new keys under **Configuration changes** in the release notes.
+1. List the old key in `removedConfigKeys` in
+   `Sources/DefiConfig/RemovedConfigKeys.swift` with a one-line replacement hint.
+   A path through an array of tables matches any of its entries.
+2. List the old and new keys under **Configuration changes** in the release notes.
 
-A migration only serves files from earlier releases: Defi rewrites the file on
-its first launch. `ConfigMigrationTests` fails once `Support/Defi-Info.plist`
-reaches a migration's `removeIn`. The release that bumps the version then
-deletes the migration and adds each old key to `removedConfigKeys` in
-`Sources/DefiConfig/RemovedConfigKeys.swift` with a one-line replacement hint.
-A file that still sets a removed key then fails to load with that hint instead
-of being silently ignored. Empty `removedConfigKeys` at the first stable release.
+A file that still sets a removed key fails to load with that hint. Defi never
+rewrites the file itself. Empty `removedConfigKeys` at the first stable release.
 
 ## Release packaging
 
@@ -379,6 +372,7 @@ stanza, remove `com.apple.quarantine` in `postflight`, and zap:
 | `update_homebrew_release.sh` | Open a Cask update PR from a published release checksum. |
 | `install.sh` | The end-user install script the README points to. |
 | `perf_release.sh` | Release performance check: previous release against the candidate, in the VM (needs Tart, jq, Python 3). |
+| `glitch_vm.sh` | Optional: count visible glitches, focus errors and incoherent states per scenario for one or more staged bundles, in the VM; `glitch_table.py` compares runs side by side. |
 | `fluidity_probe.py` | Optional: A/B of two builds per user action on the real display: render cadence inside motion signposts, hitches, daemon CPU, wakeups and AX writes, idle cost (needs Python 3); `fluidity_report.py` tables a run against pooled base trials. |
 
 See [PERFORMANCE.md](PERFORMANCE.md) for performance investigation.

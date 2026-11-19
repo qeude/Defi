@@ -29,16 +29,7 @@ extension Daemon {
     skipping additionalSkippedWindowIDs: Set<WindowID> = [],
     positionsOnly: Bool = false,
     stagesVisibleBeforeParking: Bool = false,
-    focusWindowIDAfterCommit: WindowID? = nil,
-    focusInputTimestampAfterCommit: TimeInterval? = nil,
-    cursorWarpWindowIDAfterCommit: WindowID? = nil,
-    cursorWarpInputTimestampAfterCommit: TimeInterval? = nil,
-    focusCompletionAfterCommit:
-      (@NavigationActor @Sendable (NativeFocusResult) -> Void)? = nil,
-    cursorWarpIsCurrentAfterCommit:
-      (@NavigationActor @Sendable () -> Bool)? = nil,
-    focusRequestIDAfterCommit:
-      (@NavigationActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
+    postCommitFocus: PostCommitFocus = PostCommitFocus(),
     forceFloatingFrameWrites: Bool = false,
     forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
     workspaceTransition: WorkspaceVerticalTransition? = nil,
@@ -248,14 +239,13 @@ extension Daemon {
       positionsOnly: positionsOnly,
       updateVisibility: updateVisibility ?? !asynchronousPositions,
       stagesVisibleBeforeParking: stagesVisibleBeforeParking,
-      focusWindowIDAfterCommit: focusWindowIDAfterCommit,
-      focusInputTimestampAfterCommit: focusInputTimestampAfterCommit,
-      cursorWarpWindowIDAfterCommit: cursorWarpWindowIDAfterCommit,
-      cursorWarpInputTimestampAfterCommit:
-        cursorWarpInputTimestampAfterCommit,
-      focusCompletionAfterCommit: focusCompletionAfterCommit,
-      cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
-      focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+      focusWindowIDAfterCommit: postCommitFocus.windowID,
+      focusInputTimestampAfterCommit: postCommitFocus.inputTimestamp,
+      cursorWarpWindowIDAfterCommit: postCommitFocus.cursorWarpWindowID,
+      cursorWarpInputTimestampAfterCommit: postCommitFocus.cursorWarpInputTimestamp,
+      focusCompletionAfterCommit: postCommitFocus.completion,
+      cursorWarpIsCurrentAfterCommit: postCommitFocus.isCursorWarpCurrent,
+      focusRequestIDAfterCommit: postCommitFocus.requestID,
       acceptedFrameHandler: { [weak self] acceptedFrames in
         guard let self else { return }
         for (windowID, frame) in acceptedFrames {
@@ -272,12 +262,16 @@ extension Daemon {
       source: source
     )
     if timerFrequencyHz == 0 { scheduleIdleTick() }
-    platform.updateWindowBorders(
-      frames: borderAssignments,
-      selectedWindowID: selectedWindowID,
-      liveWindowID: activelyResizedWindowID,
-      config: config.decorations.borders
-    )
+    let liveWindowID = activelyResizedWindowID
+    let borderConfig = config.decorations.borders
+    platform.enqueuePresentation {
+      $0.presentUpdateWindowBorders(
+        frames: borderAssignments,
+        selectedWindowID: selectedWindowID,
+        liveWindowID: liveWindowID,
+        config: borderConfig
+      )
+    }
     platform.updateNativeFullscreenPlaceholders(
       nativeFullscreenPlaceholderAssignments.compactMap { assignment in
         guard let window = state.windows[assignment.windowID],

@@ -243,10 +243,7 @@ extension MacOSPlatform {
         }
         if let recoveryRequest = nativeCompletion.recoveryRequest,
           let self,
-          focusRecoveryIntentIsCurrent(
-            requestGeneration: recoveryIntentGeneration,
-            currentGeneration: self.focusRecoveryIntentGeneration
-          )
+          recoveryIntentGeneration == self.focusRecoveryIntentGeneration
         {
           self.recoverUserFocus(
             recoveryRequest,
@@ -262,8 +259,8 @@ extension MacOSPlatform {
           self?.verifiedNativeFocusedWindowID = windowID
           // Native full-screen detection falls back on this before AX reports the new frame.
           self?.lastFocusedWindowByProcess[processID] = windowID
-          self?.scheduleWindowBorderStackingRefresh()
-          self?.revealWindowBordersIfReady()
+          self?.enqueuePresentation { $0.presentScheduleWindowBorderStackingRefresh() }
+          self?.enqueuePresentation { $0.presentRevealWindowBordersIfReady() }
           if let cursorWarpInputTimestamp = cursorWarpTimestampAfterNativeFocus(
             result: result,
             requestedTimestamp: cursorWarpInputTimestamp
@@ -311,10 +308,7 @@ extension MacOSPlatform {
     _ request: NativeFocusRecoveryRequest,
     intentGeneration: UInt64
   ) {
-    guard focusRecoveryIntentIsCurrent(
-      requestGeneration: intentGeneration,
-      currentGeneration: focusRecoveryIntentGeneration
-    ) else { return }
+    guard intentGeneration == focusRecoveryIntentGeneration else { return }
     let target = userInputTracker.focusRecoveryTarget(
       after: request.timestamp,
       excludingWindowID: request.excludingWindowID,
@@ -362,10 +356,7 @@ extension MacOSPlatform {
       ) { [weak self] processID, resolution in
         NavigationActor.enqueue { [weak self] in
           guard let self, let processID,
-            focusRecoveryIntentIsCurrent(
-              requestGeneration: intentGeneration,
-              currentGeneration: self.focusRecoveryIntentGeneration
-            ),
+            intentGeneration == self.focusRecoveryIntentGeneration,
             self.userInputTracker.latestEventTimestamp <= target.timestamp
           else {
             return
@@ -434,10 +425,7 @@ extension MacOSPlatform {
           self.submittedFocusRecoveryGeneration = nil
         }
         if let recoveryRequest = completion.recoveryRequest,
-          focusRecoveryIntentIsCurrent(
-            requestGeneration: intentGeneration,
-            currentGeneration: self.focusRecoveryIntentGeneration
-          )
+          intentGeneration == self.focusRecoveryIntentGeneration
         {
           self.recoverUserFocus(
             recoveryRequest,

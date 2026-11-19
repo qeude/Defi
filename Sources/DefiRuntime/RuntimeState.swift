@@ -820,12 +820,12 @@ public struct RuntimeState: Equatable, Sendable {
     else {
       return nil
     }
-    let selectedFloatingWindowID = focusedFloatingWindowID(in: workspace)
+    let selectedFloatingWindowID = workspace.focusedFloatingWindowID
     if workspace.focusedLayer == .floating { return selectedFloatingWindowID }
     guard workspace.columns.indices.contains(workspace.focusedColumn) else {
       return selectedFloatingWindowID
     }
-    return focusedTiledWindowID(in: workspace)
+    return workspace.focusedTiledWindowID
   }
 
   public func selectedTiledWindowID(on monitorID: MonitorID) -> WindowID? {
@@ -836,7 +836,7 @@ public struct RuntimeState: Equatable, Sendable {
     else {
       return nil
     }
-    return focusedTiledWindowID(in: workspace)
+    return workspace.focusedTiledWindowID
   }
 
   public func selectedFloatingWindowID(on monitorID: MonitorID) -> WindowID? {
@@ -845,7 +845,7 @@ public struct RuntimeState: Equatable, Sendable {
     else {
       return nil
     }
-    return focusedFloatingWindowID(in: workspace)
+    return workspace.focusedFloatingWindowID
   }
 
   public func reboundFocusMonitorID(
@@ -899,20 +899,6 @@ public struct SuspendedTiledPlacement: Equatable, Codable, Sendable {
     scalePixelWidths(in: &column, by: scale)
     return relocated(column: column)
   }
-}
-
-private func focusedFloatingWindowID(in workspace: Workspace) -> WindowID? {
-  guard workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow) else {
-    return nil
-  }
-  return workspace.floatingWindows[workspace.focusedFloatingWindow]
-}
-
-private func focusedTiledWindowID(in workspace: Workspace) -> WindowID? {
-  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
-  let column = workspace.columns[workspace.focusedColumn]
-  guard column.windows.indices.contains(column.focusedWindow) else { return nil }
-  return column.windows[column.focusedWindow]
 }
 
 public func commandShouldFocusWindow(

@@ -608,18 +608,6 @@ private func replace(
   placements = replaced
 }
 
-func selectedWindowID(in workspace: Workspace) -> WindowID? {
-  if workspace.focusedLayer == .floating,
-    workspace.floatingWindows.indices.contains(workspace.focusedFloatingWindow)
-  {
-    return workspace.floatingWindows[workspace.focusedFloatingWindow]
-  }
-  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
-  let column = workspace.columns[workspace.focusedColumn]
-  guard column.windows.indices.contains(column.focusedWindow) else { return nil }
-  return column.windows[column.focusedWindow]
-}
-
 func restoreSelection(
   _ windowID: WindowID?,
   in workspace: inout Workspace

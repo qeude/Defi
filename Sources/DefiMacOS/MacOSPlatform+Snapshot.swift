@@ -422,7 +422,7 @@ extension SnapshotEngine {
             )
         )
       })
-      var classifications: [CGWindowDiscoveryIdentity: (String, String?)] = [:]
+      var classifications: [CGWindowDiscoveryIdentity: (CGWindowDiscoveryClassification, String?)] = [:]
       var ignoredWindowReasonsByID = cachedExclusions.reasonsByWindowID
       ignoredWindowReasonsByID.merge(discovery.ignoredWindowReasonsByID) { _, fresh in fresh }
       let minimizedWindowIDs = cachedExclusions.minimizedWindowIDs
@@ -447,7 +447,7 @@ extension SnapshotEngine {
           ignoredReasonsByWindowID: ignoredWindowReasonsByID
         )
         classifications[identity] = classification
-        if classification.0 == "unresolved" {
+        if classification.classification == .unresolved {
           unresolvedOutcomes[identity] = discovery.unresolvedOutcome(for: record.processID)
         }
       }
@@ -460,12 +460,12 @@ extension SnapshotEngine {
         let identity = CGWindowDiscoveryIdentity(record: record)
         let appIdentity = diagnosticAppIdentityByProcess[record.processID]
           ?? "pid-\(record.processID)"
-        let classification = classifications[identity] ?? ("unresolved", nil)
+        let (found, reason) = classifications[identity] ?? (.unresolved, nil)
         return CGWindowDiscoveryDiagnostic(
           identity: identity,
           appIdentity: appIdentity,
-          classification: classification.0,
-          reason: classification.1,
+          classification: found,
+          reason: reason,
           retry: retries.entries[identity]
         )
       }

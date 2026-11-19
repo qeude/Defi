@@ -51,12 +51,40 @@ func overviewShouldRequestCapturePermission(
   !screenCaptureAccessGranted && !hasRequestedPermission
 }
 
+/// The overview's look. Its defaults are the configuration's own, so the panel and the config
+/// cannot disagree about the zoom, the corner radius, or the previews.
+public struct OverviewStyle: Sendable {
+  public var borders: BordersConfig
+  public var animation: AnimationConfig
+  public var zoom: Double
+  public var cornerRadius: Double
+  public var previewsEnabled: Bool
+
+  public static let standard = OverviewStyle()
+
+  public init(
+    borders: BordersConfig = BordersConfig(),
+    animation: AnimationConfig = AnimationConfig(),
+    overview: OverviewConfig = OverviewConfig(),
+    previewsEnabled: Bool? = nil
+  ) {
+    self.borders = borders
+    self.animation = animation
+    self.zoom = overview.zoom
+    self.cornerRadius = overview.windowCornerRadius
+    self.previewsEnabled = previewsEnabled ?? overview.windowPreviews
+  }
+
+  var borderStyle: WindowBorderStyle { WindowBorderStyle(config: borders) }
+  var animationsEnabled: Bool { animation.enabled }
+}
+
 func overviewViewportAfterScroll(
   _ viewport: OverviewViewport,
   delta: NSPoint,
   hasPreciseScrollingDeltas: Bool,
   viewSize: NSSize,
-  zoom: Double = 0.5,
+  zoom: Double = OverviewStyle.standard.zoom,
   activeWorkspaceIndex: Int,
   workspaceCount: Int,
   horizontalWorkspaceID: WorkspaceID?,
@@ -156,7 +184,7 @@ public final class OverviewController: NSObject {
   private var panels: [MonitorID: OverviewPanel] = [:]
   private var snapshot: OverviewSnapshot?
   private var layout = LayoutSettings()
-  private var borderStyle = WindowBorderStyle(config: BordersConfig())
+  private var borderStyle = OverviewStyle.standard.borderStyle
   private var viewports: [MonitorID: OverviewViewport] = [:]
   private var projections: [MonitorID: OverviewProjection] = [:]
   private var previewMonitorIDs: [WindowID: MonitorID] = [:]
@@ -208,8 +236,8 @@ public final class OverviewController: NSObject {
   private var hasRequestedPreviewPermission = false
   private var alignSelectionOnNextUpdate = false
   private var animationsEnabled = true
-  private var overviewZoom = 0.5
-  private var windowCornerRadius = 12.0
+  private var overviewZoom = OverviewStyle.standard.zoom
+  private var windowCornerRadius = OverviewStyle.standard.cornerRadius
   private var viewportAnimations: [MonitorID: OverviewViewportAnimation] = [:]
   private var projectionAnimations: [MonitorID: OverviewProjectionAnimation] = [:]
   private var lastRenderedRefresh: [MonitorID: TimeInterval] = [:]
@@ -351,11 +379,11 @@ public final class OverviewController: NSObject {
   public func toggle(
     snapshot: OverviewSnapshot,
     layout: LayoutSettings,
-    borders: BordersConfig = BordersConfig(),
-    animation: AnimationConfig = AnimationConfig(),
-    zoom: Double = 0.5,
-    windowCornerRadius: Double = 12,
-    windowPreviewsEnabled: Bool = true
+    borders: BordersConfig = OverviewStyle.standard.borders,
+    animation: AnimationConfig = OverviewStyle.standard.animation,
+    zoom: Double = OverviewStyle.standard.zoom,
+    windowCornerRadius: Double = OverviewStyle.standard.cornerRadius,
+    windowPreviewsEnabled: Bool = OverviewStyle.standard.previewsEnabled
   ) {
     if isOpen {
       close()
@@ -386,7 +414,7 @@ public final class OverviewController: NSObject {
     windowPreviewsEnabled: Bool,
     snapshot: OverviewSnapshot? = nil,
     layout: LayoutSettings = LayoutSettings(),
-    zoom: Double = 0.5
+    zoom: Double = OverviewStyle.standard.zoom
   ) {
     defer { presentationChanged() }
     // A closing zoom still owns its texture; idle refresh must wait for its handoff.
@@ -447,11 +475,11 @@ public final class OverviewController: NSObject {
   public func open(
     snapshot: OverviewSnapshot,
     layout: LayoutSettings,
-    borders: BordersConfig = BordersConfig(),
-    animation: AnimationConfig = AnimationConfig(),
-    zoom: Double = 0.5,
-    windowCornerRadius: Double = 12,
-    windowPreviewsEnabled: Bool = true
+    borders: BordersConfig = OverviewStyle.standard.borders,
+    animation: AnimationConfig = OverviewStyle.standard.animation,
+    zoom: Double = OverviewStyle.standard.zoom,
+    windowCornerRadius: Double = OverviewStyle.standard.cornerRadius,
+    windowPreviewsEnabled: Bool = OverviewStyle.standard.previewsEnabled
   ) {
     // The swipe that asked for it went back before it could open.
     guard CACurrentMediaTime() >= skipsOpeningUntil else {
@@ -576,10 +604,10 @@ public final class OverviewController: NSObject {
   public func update(
     snapshot: OverviewSnapshot,
     layout: LayoutSettings,
-    borders: BordersConfig = BordersConfig(),
-    animation: AnimationConfig = AnimationConfig(),
-    zoom: Double = 0.5,
-    windowCornerRadius: Double = 12,
+    borders: BordersConfig = OverviewStyle.standard.borders,
+    animation: AnimationConfig = OverviewStyle.standard.animation,
+    zoom: Double = OverviewStyle.standard.zoom,
+    windowCornerRadius: Double = OverviewStyle.standard.cornerRadius,
     windowPreviewsEnabled: Bool? = nil
   ) {
     guard isOpen else { return }
@@ -933,17 +961,24 @@ public final class OverviewController: NSObject {
     }
   }
 
-  @discardableResult
-  public func applyLayoutCommand(_ command: Command,
-    handler: (@MainActor @Sendable (Command, WindowID, String, MonitorID, WorkspaceID, UInt64) -> Void)? = nil
-  ) -> Bool {
+  /// The window a layout command edits and where it lives, or nil when the selection cannot
+  /// take it. Marks the selection deferred, so the caller applies the edit.
+  public func layoutCommandTarget(_ command: Command)
+    -> (windowID: WindowID, appID: String, monitorID: MonitorID, workspaceID: WorkspaceID)?
+  {
     guard isOpen, !selectionCommitPending, let snapshot, let selection,
       let windowID = selection.windowID, let window = snapshot.windows[windowID],
       !snapshot.nativeFullscreenWindowIDs.contains(windowID), window.transientOwnerID == nil,
-      !window.floating || command == .toggleFloating else { return false }
+      !window.floating || command == .toggleFloating else { return nil }
     hasDeferredSelection = true
-    (handler ?? layoutCommandHandler)(command, windowID, window.appID, selection.location.monitorID,
-      selection.location.workspaceID, sessionGeneration)
+    return (windowID, window.appID, selection.location.monitorID, selection.location.workspaceID)
+  }
+
+  @discardableResult
+  public func applyLayoutCommand(_ command: Command) -> Bool {
+    guard let target = layoutCommandTarget(command) else { return false }
+    layoutCommandHandler(command, target.windowID, target.appID, target.monitorID,
+      target.workspaceID, sessionGeneration)
     return true
   }
 

@@ -143,8 +143,13 @@ final class DesktopE2ETests: XCTestCase {
 
     let events = DesktopValue(0)
     let activated = DesktopValue<[WindowID]>([])
-    onNavigation { platform.startObserving({ DispatchQueue.main.async { events.value += 1 } },
-      activatedWindowHandler: { id, _ in DispatchQueue.main.async { activated.value.append(id) } }) }
+    onNavigation {
+      platform.enqueuePresentation {
+        $0.presentStartObserving(
+          { DispatchQueue.main.async { events.value += 1 } },
+          activatedWindowHandler: { id, _ in DispatchQueue.main.async { activated.value.append(id) } })
+      }
+    }
     // The monitor registers an unretained display callback; it must not outlive this platform.
     defer { platform.eventMonitor?.stop() }
     onNavigation { platform.focus(tiled) }
@@ -461,7 +466,7 @@ final class DesktopE2ETests: XCTestCase {
     let overview = onNavigation { HotKeyManager(config: Config(),
       overviewCancelHandler: { DispatchQueue.main.async { closed.value = true } }) { _ in } }
     try onNavigation { try overview.start() }
-    onNavigation { overview.setOverviewModeEnabled(true) }
+    onNavigation { overview.overviewModeSetter(true) }
     defer { onNavigation { overview.stop() } }
     let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
     NavigationActor.enqueue { entered.signal(); release.wait() }

@@ -29,6 +29,15 @@ struct CursorTests {
     #expect(parsed.title == "Dock")
     #expect(parsed.frame == Rect(x: 10, y: 20, width: 30, height: 40))
     #expect(parsed.memoryUsage == 2_368)
+    #expect(parsed.alpha == 1, "a record without alpha is opaque")
+    let transparent = [
+      kCGWindowLayer as String: NSNumber(value: 26),
+      kCGWindowNumber as String: NSNumber(value: 42),
+      kCGWindowOwnerPID as String: NSNumber(value: 90),
+      kCGWindowBounds as String: CGRect(x: 10, y: 20, width: 30, height: 40).dictionaryRepresentation,
+      kCGWindowAlpha as String: NSNumber(value: 0),
+    ] as NSDictionary
+    #expect(try #require(cgWindowRecord(transparent)).alpha == 0)
   }
 
   @Test(
@@ -377,19 +386,6 @@ struct CursorTests {
     #expect(managedPointerHitTest(at: CGPoint(x: 300, y: 500), records: records,
       managedWindowIDs: [WindowID(rawValue: 1)], nonblockingWindowIDs: invisibleWindowIDs(records: records))
       == (hitsManaged ? .managed(WindowID(rawValue: 1)) : .blocked))
-  }
-
-  @Test
-  func windowServerRecordReadsAlphaAndDefaultsToOpaque() throws {
-    var item: [String: Any] = [
-      kCGWindowLayer as String: 26,
-      kCGWindowNumber as String: 9,
-      kCGWindowOwnerPID as String: 90,
-      kCGWindowBounds as String: CGRect(x: 0, y: 0, width: 10, height: 10).dictionaryRepresentation,
-    ]
-    #expect(try #require(cgWindowRecord(item as NSDictionary)).alpha == 1)
-    item[kCGWindowAlpha as String] = 0.0
-    #expect(try #require(cgWindowRecord(item as NSDictionary)).alpha == 0)
   }
 
   // process, layer, frame -> transparent

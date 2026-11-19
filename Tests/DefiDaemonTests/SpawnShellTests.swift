@@ -1,3 +1,4 @@
+import DefiModel
 import Testing
 
 @testable import DefiDaemon
@@ -5,9 +6,9 @@ import Testing
 struct SpawnShellTests {
   @Test
   func socketClientsCannotSpawnShells() {
-    #expect(refusedOverIPC("spawn-sh open -a Terminal"))
-    #expect(!refusedOverIPC("focus-column left"))
-    #expect(!refusedOverIPC("not-a-command"))
+    #expect(!verbIsAllowedOverIPC("spawn-sh open -a Terminal"))
+    #expect(verbIsAllowedOverIPC("focus-column left"))
+    #expect(verbIsAllowedOverIPC("not-a-command"))
   }
 
   @Test

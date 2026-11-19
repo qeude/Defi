@@ -252,7 +252,8 @@ struct SettingsRevealModifier: ViewModifier {
           guard !Task.isCancelled else { return }
           let alignment: UnitPoint
           switch anchor {
-          case .keyboardShortcuts, .option(.widthPresets), .option(.namedWorkspaces), .option(.appRules):
+          case .keyboardShortcuts, .option(.widthPresets), .option(.heightPresets), .option(.namedWorkspaces),
+            .option(.appRules):
             alignment = .top
           default:
             alignment = .center
@@ -379,10 +380,21 @@ private struct LayoutSettingsView: View {
         )
           .settingsSearchTarget(.centerLoneColumn)
       }
-      WidthPresetsSettings(widths: model.config.layout.presetColumnWidths) {
+      PresetsSettings(
+        title: "Width presets", footer: "Cycle Width switches between these sizes in list order.",
+        kind: .width, values: model.config.layout.presetColumnWidths
+      ) {
         model.set(table: "layout", key: "preset_column_widths", value: tomlArray($0))
       }
         .settingsSearchTarget(.widthPresets)
+      PresetsSettings(
+        title: "Height presets",
+        footer: "Switch Preset Window Height gives a stacked window these shares of its column in list order.",
+        kind: .height, values: model.config.layout.presetWindowHeights
+      ) {
+        model.set(table: "layout", key: "preset_window_heights", value: tomlArray($0))
+      }
+        .settingsSearchTarget(.heightPresets)
       DisplayLayoutsSection(model: model, editing: $editingDisplay)
         .settingsSearchTarget(.displayLayouts)
       Section("Spacing") {
@@ -416,42 +428,71 @@ private struct LayoutSettingsView: View {
   }
 }
 
+enum PresetKind {
+  case width, height
+
+  var name: String { self == .width ? "width" : "height" }
+  /// Matches the validation in DefiConfig: a stacked window never takes the whole column.
+  var maximum: Double { self == .width ? 100 : 95 }
+
+  /// Percentages the add menu offers.
+  func addableChoices(to values: [Double]) -> [Int] {
+    [25, 33, 50, 67, 75, 100].filter { Double($0) <= maximum && !Self.duplicates(Double($0), in: values) }
+  }
+
+  /// A duplicate preset would stop the preset cycle on its first copy.
+  static func duplicates(_ percentage: Double, in values: [Double], except index: Int? = nil) -> Bool {
+    values.indices.contains { $0 != index && abs(values[$0] * 100 - percentage) < 0.5 }
+  }
+}
+
+private struct PresetRowID: Hashable {
+  let kind: PresetKind
+  let index: Int
+}
+
 @MainActor
-private struct WidthPresetsSettings: View {
-  let widths: [Double]
+private struct PresetsSettings: View {
+  let title: String
+  let footer: String
+  let kind: PresetKind
+  let values: [Double]
   let save: ([Double]) -> Void
 
   var body: some View {
     Section {
-      WidthPresetRows(widths: widths, save: save)
+      PresetRows(kind: kind, values: values, save: save)
     } header: {
       HStack {
-        Text("Width presets")
+        Text(title)
         Spacer()
-        AddWidthPresetMenu(widths: widths, save: save)
+        AddPresetMenu(kind: kind, values: values, save: save)
       }
     } footer: {
-      Text("Cycle Width switches between these sizes in list order.")
+      Text(footer)
     }
   }
 }
 
 @MainActor
-private struct WidthPresetRows: View {
-  let widths: [Double]
+private struct PresetRows: View {
+  let kind: PresetKind
+  let values: [Double]
   let save: ([Double]) -> Void
 
   var body: some View {
-    ForEach(widths.indices, id: \.self) { index in
+    // Form lists every section's rows together, so bare indices would collide across presets.
+    ForEach(values.indices.map { PresetRowID(kind: kind, index: $0) }, id: \.self) { row in
+      let index = row.index
       HStack {
         Text("Preset \(index + 1)")
         Slider(value: Binding(
-          get: { widths[index] * 100 },
+          get: { values[index] * 100 },
           set: { update(index, percentage: $0) }
-        ), in: 5...100, step: 5)
-        .accessibilityLabel("Preset \(index + 1) width")
-        TextField("Width", value: Binding(
-          get: { widths[index] * 100 },
+        ), in: 5...kind.maximum, step: 5)
+        .accessibilityLabel("Preset \(index + 1) \(kind.name)")
+        TextField(kind.name.capitalized, value: Binding(
+          get: { values[index] * 100 },
           set: { update(index, percentage: $0) }
         ), format: .number.precision(.fractionLength(0...2)))
         .labelsHidden()
@@ -459,36 +500,38 @@ private struct WidthPresetRows: View {
         .frame(width: 65)
         Text("%").foregroundStyle(.secondary)
         Button {
-          var widths = widths
-          widths.remove(at: index)
-          save(widths)
+          var values = values
+          values.remove(at: index)
+          save(values)
         } label: {
           Image(systemName: "minus.circle")
         }
         .buttonStyle(.borderless)
-        .disabled(widths.count == 1)
+        .disabled(values.count == 1)
         .accessibilityLabel("Remove preset \(index + 1)")
       }
     }
   }
 
   private func update(_ index: Int, percentage: Double) {
-    var widths = widths
-    widths[index] = percentage / 100
-    save(widths)
+    guard !PresetKind.duplicates(percentage, in: values, except: index) else { return }
+    var values = values
+    values[index] = percentage / 100
+    save(values)
   }
 }
 
 @MainActor
-private struct AddWidthPresetMenu: View {
-  let widths: [Double]
+private struct AddPresetMenu: View {
+  let kind: PresetKind
+  let values: [Double]
   let save: ([Double]) -> Void
 
   var body: some View {
     Menu {
-      ForEach([25, 33, 50, 67, 75, 100], id: \.self) { percentage in
+      ForEach(kind.addableChoices(to: values), id: \.self) { percentage in
         Button("\(percentage)%") {
-          save(widths + [Double(percentage) / 100])
+          save(values + [Double(percentage) / 100])
         }
       }
     } label: {
@@ -496,7 +539,7 @@ private struct AddWidthPresetMenu: View {
     }
     .menuStyle(.borderlessButton)
     .fixedSize()
-    .accessibilityLabel("Add width preset")
+    .accessibilityLabel("Add \(kind.name) preset")
   }
 }
 
@@ -589,8 +632,8 @@ private struct DisplayLayoutEditor: View {
           ))
           if let presets = override?.presetColumnWidths {
             let save = { model.setMonitorLayout(name, key: "preset_column_widths", value: tomlArray($0)) }
-            WidthPresetRows(widths: presets, save: save)
-            LabeledContent("Add preset") { AddWidthPresetMenu(widths: presets, save: save) }
+            PresetRows(kind: .width, values: presets, save: save)
+            LabeledContent("Add preset") { AddPresetMenu(kind: .width, values: presets, save: save) }
           } else {
             LabeledContent("Presets", value: percentages(layout.presetColumnWidths))
               .foregroundStyle(.secondary)
@@ -749,20 +792,10 @@ private struct InputSettingsView: View {
 
   private func boolBinding(_ table: String, _ key: String, _ value: Bool) -> Binding<Bool> {
     Binding(
-      get: { valueForField(table, key) ?? value },
+      get: { value },
       set: {
         model.set(table: table, key: key, value: $0 ? "true" : "false")
       })
-  }
-
-  private func valueForField(_ table: String, _ key: String) -> Bool? {
-    switch (table, key) {
-    case ("input", "focus_follows_mouse"): model.config.input.focusFollowsMouse
-    case ("input", "mouse_follows_focus"): model.config.input.mouseFollowsFocus
-    case ("input", "scroll_gestures"): model.config.input.scrollGestures
-    case ("input", "scroll_gesture_snap"): model.config.input.scrollGestureSnap
-    default: nil
-    }
   }
 }
 
@@ -871,6 +904,18 @@ private struct AppearanceSettingsView: View {
           value: model.config.animation.enabled
         )
           .settingsSearchTarget(.animations)
+        SettingsNumberRow(
+          title: SettingsOption.animationStiffness.title, value: model.config.animation.stiffness,
+          range: 100...2_000, step: 50, unit: "",
+          onChange: { model.set(table: "animation", key: "stiffness", value: String($0)) }
+        )
+          .settingsSearchTarget(.animationStiffness)
+        SettingsNumberRow(
+          title: SettingsOption.animationDamping.title, value: model.config.animation.dampingRatio,
+          range: 0.5...1, step: 0.05, unit: "",
+          onChange: { model.set(table: "animation", key: "damping_ratio", value: String($0)) }
+        )
+          .settingsSearchTarget(.animationDamping)
       }
       Section("Overview") {
         SettingsNumberRow(
@@ -2148,8 +2193,11 @@ private func percent(_ value: Double) -> String {
   "\(Int((value * 100).rounded()))%"
 }
 
+/// The borders default, parsed so it keeps the `#AARRGGBB` order `settingsColor` reads.
+private let defaultBorderColor = parseBorderColor(BordersConfig().color) ?? 0
+
 func settingsColor(_ value: String) -> Color {
-  let bits = parseBorderColor(value) ?? 0xFFFF_C099
+  let bits = parseBorderColor(value) ?? defaultBorderColor
   return Color(
     .sRGB,
     red: Double((bits >> 16) & 0xFF) / 255,

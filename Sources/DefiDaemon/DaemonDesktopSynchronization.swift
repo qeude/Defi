@@ -1076,10 +1076,11 @@ extension Daemon {
       skipping: nativeFocusSkippedWindowIDs.union(slidingDesktopWindowIDs).union(frozenDesktopWindowIDs),
       positionsOnly: animatesNativeFocus,
       stagesVisibleBeforeParking: nativelyActivatedWorkspace,
-      cursorWarpWindowIDAfterCommit: nativeCursorWarpWindowID,
-      cursorWarpInputTimestampAfterCommit: nativeCursorWarpInputTimestamp,
-      cursorWarpIsCurrentAfterCommit:
-        nativeCursorWarpIsCurrentAfterCommit,
+      postCommitFocus: PostCommitFocus(
+        cursorWarpWindowID: nativeCursorWarpWindowID,
+        cursorWarpInputTimestamp: nativeCursorWarpInputTimestamp,
+        isCursorWarpCurrent: nativeCursorWarpIsCurrentAfterCommit
+      ),
       forceFloatingFrameWrites: displayGeometryChanged,
       forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs.union(
         ruleRelocatedFloatingMonitorIDs.keys),

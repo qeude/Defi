@@ -138,14 +138,7 @@ extension Daemon {
   func dispatchWorkspaceVerticalTransition(
     _ transition: WorkspaceVerticalTransition,
     affectedMonitorIDs: Set<MonitorID>,
-    focusWindowIDAfterCommit: WindowID?,
-    focusInputTimestampAfterCommit: TimeInterval?,
-    cursorWarpInputTimestampAfterCommit: TimeInterval?,
-    focusCompletionAfterCommit:
-      (@NavigationActor @Sendable (NativeFocusResult) -> Void)?,
-    cursorWarpIsCurrentAfterCommit: (@NavigationActor @Sendable () -> Bool)?,
-    focusRequestIDAfterCommit:
-      (@NavigationActor @Sendable (NativeFocusRequestID?) -> Void)?,
+    postCommitFocus: PostCommitFocus,
     commandPerformance: CommandPerformanceContext
   ) {
     beginFrameAnimationActivity()
@@ -156,12 +149,7 @@ extension Daemon {
       positionTimeoutSeconds: 0.05,
       animated: true,
       positionsOnly: true,
-      focusWindowIDAfterCommit: focusWindowIDAfterCommit,
-      focusInputTimestampAfterCommit: focusInputTimestampAfterCommit,
-      cursorWarpInputTimestampAfterCommit: cursorWarpInputTimestampAfterCommit,
-      focusCompletionAfterCommit: focusCompletionAfterCommit,
-      cursorWarpIsCurrentAfterCommit: cursorWarpIsCurrentAfterCommit,
-      focusRequestIDAfterCommit: focusRequestIDAfterCommit,
+      postCommitFocus: postCommitFocus,
       workspaceTransition: transition,
       commandPerformance: commandPerformance,
       source: "workspace-transition"
@@ -212,7 +200,7 @@ extension Daemon {
 
   func beginFrameAnimationActivity() {
     if !frameNotificationsSuspended {
-      platform.setFrameNotificationsEnabled(false)
+      platform.enqueuePresentation { $0.presentSetFrameNotificationsEnabled(false) }
       frameNotificationsSuspended = true
     }
     setTimerFrequency(min(activeDisplayRefreshRate, 120))
@@ -230,7 +218,6 @@ extension Daemon {
 
   func dispatchScrollAnimationIfNeeded(
     monitorIDs: Set<MonitorID>? = nil,
-    skipping skippedWindowIDs: Set<WindowID> = [],
     forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
     commandPerformance: CommandPerformanceContext? = nil
   ) -> Bool {
@@ -242,7 +229,6 @@ extension Daemon {
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
       animated: true,
-      skipping: skippedWindowIDs,
       positionsOnly: true,
       forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
       commandPerformance: commandPerformance,
@@ -254,7 +240,6 @@ extension Daemon {
 
   func dispatchManagedLayoutAnimation(
     monitorIDs: Set<MonitorID>? = nil,
-    skipping skippedWindowIDs: Set<WindowID> = [],
     forcingFloatingFrameWritesFor forcedFloatingWindowIDs: Set<WindowID> = [],
     commandPerformance: CommandPerformanceContext? = nil
   ) -> Bool {
@@ -267,7 +252,6 @@ extension Daemon {
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
       animated: true,
-      skipping: skippedWindowIDs,
       forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
       commandPerformance: commandPerformance,
       source: "command-layout-animation"

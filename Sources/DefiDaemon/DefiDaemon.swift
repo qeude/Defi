@@ -269,7 +269,6 @@ final class Daemon {
     self.desktopSnapshotOverviewUpdater = desktopSnapshotOverviewUpdater
     instanceLock = try DaemonInstanceLock(url: instanceLockURL)
     configURL = options.configURL ?? Config.defaultURL
-    migrateLegacyConfiguration(at: configURL)
     config = try Config.load(from: configURL)
     server = try UnixSocketServer(url: options.socketURL)
     self.topologyStore = topologyStore
@@ -335,34 +334,36 @@ final class Daemon {
     DispatchQueue.main.async { [menuBar] in menuBar.refreshAccessibilityPermission() }
     // After the Accessibility grant, so the two system prompts never stack.
     Task.detached(priority: .utility) { requestDefiScreenRecordingIfNeeded() }
-    platform.startObserving(
-      { [weak self] in
-        guard let self, desktopSessionActive else { return }
-        observedPlatformEventCount += 1
-        needsDesktopSync = true
-        scheduleTick()
-      },
-      desktopSessionHandler: { [weak self] active in
-        self?.handleDesktopSessionActivity(active)
-      },
-      displayConfigurationHandler: { [weak self] in
-        guard self?.desktopSessionActive == true else { return }
-        self?.scheduleDisplayReconciliation()
-      },
-      mouseGestureStartedHandler: { [weak self] clickedWindowID in
-        guard self?.desktopSessionActive == true else { return }
-        self?.beginMouseGesture()
-        if let clickedWindowID { self?.focusClickedWindow(clickedWindowID) }
-      },
-      mouseGestureHandler: { [weak self] in
-        guard self?.desktopSessionActive == true else { return }
-        self?.cancelAnimationForMouseGesture()
-      },
-      activatedWindowHandler: { [weak self] windowID, activatedAt in
-        guard self?.desktopSessionActive == true else { return }
-        self?.focusActivatedWindow(windowID, activatedAt: activatedAt)
-      }
-    )
+    platform.enqueuePresentation { [weak self] platform in
+      platform.presentStartObserving(
+        { [weak self] in
+          guard let self, desktopSessionActive else { return }
+          observedPlatformEventCount += 1
+          needsDesktopSync = true
+          scheduleTick()
+        },
+        desktopSessionHandler: { [weak self] active in
+          self?.handleDesktopSessionActivity(active)
+        },
+        displayConfigurationHandler: { [weak self] in
+          guard self?.desktopSessionActive == true else { return }
+          self?.scheduleDisplayReconciliation()
+        },
+        mouseGestureStartedHandler: { [weak self] clickedWindowID in
+          guard self?.desktopSessionActive == true else { return }
+          self?.beginMouseGesture()
+          if let clickedWindowID { self?.focusClickedWindow(clickedWindowID) }
+        },
+        mouseGestureHandler: { [weak self] in
+          guard self?.desktopSessionActive == true else { return }
+          self?.cancelAnimationForMouseGesture()
+        },
+        activatedWindowHandler: { [weak self] windowID, activatedAt in
+          guard self?.desktopSessionActive == true else { return }
+          self?.focusActivatedWindow(windowID, activatedAt: activatedAt)
+        }
+      )
+    }
 
     DispatchQueue.main.async { [self] in
       displayArrangement.suspendWhileSystemSettingsIsActive { [weak self] in
@@ -495,7 +496,7 @@ final class Daemon {
     }
     if scrollAnimations.isEmpty && !liveBorderGesture {
       if frameNotificationsSuspended {
-        platform.setFrameNotificationsEnabled(true)
+        platform.enqueuePresentation { $0.presentSetFrameNotificationsEnabled(true) }
         frameNotificationsSuspended = false
         needsDesktopSync = true
       }
@@ -608,7 +609,7 @@ final class Daemon {
       )
     }
     if liveBorderGesture {
-      platform.refreshWindowBorders()
+      platform.enqueuePresentation { $0.presentRefreshWindowBorders() }
     }
   }
 }

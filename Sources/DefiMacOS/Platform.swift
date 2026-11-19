@@ -616,7 +616,7 @@ func isIgnoredWindowApplication(_ appID: String) -> Bool {
 
 func windowExclusionReason(appID: String, role: String?, subrole: String?) -> String {
   if isIgnoredWindowApplication(appID) {
-    return "application-policy"
+    return applicationPolicyIgnoreReason
   }
   if role != kAXWindowRole {
     return "unsupported-role:\(role ?? "missing")"

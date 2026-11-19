@@ -108,20 +108,9 @@ final class WindowBorderManager {
 
   func prepareForSelection(
     _ windowID: WindowID?,
-    displayedFrame: Rect?,
-    stacking: WindowBorderStacking? = nil
+    displayedFrame: Rect?
   ) {
-    guard !isSuppressed else { return }
-    let activeStacking = stacking ?? .inactive(for: windowID)
-    if activeWindowID == windowID {
-      if let windowID, let stacking {
-        updateActiveStacking(
-          for: windowID,
-          stacking: stacking
-        )
-      }
-      return
-    }
+    guard !isSuppressed, activeWindowID != windowID else { return }
     let previousActiveWindowID = activeWindowID
     activeWindowID = windowID
     guard let style = lastPlan?.style else {
@@ -160,7 +149,7 @@ final class WindowBorderManager {
       } else {
         overlay = reusableOrNewOverlay(for: windowID)
       }
-      overlay.setStacking(activeStacking)
+      overlay.setStacking(.inactive(for: windowID))
       _ = overlay.syncGeometry(
         frame: displayedFrame,
         width: style.width,

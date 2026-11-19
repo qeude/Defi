@@ -37,7 +37,6 @@ public struct RecentWindowsSwitcher: Equatable, Sendable {
     selection = min(before, max(windowIDs.count - 1, 0))
   }
 
-  /// Closes the switcher and returns the selected window.
   public mutating func close() -> WindowID? {
     defer { self = RecentWindowsSwitcher() }
     return selectedWindowID

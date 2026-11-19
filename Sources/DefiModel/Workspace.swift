@@ -110,6 +110,26 @@ public struct Workspace: Equatable, Codable, Sendable {
 
 }
 
+extension Workspace {
+  public var focusedFloatingWindowID: WindowID? {
+    floatingWindows.indices.contains(focusedFloatingWindow)
+      ? floatingWindows[focusedFloatingWindow] : nil
+  }
+
+  public var focusedTiledWindowID: WindowID? {
+    guard columns.indices.contains(focusedColumn) else { return nil }
+    let column = columns[focusedColumn]
+    return column.windows.indices.contains(column.focusedWindow)
+      ? column.windows[column.focusedWindow] : nil
+  }
+
+  public var selectedWindowID: WindowID? {
+    // A floating layer whose index no longer resolves falls back to the tiled selection, so a
+    // stale index never drops focus from a snapshot or a fullscreen reconciliation.
+    focusedLayer == .floating ? (focusedFloatingWindowID ?? focusedTiledWindowID) : focusedTiledWindowID
+  }
+}
+
 public enum WorkspaceKind: String, Equatable, Codable, Sendable {
   case named
   case ordinary

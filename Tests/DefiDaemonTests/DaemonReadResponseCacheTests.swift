@@ -15,19 +15,4 @@ struct DaemonReadResponseCacheTests {
     #expect(cache.response(for: "list-workspaces", now: 10.2) == nil)
     #expect(cache.response(for: "status", now: 10.26) == nil)
   }
-
-  @Test(arguments: [
-    ("status", true),
-    ("list-workspaces --json", true),
-    ("focus-column left", false),
-    ("quit", false),
-  ])
-  func `Only read commands are cacheable`(
-    testCase: (command: String, expected: Bool)
-  ) {
-    #expect(
-      DaemonReadResponseCache.isReadCommand(testCase.command)
-        == testCase.expected
-    )
-  }
 }

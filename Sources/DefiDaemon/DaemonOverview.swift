@@ -506,15 +506,18 @@ extension Daemon {
     let generation = commandGeneration
     applyCurrentLayout(monitorIDs: restoresAllMonitors ? nil : affectedMonitorIDs, asynchronousPositions: true,
       updateVisibility: true, positionTimeoutSeconds: 0.05,
-      stagesVisibleBeforeParking: true, focusWindowIDAfterCommit: selectedWindowID,
-      focusInputTimestampAfterCommit: selectedWindowID == nil ? nil : inputTimestamp,
-      cursorWarpWindowIDAfterCommit: config.input.mouseFollowsFocus ? selectedWindowID : nil,
-      cursorWarpInputTimestampAfterCommit: config.input.mouseFollowsFocus ? inputTimestamp : nil,
-      cursorWarpIsCurrentAfterCommit: { [weak self] in
-        guard let self else { return false }
-        return overviewToggleState.selectionWarpIsCurrent(overviewGeneration)
-          && commandGeneration == generation && state.selectedWindowID(on: monitorID) == selectedWindowID
-      },
+      stagesVisibleBeforeParking: true,
+      postCommitFocus: PostCommitFocus(
+        windowID: selectedWindowID,
+        inputTimestamp: selectedWindowID == nil ? nil : inputTimestamp,
+        cursorWarpWindowID: config.input.mouseFollowsFocus ? selectedWindowID : nil,
+        cursorWarpInputTimestamp: config.input.mouseFollowsFocus ? inputTimestamp : nil,
+        isCursorWarpCurrent: { [weak self] in
+          guard let self else { return false }
+          return overviewToggleState.selectionWarpIsCurrent(overviewGeneration)
+            && commandGeneration == generation
+            && state.selectedWindowID(on: monitorID) == selectedWindowID
+        }),
       forcingFloatingFrameWritesFor: overviewFloatingFrameWriteIDs,
       source: "overview-exit-prepare")
     persistTopology()
@@ -594,8 +597,8 @@ extension Daemon {
         updateVisibility: true,
         positionTimeoutSeconds: 0.05,
         stagesVisibleBeforeParking: true,
-        focusWindowIDAfterCommit: result.focusedWindowID,
-        focusInputTimestampAfterCommit: inputTimestamp,
+        postCommitFocus: PostCommitFocus(
+          windowID: result.focusedWindowID, inputTimestamp: inputTimestamp),
         forcingFloatingFrameWritesFor: Set(result.floatingFrameUpdates.keys),
         source: "overview-drop"
       )

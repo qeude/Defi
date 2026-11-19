@@ -108,7 +108,6 @@ final class WindowBorderSync {
     reorderPending = false
   }
 
-  /// Requests notifications only when the overlay set changes.
   func subscribe(_ windowIDs: Set<WindowID>) {
     guard isWindowServer, windowIDs != subscribedWindowIDs else { return }
     if !started {

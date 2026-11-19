@@ -144,20 +144,38 @@ struct CGWindowDiscoveryRetryTracker: Sendable {
   }
 }
 
+/// How a window in the WindowServer inventory relates to Defi's model. The declaration order is
+/// the order `defi status` lists them.
+enum CGWindowDiscoveryClassification: String, CaseIterable, Sendable {
+  case tiled
+  case floating
+  case transient
+  case nativeFullscreen = "native-fullscreen"
+  case minimized
+  case ignored
+  case unresolved
+}
+
+/// The reason `windowGeometryDiscovery` gives a window too small to tile. It also classifies the
+/// window as transient, so producer and policy name it once.
+let frameBelowMinimumAreaReason = "frame-below-80x60"
+/// The reason an application's windows are excluded by policy rather than by shape or role.
+let applicationPolicyIgnoreReason = "application-policy"
+
 struct CGWindowDiscoveryDiagnostic: Equatable, Sendable {
   let identity: CGWindowDiscoveryIdentity
   let appIdentity: String
-  let classification: String
+  let classification: CGWindowDiscoveryClassification
   let reason: String?
   var retry: CGWindowDiscoveryRetry?
 
   func detail(now: TimeInterval) -> String {
     var fields = [
       "id=\(identity.windowID.rawValue)", "pid=\(identity.processID)",
-      "app=\(appIdentity)", "class=\(classification)",
+      "app=\(appIdentity)", "class=\(classification.rawValue)",
     ]
     if let reason { fields.append("reason=\(reason)") }
-    if classification == "unresolved", let retry {
+    if classification == .unresolved, let retry {
       fields.append("age=\(String(format: "%.2f", max(now - retry.firstObservedAt, 0)))s")
       fields.append("retry=\(retry.attempts)/\(CGWindowDiscoveryRetryTracker.retryDelays.count)")
       fields.append("outcome=\(retry.lastOutcome)")
@@ -166,7 +184,7 @@ struct CGWindowDiscoveryDiagnostic: Equatable, Sendable {
   }
 
   var traceSignature: String {
-    "\(appIdentity):\(classification):\(reason ?? ""):"
+    "\(appIdentity):\(classification.rawValue):\(reason ?? ""):"
       + "\(retry?.attempts ?? 0):\(retry?.lastOutcome ?? "")"
   }
 }
@@ -211,7 +229,7 @@ func cgWindowDiscoveryClassification(
   transientWindowIDs: Set<WindowID>,
   minimizedWindowIDs: Set<WindowID>,
   ignoredReasonsByWindowID: [WindowID: String]
-) -> (classification: String, reason: String?) {
+) -> (classification: CGWindowDiscoveryClassification, reason: String?) {
   let windowID = WindowID(rawValue: UInt64(record.id))
   if (nativeFullscreenWindowIDs.contains(windowID)
       && processIDsByWindowID[windowID] == record.processID)
@@ -220,25 +238,25 @@ func cgWindowDiscoveryClassification(
         fullscreenFrameMatches(record.frame, $0.physicalFrame)
       }))
   {
-    return ("native-fullscreen", nil)
+    return (.nativeFullscreen, nil)
   }
   if processIDsByWindowID[windowID] == record.processID,
     let window = windows.first(where: { $0.id == windowID && $0.processID == record.processID })
   {
     if transientWindowIDs.contains(windowID) || window.isModal || window.role == kAXSheetRole {
-      return ("transient", nil)
+      return (.transient, nil)
     }
-    return (window.floating ? "floating" : "tiled", nil)
+    return (window.floating ? .floating : .tiled, nil)
   }
-  if minimizedWindowIDs.contains(windowID) { return ("minimized", nil) }
+  if minimizedWindowIDs.contains(windowID) { return (.minimized, nil) }
   if let reason = ignoredReasonsByWindowID[windowID] {
-    return (reason == "frame-below-80x60" ? "transient" : "ignored", reason)
+    return (reason == frameBelowMinimumAreaReason ? .transient : .ignored, reason)
   }
-  if let ignoredProcessReason { return ("ignored", ignoredProcessReason) }
+  if let ignoredProcessReason { return (.ignored, ignoredProcessReason) }
   if isIgnoredWindowApplication(appIdentity ?? record.ownerName) {
-    return ("ignored", "application-policy")
+    return (.ignored, applicationPolicyIgnoreReason)
   }
-  return ("unresolved", nil)
+  return (.unresolved, nil)
 }
 
 func retainedCGWindowDiscoveryExclusions(
@@ -259,11 +277,11 @@ func retainedCGWindowDiscoveryExclusions(
     else { continue }
     let windowID = diagnostic.identity.windowID
     switch diagnostic.classification {
-    case "ignored", "transient":
+    case .ignored, .transient:
       if let reason = diagnostic.reason { reasons[windowID] = reason }
-    case "minimized":
+    case .minimized:
       minimized.insert(windowID)
-    default:
+    case .tiled, .floating, .nativeFullscreen, .unresolved:
       break
     }
   }
@@ -275,8 +293,9 @@ func formattedCGWindowDiscoveryStatus(
   detailLimit: Int = 8
 ) -> String {
   let counts = Dictionary(grouping: diagnostics, by: \.classification).mapValues(\.count)
-  let categories = ["tiled", "floating", "transient", "native-fullscreen", "minimized", "ignored", "unresolved"]
-  let summary = categories.map { "\($0)=\(counts[$0, default: 0])" }.joined(separator: ",")
+  let summary = CGWindowDiscoveryClassification.allCases.map {
+    "\($0.rawValue)=\(counts[$0, default: 0])"
+  }.joined(separator: ",")
   let details = diagnostics.prefix(detailLimit).map { $0.detail(now: now) }.joined(separator: ";")
   let omitted = max(diagnostics.count - detailLimit, 0)
   return "scope=layer0,pid>0,onscreen-or-managed ax=best-effort-not-one-to-one count=\(diagnostics.count)[\(summary)] details=[\(details)] omitted=\(omitted)"

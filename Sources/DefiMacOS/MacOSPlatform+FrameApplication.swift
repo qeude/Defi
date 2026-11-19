@@ -147,7 +147,6 @@ extension MacOSPlatform {
       )
     }
     var writePerformanceByWindowID: [WindowID: CommandPerformanceContext] = [:]
-    // Where each write starts: the completed native frame when a write is still in flight.
     var startFrames = referenceFrames
     if coordinatorWasBusy {
       for windowID in Array(startFrames.keys) {

@@ -294,9 +294,9 @@ extension MacOSPlatform {
         let lane = ObservationRetryLane.creation(processID)
         self.delayedObservationCampaigns.merge(
           lane: lane, delays: windowTopologyRefreshDelays(for: kind), platform: self
-        ) { [weak self] delay, generation in
+        ) { [weak self] isEarliestStage, generation in
           guard let self,
-            delay == 50 || self.applicationWindowCounts[processID] == previousWindowCount
+            isEarliestStage || self.applicationWindowCounts[processID] == previousWindowCount
           else { return }
           self.requestWindowTopologyRefresh(processID: processID, inputTimestamp: eventInputTimestamp)
           let campaigns = self.delayedObservationCampaigns
@@ -439,7 +439,6 @@ extension MacOSPlatform {
       presentedNativeFullscreenWindowIDs.contains($0) ? nil : $0
     }
     borderHiddenWindowIDs = lastHiddenWindowIDs
-    borderLiveWindowID = liveWindowID
     borderStyle = WindowBorderStyle(config: config)
     let style = borderStyle
     NavigationActor.enqueue { RibbonProxyPresenter.borderStyle = style }
@@ -869,7 +868,6 @@ func applicationFocusedWindow(_ processID: pid_t) -> AXUIElement? {
   return (value as! AXUIElement)
 }
 
-/// Whether WindowServer shows this window above the standard level.
 func windowFloatsAboveRibbon(_ number: CGWindowID) -> Bool {
   (ribbonProxyWindowDescriptions([number]).first?[kCGWindowLayer as String] as? Int).map { $0 > 0 } ?? false
 }

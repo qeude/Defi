@@ -64,51 +64,107 @@ public enum CommandArgument: Equatable, Sendable {
   }
 }
 
+/// A verb the daemon answers itself, without the layout reducer.
+public enum DaemonVerb: Equatable, Sendable {
+  case listWorkspaces(json: Bool)
+  case listWindows(json: Bool)
+  case status
+  case trace
+  case borderAudit
+  case restore
+  /// `quit` restores the windows; `handoff` leaves them for the next daemon.
+  case stop(handsOffWindows: Bool)
+  case setReservedArea(edge: ReservedEdge, points: Double)
+  case clearReservedArea
+  case diagnosticMark
+}
+
+/// A viewport edge whose reserved area a command sets.
+public enum ReservedEdge: String, Equatable, Sendable {
+  case top
+  case bottom
+}
+
+/// What a command line names. Every verb Defi accepts is one of these.
+public enum Verb: Equatable, Sendable {
+  case layout(Command)
+  case daemon(DaemonVerb)
+
+  /// Answers without changing anything, so the daemon may serve a recent answer.
+  public var isReadOnly: Bool {
+    switch self {
+    case .daemon(.listWorkspaces), .daemon(.listWindows), .daemon(.status), .daemon(.trace):
+      return true
+    case .daemon, .layout:
+      return false
+    }
+  }
+
+  /// The key a read-only answer is cached under; nil for anything that changes state.
+  public var cacheKey: String? {
+    switch self {
+    case .daemon(.listWorkspaces(let json)): "list-workspaces:\(json)"
+    case .daemon(.listWindows(let json)): "list-windows:\(json)"
+    case .daemon(.status): "status"
+    case .daemon(.trace): "trace"
+    case .daemon, .layout: nil
+    }
+  }
+
+  /// Runs a shell with Defi's own grants, so the socket refuses it.
+  public var isAllowedOverIPC: Bool {
+    if case .layout(.spawnShell) = self { return false }
+    return true
+  }
+}
+
 public struct CommandSpec: Sendable {
   public let name: String
   public let category: CommandCategory
   public let argument: CommandArgument
   /// Settings offers this name in the shortcut recorder.
   public let isConfigurable: Bool
-  let build: @Sendable (_ arguments: [String], _ remainder: String) throws -> Command
+  /// Accepted verbatim as a key binding although it is not a layout command.
+  public let isClientVerb: Bool
+  let build: @Sendable (_ arguments: [String], _ remainder: String) throws -> Verb
 }
 
 /// Every layout command Defi parses, in the order Settings lists them.
 public let commandSpecs: [CommandSpec] = [
-  spec("focus-column", .column, .keywords( ["left", "right", "first", "last"])) { arguments, _ in
+  layout("focus-column", .column, .keywords( ["left", "right", "first", "last"])) { arguments, _ in
     .focusColumn(try parseDirection(arguments, label: "direction"))
   },
-  spec("focus-column-or-monitor", .monitor, .keywords( ["left", "right"])) { arguments, _ in
+  layout("focus-column-or-monitor", .monitor, .keywords( ["left", "right"])) { arguments, _ in
     .focusColumnOrMonitor(try horizontalDirection(arguments))
   },
-  spec("focus-floating", .floating, .keywords( ["previous", "next", "first", "last"])) { arguments, _ in
+  layout("focus-floating", .floating, .keywords( ["previous", "next", "first", "last"])) { arguments, _ in
     .focusFloating(try parseDirection(arguments, label: "direction"))
   },
-  spec("move-column", .column, .keywords( ["left", "right", "first", "last"])) { arguments, _ in
+  layout("move-column", .column, .keywords( ["left", "right", "first", "last"])) { arguments, _ in
     let direction = try parseDirection(arguments, label: "direction")
     guard [.left, .right, .first, .last].contains(direction) else { throw invalidDirection(arguments) }
     return .moveColumn(direction)
   },
-  spec("move-column-or-to-monitor", .monitor, .keywords( ["left", "right"])) { arguments, _ in
+  layout("move-column-or-to-monitor", .monitor, .keywords( ["left", "right"])) { arguments, _ in
     .moveColumnOrToMonitor(try horizontalDirection(arguments))
   },
-  spec("move-window", .window, .keywords( ["up", "down"])) { arguments, _ in
+  layout("move-window", .window, .keywords( ["up", "down"])) { arguments, _ in
     .moveWindow(try verticalDirection(arguments))
   },
-  spec("move-column-to-monitor", .monitor, .keywords( ["left", "right", "up", "down"])) { arguments, _ in
+  layout("move-column-to-monitor", .monitor, .keywords( ["left", "right", "up", "down"])) { arguments, _ in
     .moveColumnToMonitor(try spatialDirection(arguments))
   },
-  spec("move-window-to-monitor", .monitor, .keywords( ["left", "right", "up", "down"])) { arguments, _ in
+  layout("move-window-to-monitor", .monitor, .keywords( ["left", "right", "up", "down"])) { arguments, _ in
     .moveWindowToMonitor(try spatialDirection(arguments))
   },
-  spec("focus-window", .window, .keywords( ["previous", "next", "first", "last"])) { arguments, _ in
+  layout("focus-window", .window, .keywords( ["previous", "next", "first", "last"])) { arguments, _ in
     .focusWindow(try parseDirection(arguments, label: "direction"))
   },
-  spec("focus-window-or-workspace", .workspace, .keywords( ["up", "down"])) { arguments, _ in
+  layout("focus-window-or-workspace", .workspace, .keywords( ["up", "down"])) { arguments, _ in
     .focusWindowOrWorkspace(try verticalDirection(arguments))
   },
-  spec("focus-window-previous", .workspace) { _, _ in .focusWindowPrevious },
-  spec(
+  layout("focus-window-previous", .workspace) { _, _ in .focusWindowPrevious },
+  layout(
     "recent-windows", .workspace, .keywords(["next", "previous"])
   ) { arguments, _ in
     let value = try argument(arguments, label: "action")
@@ -117,7 +173,7 @@ public let commandSpecs: [CommandSpec] = [
     }
     return .recentWindows(action)
   },
-  spec(
+  layout(
     "move-window-to-workspace", .workspace, .workspaceOrRelative
   ) { arguments, _ in
     let value = try argument(arguments, label: "workspace")
@@ -126,7 +182,7 @@ public let commandSpecs: [CommandSpec] = [
     }
     return .moveWindowToWorkspace(WorkspaceID(rawValue: value))
   },
-  spec(
+  layout(
     "send-window-to-workspace", .workspace, .workspaceOrRelative
   ) { arguments, _ in
     let value = try argument(arguments, label: "workspace")
@@ -135,7 +191,7 @@ public let commandSpecs: [CommandSpec] = [
     }
     return .sendWindowToWorkspace(WorkspaceID(rawValue: value))
   },
-  spec(
+  layout(
     "move-column-to-workspace", .workspace, .workspaceOrRelative
   ) { arguments, _ in
     let value = try argument(arguments, label: "workspace")
@@ -144,12 +200,12 @@ public let commandSpecs: [CommandSpec] = [
     }
     return .moveColumnToWorkspace(.named(value), follow: true)
   },
-  spec(
+  layout(
     "move-column-to-workspace-name", .workspace, .workspaceName
   ) { arguments, _ in
     .moveColumnToWorkspace(.named(try argument(arguments, label: "workspace")), follow: true)
   },
-  spec(
+  layout(
     "send-column-to-workspace", .workspace, .workspaceOrRelative
   ) { arguments, _ in
     let value = try argument(arguments, label: "workspace")
@@ -158,130 +214,173 @@ public let commandSpecs: [CommandSpec] = [
     }
     return .moveColumnToWorkspace(.named(value), follow: false)
   },
-  spec(
+  layout(
     "send-column-to-workspace-name", .workspace, .workspaceName
   ) { arguments, _ in
     .moveColumnToWorkspace(.named(try argument(arguments, label: "workspace")), follow: false)
   },
-  spec(
+  layout(
     "move-column-to-workspace-position", .workspace, .workspacePosition
   ) { arguments, _ in
     .moveColumnToWorkspace(try workspacePosition(arguments), follow: true)
   },
-  spec(
+  layout(
     "move-window-to-workspace-position", .workspace, .workspacePosition
   ) { arguments, _ in
     .moveWindowToWorkspaceTarget(try workspacePosition(arguments), follow: true)
   },
-  spec(
+  layout(
     "send-window-to-workspace-position", .workspace, .workspacePosition
   ) { arguments, _ in
     .moveWindowToWorkspaceTarget(try workspacePosition(arguments), follow: false)
   },
-  spec(
+  layout(
     "move-window-to-workspace-name", .workspace, .workspaceName
   ) { arguments, _ in
     .moveWindowToWorkspaceTarget(.named(try argument(arguments, label: "workspace")), follow: true)
   },
-  spec(
+  layout(
     "send-window-to-workspace-name", .workspace, .workspaceName
   ) { arguments, _ in
     .moveWindowToWorkspaceTarget(.named(try argument(arguments, label: "workspace")), follow: false)
   },
-  spec("workspace", .workspace, .workspaceName) { arguments, _ in
+  layout("workspace", .workspace, .workspaceName) { arguments, _ in
     .switchWorkspace(WorkspaceID(rawValue: try argument(arguments, label: "workspace")))
   },
-  spec("focus-workspace", .workspace, .keywords( ["up", "down"])) { arguments, _ in
+  layout("focus-workspace", .workspace, .keywords( ["up", "down"])) { arguments, _ in
     .focusWorkspace(try relativeWorkspace(arguments))
   },
-  spec("focus-workspace-position", .workspace, .workspacePosition) { arguments, _ in
+  layout("focus-workspace-position", .workspace, .workspacePosition) { arguments, _ in
     .focusWorkspace(try workspacePosition(arguments))
   },
-  spec("focus-workspace-name", .workspace, .workspaceName) { arguments, _ in
+  layout("focus-workspace-name", .workspace, .workspaceName) { arguments, _ in
     .focusWorkspace(.named(try argument(arguments, label: "workspace")))
   },
-  spec("focus-workspace-previous", .workspace) { _, _ in
+  layout("focus-workspace-previous", .workspace) { _, _ in
     .focusWorkspace(.lastActive)
   },
-  spec("reorder-workspace", .workspace, .keywords( ["up", "down"])) { arguments, _ in
+  layout("reorder-workspace", .workspace, .keywords( ["up", "down"])) { arguments, _ in
     .reorderWorkspace(try verticalDirection(arguments))
   },
-  spec("move-workspace-to-monitor", .monitor, .keywords( ["left", "right", "up", "down"])) { arguments, _ in
+  layout("move-workspace-to-monitor", .monitor, .keywords( ["left", "right", "up", "down"])) { arguments, _ in
     .moveWorkspaceToMonitor(try spatialDirection(arguments))
   },
-  spec("focus-monitor", .monitor, .keywords( ["left", "right", "up", "down"])) { arguments, _ in
+  layout("focus-monitor", .monitor, .keywords( ["left", "right", "up", "down"])) { arguments, _ in
     .focusMonitor(try spatialDirection(arguments))
   },
-  spec("cycle-width", .size, .keywords( ["previous", "next"])) { arguments, _ in
+  layout("cycle-width", .size, .keywords( ["previous", "next"])) { arguments, _ in
     .cycleWidth(try parseDirection(arguments, label: "direction"))
   },
-  spec("maximize-column", .size) { _, _ in .maximizeColumn },
-  spec("set-column-width", .size, .text(suggestions: ["-10%", "+10%"])) { arguments, _ in
+  layout("maximize-column", .size) { _, _ in .maximizeColumn },
+  layout("set-column-width", .size, .text(suggestions: ["-10%", "+10%"])) { arguments, _ in
     .setColumnWidth(try parseColumnWidthChange(try argument(arguments, label: "width")))
   },
-  spec("expand-column-to-available-width", .size) { _, _ in .expandColumnToAvailableWidth },
-  spec("set-window-height", .size, .text(suggestions: ["-10%", "+10%"])) { arguments, _ in
+  layout("expand-column-to-available-width", .size) { _, _ in .expandColumnToAvailableWidth },
+  layout("set-window-height", .size, .text(suggestions: ["-10%", "+10%"])) { arguments, _ in
     .setWindowHeight(try parseWindowHeight(try argument(arguments, label: "height")))
   },
-  spec("switch-preset-window-height", .size) { _, _ in .switchPresetWindowHeight },
-  spec("reset-window-height", .size) { _, _ in .resetWindowHeight },
-  spec("center-column", .column) { _, _ in .centerColumn },
-  spec("center-visible-columns", .column) { _, _ in .centerVisibleColumns },
-  spec("toggle-floating", .floating) { _, _ in .toggleFloating },
-  spec("activate-floating", .floating) { _, _ in .activateFloating },
-  spec("activate-window", .workspace) { _, _ in .activateWindow },
-  spec("join-window", .window, .keywords( ["left", "right"])) { arguments, _ in
+  layout("switch-preset-window-height", .size) { _, _ in .switchPresetWindowHeight },
+  layout("reset-window-height", .size) { _, _ in .resetWindowHeight },
+  layout("center-column", .column) { _, _ in .centerColumn },
+  layout("center-visible-columns", .column) { _, _ in .centerVisibleColumns },
+  layout("toggle-floating", .floating) { _, _ in .toggleFloating },
+  layout("activate-floating", .floating) { _, _ in .activateFloating },
+  layout("activate-window", .workspace) { _, _ in .activateWindow },
+  layout("join-window", .window, .keywords( ["left", "right"])) { arguments, _ in
     .joinWindow(try parseDirection(arguments, label: "direction"))
   },
-  spec("unjoin-windows", .window) { _, _ in .unjoinWindows },
-  spec("consume-or-expel-window", .window, .keywords( ["left", "right"])) { arguments, _ in
+  layout("unjoin-windows", .window) { _, _ in .unjoinWindows },
+  layout("consume-or-expel-window", .window, .keywords( ["left", "right"])) { arguments, _ in
     .consumeOrExpelWindow(try horizontalDirection(arguments))
   },
-  spec("swap-window", .window, .keywords( ["left", "right"])) { arguments, _ in
+  layout("swap-window", .window, .keywords( ["left", "right"])) { arguments, _ in
     .swapWindow(try horizontalDirection(arguments))
   },
-  spec("toggle-cheatsheet", .other) { _, _ in .toggleCheatsheet },
-  spec("toggle-overview", .workspace) { _, _ in .toggleOverview },
-  spec("open-settings", .other) { _, _ in .openSettings },
-  spec(
+  layout("toggle-cheatsheet", .other) { _, _ in .toggleCheatsheet },
+  layout("toggle-overview", .workspace) { _, _ in .toggleOverview },
+  layout("open-settings", .other) { _, _ in .openSettings },
+  layout(
     "focus-window-id", .window, .text(suggestions: []), isConfigurable: false
   ) { arguments, _ in
     let value = try argument(arguments, label: "window-id")
     guard let rawValue = UInt64(value) else { throw CommandParseError.invalidWindowID(value) }
     return .focusWindowID(WindowID(rawValue: rawValue))
   },
-  spec("spawn-sh", .other, .text(suggestions: []), isConfigurable: false) {
+  layout("spawn-sh", .other, .text(suggestions: []), isConfigurable: false) {
     arguments, remainder in
     guard !remainder.isEmpty else { throw CommandParseError.missingArgument("command") }
     return .spawnShell(remainder)
   },
 ]
 
-/// Commands the daemon and CLI understand without the layout reducer. They can be bound
-/// like layout commands, but have no `Command` value.
-public enum ClientVerb: String, CaseIterable, Sendable {
-  case diagnosticMark = "diagnostic-mark"
-}
+/// Every verb the daemon answers itself, without the layout reducer.
+public let daemonVerbSpecs: [CommandSpec] = [
+  daemon("list-workspaces", .workspace) { arguments, _ in
+    .listWorkspaces(json: try jsonOption(arguments))
+  },
+  daemon("list-windows", .window) { arguments, _ in
+    .listWindows(json: try jsonOption(arguments))
+  },
+  daemon("status", .other) { arguments, _ in try onlyNoArguments(arguments, "status"); return .status },
+  daemon("trace", .other) { arguments, _ in try onlyNoArguments(arguments, "trace"); return .trace },
+  daemon("border-audit", .other) { arguments, _ in
+    try onlyNoArguments(arguments, "border-audit")
+    return .borderAudit
+  },
+  daemon("restore", .other) { arguments, _ in try onlyNoArguments(arguments, "restore"); return .restore },
+  daemon("quit", .other) { arguments, _ in
+    try onlyNoArguments(arguments, "quit")
+    return .stop(handsOffWindows: false)
+  },
+  daemon("handoff", .other) { arguments, _ in
+    try onlyNoArguments(arguments, "handoff")
+    return .stop(handsOffWindows: true)
+  },
+  daemon(
+    "set-reserved-area", .size, .keywords(["top", "bottom"])
+  ) { arguments, _ in
+    guard arguments.count == 2, let points = Double(arguments[1]), points.isFinite,
+      (0...512).contains(points), let edge = ReservedEdge(rawValue: arguments[0])
+    else { throw CommandParseError.missingArgument("top|bottom <0...512>") }
+    return .setReservedArea(edge: edge, points: points)
+  },
+  daemon("clear-reserved-area", .size) { arguments, _ in
+    guard arguments.isEmpty else { throw CommandParseError.missingArgument("clear-reserved-area") }
+    return .clearReservedArea
+  },
+  clientVerb("diagnostic-mark", .other) { arguments, _ in
+    try onlyNoArguments(arguments, "diagnostic-mark")
+    return .diagnosticMark
+  },
+]
 
-public let clientVerbNames: [String] = ClientVerb.allCases.map(\.rawValue)
+/// Every verb Defi accepts, layout and daemon alike.
+public let verbSpecs: [CommandSpec] = commandSpecs + daemonVerbSpecs
 
 private let commandSpecsByName = Dictionary(uniqueKeysWithValues: commandSpecs.map { ($0.name, $0) })
+private let verbSpecsByName = Dictionary(uniqueKeysWithValues: verbSpecs.map { ($0.name, $0) })
 
 public func commandSpec(named name: String) -> CommandSpec? {
   commandSpecsByName[name]
 }
 
-public func isClientVerb(_ input: String) -> Bool {
-  clientVerbNames.contains(input)
+public func verbSpec(named name: String) -> CommandSpec? {
+  verbSpecsByName[name]
 }
 
-public func parseCommand(_ input: String) throws -> Command {
+/// Whether a key binding may name this command line verbatim, although it is not a
+/// layout command. The whole line must match, so `diagnostic-mark extra` is not one.
+public func isClientVerb(_ input: String) -> Bool {
+  verbSpec(named: input)?.isClientVerb == true
+}
+
+public func parseVerb(_ input: String) throws -> Verb {
   let body = input.drop { $0.isWhitespace }
   guard body.first != nil else {
     throw CommandParseError.empty
   }
   let name = String(body.prefix { !$0.isWhitespace })
-  guard let spec = commandSpec(named: name) else {
+  guard let spec = verbSpec(named: name) else {
     throw CommandParseError.unknownCommand(name)
   }
   let arguments = body.split(whereSeparator: \.isWhitespace).map(String.init).dropFirst()
@@ -289,16 +388,82 @@ public func parseCommand(_ input: String) throws -> Command {
   return try spec.build(Array(arguments), remainder)
 }
 
-private func spec(
+/// The key a recent answer for this command line is cached under; nil when it changes state
+/// or is not a verb at all.
+public func verbCacheKey(_ rawCommand: String) -> String? {
+  (try? parseVerb(rawCommand))?.cacheKey
+}
+
+/// False for a verb that runs a shell with Defi's own grants.
+public func verbIsAllowedOverIPC(_ rawCommand: String) -> Bool {
+  (try? parseVerb(rawCommand))?.isAllowedOverIPC ?? true
+}
+
+public func parseCommand(_ input: String) throws -> Command {
+  guard case .layout(let command) = try parseVerb(input) else {
+    throw CommandParseError.unknownCommand(String(input.prefix { !$0.isWhitespace }))
+  }
+  return command
+}
+
+private func layout(
   _ name: String,
   _ category: CommandCategory,
   _ argument: CommandArgument = .none,
   isConfigurable: Bool = true,
   build: @escaping @Sendable ([String], String) throws -> Command
 ) -> CommandSpec {
+  spec(name, category, argument, isConfigurable: isConfigurable, isClientVerb: false) {
+    .layout(try build($0, $1))
+  }
+}
+
+private func daemon(
+  _ name: String,
+  _ category: CommandCategory,
+  _ argument: CommandArgument = .none,
+  build: @escaping @Sendable ([String], String) throws -> DaemonVerb
+) -> CommandSpec {
+  spec(name, category, argument, isConfigurable: false, isClientVerb: false) {
+    .daemon(try build($0, $1))
+  }
+}
+
+private func clientVerb(
+  _ name: String,
+  _ category: CommandCategory,
+  build: @escaping @Sendable ([String], String) throws -> DaemonVerb
+) -> CommandSpec {
+  spec(name, category, .none, isConfigurable: true, isClientVerb: true) {
+    .daemon(try build($0, $1))
+  }
+}
+
+private func spec(
+  _ name: String,
+  _ category: CommandCategory,
+  _ argument: CommandArgument = .none,
+  isConfigurable: Bool,
+  isClientVerb: Bool,
+  build: @escaping @Sendable ([String], String) throws -> Verb
+) -> CommandSpec {
   CommandSpec(
     name: name, category: category, argument: argument, isConfigurable: isConfigurable,
-    build: build)
+    isClientVerb: isClientVerb, build: build)
+}
+
+/// Verbs that take no argument accept none, as their exact-match readers did.
+private func onlyNoArguments(_ arguments: [String], _ name: String) throws {
+  guard arguments.isEmpty else { throw CommandParseError.missingArgument(name) }
+}
+
+/// `list-windows --json`, or the plain listing.
+private func jsonOption(_ arguments: [String]) throws -> Bool {
+  switch arguments {
+  case []: return false
+  case ["--json"]: return true
+  default: throw CommandParseError.missingArgument("--json")
+  }
 }
 
 private func argument(_ arguments: [String], label: String) throws -> String {

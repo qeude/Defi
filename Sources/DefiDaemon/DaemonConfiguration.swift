@@ -137,10 +137,7 @@ extension Daemon {
     let url = configURL
     configReloadTask = Task { [weak self] in
       do {
-        let nextConfig = try await Task.detached {
-          migrateLegacyConfiguration(at: url)
-          return try Config.load(from: url)
-        }.value
+        let nextConfig = try await Task.detached { try Config.load(from: url) }.value
         guard !Task.isCancelled, let self, !shouldShutdown,
           nextConfig != config else { return }
         applyConfiguration(nextConfig)
@@ -176,7 +173,7 @@ extension Daemon {
       hotKeys = nil
       pendingHotKeyCommands.removeAll(keepingCapacity: true)
       installHotKeys()
-      hotKeys?.setOverviewModeEnabled(overviewState.isOpen)
+      hotKeys?.overviewModeSetter(overviewState.isOpen)
     }
     if previousConfig.menuBar != nextConfig.menuBar {
       updateMenuBarAvailability()
@@ -368,7 +365,7 @@ extension Daemon {
       let setOverviewMode = manager.overviewModeSetter
       DispatchQueue.main.async { [self] in
         overviewInputMode = setOverviewMode
-        setOverviewMode(overviewController?.isOpen == true)
+        overviewInputMode(overviewController?.isOpen == true)
       }
       if let bindingError = manager.bindingError {
         DispatchQueue.main.async { [weak self] in

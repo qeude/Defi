@@ -27,13 +27,6 @@ public struct NativeFocusRequestID: Equatable, Sendable {
   let rawValue: UInt64
 }
 
-func focusRecoveryIntentIsCurrent(
-  requestGeneration: UInt64,
-  currentGeneration: UInt64
-) -> Bool {
-  requestGeneration == currentGeneration
-}
-
 func focusRequestCanBeCancelled(
   requestGeneration: UInt64,
   latestGeneration: UInt64,

@@ -17,7 +17,7 @@ final class OverviewView: NSView {
   private var selection: OverviewSelection?
   private var drag: OverviewDragPresentation?
   private var borderStyle = WindowBorderStyle(config: BordersConfig())
-  private var windowCornerRadius = 12.0
+  private var windowCornerRadius = OverviewStyle.standard.cornerRadius
   private(set) var desktopImage: NSImage?
   // Cross-fades the wallpaper on the next render; Core Animation runs the fade.
   private var desktopFadeDuration: TimeInterval = 0

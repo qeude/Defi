@@ -125,9 +125,7 @@ private func turnMainRunLoop() { RunLoop.main.run(until: Date().addingTimeInterv
 // Serialized: both tests find their panel by title, and a closing panel stays visible while it fades.
 // These order a real panel on screen, so they run in CI and with DEFI_E2E=1, never on a developer's desktop.
 @MainActor @Suite(.serialized, .enabled(
-  if: ProcessInfo.processInfo.environment["CI"] != nil
-    || ProcessInfo.processInfo.environment["DEFI_E2E"] == "1",
-  "Shows the real cheat sheet panel on screen"))
+  if: desktopVisibleTestsRun, "Shows the real cheat sheet panel on screen"))
 struct CheatsheetPanelTests {
   @Test
   func `Panel fits its content and never restores a closed panel or takes focus`() async throws {
@@ -158,7 +156,6 @@ struct CheatsheetPanelTests {
       turnMainRunLoop()
       if current.frame != settled { settled = current.frame; stableSince = ContinuousClock.now }
     }
-    // The closed panel may come back as the one now shown; never as a second panel.
     #expect(first === current || !first.isVisible, "A closed panel must not reappear")
     #expect(abs(current.alphaValue - 1) < 0.01)
     #expect(NSApplication.shared.isActive == wasActive, "Showing the panel must not activate Defi")

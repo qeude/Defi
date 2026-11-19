@@ -3,13 +3,6 @@ import Darwin
 import DefiModel
 import Foundation
 
-func focusRecoveryResolutionIsCurrent(
-  requestGeneration: UInt64,
-  currentGeneration: UInt64
-) -> Bool {
-  requestGeneration == currentGeneration
-}
-
 struct AXFocusRecoveryResolution: @unchecked Sendable {
   let element: AXUIElement
   let application: AXUIElement
@@ -64,10 +57,7 @@ final class AXFocusRecoveryResolver: @unchecked Sendable {
   private func isCurrent(_ requestGeneration: UInt64) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    return focusRecoveryResolutionIsCurrent(
-      requestGeneration: requestGeneration,
-      currentGeneration: generation
-    )
+    return requestGeneration == generation
   }
 
   private func resolveElement(
