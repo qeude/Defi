@@ -423,25 +423,25 @@ extension Daemon {
           guard let self else { deferredResponse?.fail("daemon unavailable"); return }
           if let controller = overviewController,
             overviewToggleState.isCurrentSession(originatingSession),
-            controller.sessionGeneration == originatingSession {
-            let accepted = controller.applyLayoutCommand(parsedCommand) {
-              [weak self] command, windowID, appID, monitorID, workspaceID, generation in
-              NavigationActor.enqueue { [weak self] in
-                let operation = {
-                  guard let self else { return CommandResponse.failure("daemon unavailable") }
-                  guard self.overviewToggleState.isCurrentSession(generation) else {
-                    return CommandResponse.failure("overview session changed; command was not applied")
-                  }
-                  return self.editLayoutFromOverview(command, intent: OverviewWindowIntent(
-                    windowID: windowID, expectedAppID: appID,
-                    sourceMonitorID: monitorID, sourceWorkspaceID: workspaceID))
-                }
-                if let deferredResponse { deferredResponse.perform(operation) }
-                else { _ = operation() }
-              }
-            }
-            if !accepted {
+            controller.sessionGeneration == originatingSession
+          {
+            guard let target = controller.layoutCommandTarget(parsedCommand) else {
               deferredResponse?.fail("overview selection cannot apply this layout command")
+              return
+            }
+            let generation = controller.sessionGeneration
+            NavigationActor.enqueue { [weak self] in
+              let operation = {
+                guard let self else { return CommandResponse.failure("daemon unavailable") }
+                guard self.overviewToggleState.isCurrentSession(generation) else {
+                  return CommandResponse.failure("overview session changed; command was not applied")
+                }
+                return self.editLayoutFromOverview(parsedCommand, intent: OverviewWindowIntent(
+                  windowID: target.windowID, expectedAppID: target.appID,
+                  sourceMonitorID: target.monitorID, sourceWorkspaceID: target.workspaceID))
+              }
+              if let deferredResponse { deferredResponse.perform(operation) }
+              else { _ = operation() }
             }
           } else {
             deferredResponse?.fail("overview session changed; command was not applied")

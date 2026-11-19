@@ -961,17 +961,24 @@ public final class OverviewController: NSObject {
     }
   }
 
-  @discardableResult
-  public func applyLayoutCommand(_ command: Command,
-    handler: (@MainActor @Sendable (Command, WindowID, String, MonitorID, WorkspaceID, UInt64) -> Void)? = nil
-  ) -> Bool {
+  /// The window a layout command edits and where it lives, or nil when the selection cannot
+  /// take it. Marks the selection deferred, so the caller applies the edit.
+  public func layoutCommandTarget(_ command: Command)
+    -> (windowID: WindowID, appID: String, monitorID: MonitorID, workspaceID: WorkspaceID)?
+  {
     guard isOpen, !selectionCommitPending, let snapshot, let selection,
       let windowID = selection.windowID, let window = snapshot.windows[windowID],
       !snapshot.nativeFullscreenWindowIDs.contains(windowID), window.transientOwnerID == nil,
-      !window.floating || command == .toggleFloating else { return false }
+      !window.floating || command == .toggleFloating else { return nil }
     hasDeferredSelection = true
-    (handler ?? layoutCommandHandler)(command, windowID, window.appID, selection.location.monitorID,
-      selection.location.workspaceID, sessionGeneration)
+    return (windowID, window.appID, selection.location.monitorID, selection.location.workspaceID)
+  }
+
+  @discardableResult
+  public func applyLayoutCommand(_ command: Command) -> Bool {
+    guard let target = layoutCommandTarget(command) else { return false }
+    layoutCommandHandler(command, target.windowID, target.appID, target.monitorID,
+      target.workspaceID, sessionGeneration)
     return true
   }
 

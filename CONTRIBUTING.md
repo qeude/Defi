@@ -241,23 +241,16 @@ and known limitations. Keep alpha-scope changes small and reversible.
 
 ## Configuration migrations
 
-When a change renames or replaces a configuration key, Defi rewrites old files
-in place, keeping comments and layout, so users never edit their file by hand:
+When a change renames or replaces a configuration key, Defi refuses a file that
+still sets the old key instead of silently ignoring it:
 
-1. Add a function to `Sources/DefiMacOS/ConfigMigration.swift` that returns the
-   rewritten source, or nil when nothing needs migrating, and test it with a
-   before/after fixture.
-2. Append it to `configMigrations` with `introducedIn` set to the next release
-   and `removeIn` two minor releases later.
-3. List the old and new keys under **Configuration changes** in the release notes.
+1. List the old key in `removedConfigKeys` in
+   `Sources/DefiConfig/RemovedConfigKeys.swift` with a one-line replacement hint.
+   A path through an array of tables matches any of its entries.
+2. List the old and new keys under **Configuration changes** in the release notes.
 
-A migration only serves files from earlier releases: Defi rewrites the file on
-its first launch. `ConfigMigrationTests` fails once `Support/Defi-Info.plist`
-reaches a migration's `removeIn`. The release that bumps the version then
-deletes the migration and adds each old key to `removedConfigKeys` in
-`Sources/DefiConfig/RemovedConfigKeys.swift` with a one-line replacement hint.
-A file that still sets a removed key then fails to load with that hint instead
-of being silently ignored. Empty `removedConfigKeys` at the first stable release.
+A file that still sets a removed key fails to load with that hint. Defi never
+rewrites the file itself. Empty `removedConfigKeys` at the first stable release.
 
 ## Release packaging
 

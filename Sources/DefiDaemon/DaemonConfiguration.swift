@@ -137,10 +137,7 @@ extension Daemon {
     let url = configURL
     configReloadTask = Task { [weak self] in
       do {
-        let nextConfig = try await Task.detached {
-          migrateLegacyConfiguration(at: url)
-          return try Config.load(from: url)
-        }.value
+        let nextConfig = try await Task.detached { try Config.load(from: url) }.value
         guard !Task.isCancelled, let self, !shouldShutdown,
           nextConfig != config else { return }
         applyConfiguration(nextConfig)
@@ -365,10 +362,11 @@ extension Daemon {
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         DefiSettingsRuntimeStatus.shared.updateKeyboardStatus(keyboardMessage)
       }
-      let setOverviewMode = manager.overviewModeSetter
       DispatchQueue.main.async { [self] in
-        overviewInputMode = setOverviewMode
-        setOverviewMode(overviewController?.isOpen == true)
+        overviewInputMode = { [weak self] enabled in
+          NavigationActor.enqueue { self?.hotKeys?.setOverviewModeEnabled(enabled) }
+        }
+        overviewInputMode(overviewController?.isOpen == true)
       }
       if let bindingError = manager.bindingError {
         DispatchQueue.main.async { [weak self] in

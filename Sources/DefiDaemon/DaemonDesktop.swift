@@ -262,12 +262,16 @@ extension Daemon {
       source: source
     )
     if timerFrequencyHz == 0 { scheduleIdleTick() }
-    platform.updateWindowBorders(
-      frames: borderAssignments,
-      selectedWindowID: selectedWindowID,
-      liveWindowID: activelyResizedWindowID,
-      config: config.decorations.borders
-    )
+    let liveWindowID = activelyResizedWindowID
+    let borderConfig = config.decorations.borders
+    platform.enqueuePresentation {
+      $0.presentUpdateWindowBorders(
+        frames: borderAssignments,
+        selectedWindowID: selectedWindowID,
+        liveWindowID: liveWindowID,
+        config: borderConfig
+      )
+    }
     platform.updateNativeFullscreenPlaceholders(
       nativeFullscreenPlaceholderAssignments.compactMap { assignment in
         guard let window = state.windows[assignment.windowID],

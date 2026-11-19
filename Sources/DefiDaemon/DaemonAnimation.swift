@@ -200,7 +200,7 @@ extension Daemon {
 
   func beginFrameAnimationActivity() {
     if !frameNotificationsSuspended {
-      platform.setFrameNotificationsEnabled(false)
+      platform.enqueuePresentation { $0.presentSetFrameNotificationsEnabled(false) }
       frameNotificationsSuspended = true
     }
     setTimerFrequency(min(activeDisplayRefreshRate, 120))

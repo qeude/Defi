@@ -749,20 +749,10 @@ private struct InputSettingsView: View {
 
   private func boolBinding(_ table: String, _ key: String, _ value: Bool) -> Binding<Bool> {
     Binding(
-      get: { valueForField(table, key) ?? value },
+      get: { value },
       set: {
         model.set(table: table, key: key, value: $0 ? "true" : "false")
       })
-  }
-
-  private func valueForField(_ table: String, _ key: String) -> Bool? {
-    switch (table, key) {
-    case ("input", "focus_follows_mouse"): model.config.input.focusFollowsMouse
-    case ("input", "mouse_follows_focus"): model.config.input.mouseFollowsFocus
-    case ("input", "scroll_gestures"): model.config.input.scrollGestures
-    case ("input", "scroll_gesture_snap"): model.config.input.scrollGestureSnap
-    default: nil
-    }
   }
 }
 
@@ -2148,8 +2138,11 @@ private func percent(_ value: Double) -> String {
   "\(Int((value * 100).rounded()))%"
 }
 
+/// The borders default, parsed so it keeps the `#AARRGGBB` order `settingsColor` reads.
+private let defaultBorderColor = parseBorderColor(BordersConfig().color) ?? 0
+
 func settingsColor(_ value: String) -> Color {
-  let bits = parseBorderColor(value) ?? 0xFFFF_C099
+  let bits = parseBorderColor(value) ?? defaultBorderColor
   return Color(
     .sRGB,
     red: Double((bits >> 16) & 0xFF) / 255,

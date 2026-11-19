@@ -88,17 +88,11 @@ struct OverviewNavigationTests {
     controller.handleKey(.workspaceDown)
     controller.handleKey(.layout(.maximizeColumn))
     #expect(edits == [ids[1]])
-    var ipcSelections: [WindowID] = []
-    #expect(controller.applyLayoutCommand(.maximizeColumn) { _, id, _, _, _, _ in
-      ipcSelections.append(id)
-    })
-    #expect(ipcSelections == [ids[1]])
-    #expect(edits == [ids[1]], "IPC must use its execution handler without duplicating the keyboard mutation")
+    let target = controller.layoutCommandTarget(.maximizeColumn)
+    #expect(target?.windowID == ids[1])
+    #expect(edits == [ids[1]], "IPC resolves the target without duplicating the keyboard mutation")
     controller.close()
-    #expect(!controller.applyLayoutCommand(.maximizeColumn) { _, id, _, _, _, _ in
-      ipcSelections.append(id)
-    })
-    #expect(ipcSelections == [ids[1]], "A closed controller cannot enqueue IPC mutation")
+    #expect(controller.layoutCommandTarget(.maximizeColumn) == nil)
     #expect(nativeFocus.isEmpty)
   }
 

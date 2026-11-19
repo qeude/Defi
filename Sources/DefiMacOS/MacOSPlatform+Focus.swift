@@ -259,8 +259,8 @@ extension MacOSPlatform {
           self?.verifiedNativeFocusedWindowID = windowID
           // Native full-screen detection falls back on this before AX reports the new frame.
           self?.lastFocusedWindowByProcess[processID] = windowID
-          self?.scheduleWindowBorderStackingRefresh()
-          self?.revealWindowBordersIfReady()
+          self?.enqueuePresentation { $0.presentScheduleWindowBorderStackingRefresh() }
+          self?.enqueuePresentation { $0.presentRevealWindowBordersIfReady() }
           if let cursorWarpInputTimestamp = cursorWarpTimestampAfterNativeFocus(
             result: result,
             requestedTimestamp: cursorWarpInputTimestamp

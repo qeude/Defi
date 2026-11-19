@@ -416,8 +416,8 @@ extension Daemon {
     flushPendingTopologyWrite()
     platform.finishCommandDiagnostics()
     diagnostics.flush()
-    platform.hideWindowBorders()
-    platform.hideNativeFullscreenPlaceholders()
+    platform.enqueuePresentation { $0.presentHideWindowBorders() }
+    platform.enqueuePresentation { $0.presentHideNativeFullscreenPlaceholders() }
     if handsOffWindows {
       saveTopologyForHandoff()
       await platform.prepareForRestore()

@@ -570,7 +570,7 @@ struct WindowBorderTests {
   }
 
   @Test @MainActor
-  func unchangedSelectionPreservesStackingUntilExplicitObservation() {
+  func unchangedSelectionPreservesStacking() {
     let manager = WindowBorderManager()
     defer { manager.hide() }
     let windowID = WindowID(rawValue: 1)
@@ -588,8 +588,6 @@ struct WindowBorderTests {
     #expect(panels.allSatisfy { $0.level == .floating })
     manager.prepareForSelection(windowID, displayedFrame: frame)
     #expect(panels.allSatisfy { $0.level == .floating })
-    manager.prepareForSelection(windowID, displayedFrame: frame, stacking: .inactive(for: windowID))
-    #expect(panels.allSatisfy { $0.level == .normal })
   }
 
   @Test @MainActor
