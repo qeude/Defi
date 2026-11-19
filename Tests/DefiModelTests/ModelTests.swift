@@ -116,6 +116,9 @@ struct ModelTests {
     #expect(throws: CommandParseError.unknownCommand("diagnostic-mark")) {
       try parseCommand("diagnostic-mark")
     }
+    #expect(throws: CommandParseError.missingArgument("diagnostic-mark")) {
+      try parseVerb("diagnostic-mark extra")
+    }
   }
 
   @Test

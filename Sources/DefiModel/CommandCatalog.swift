@@ -348,7 +348,10 @@ public let daemonVerbSpecs: [CommandSpec] = [
     guard arguments.isEmpty else { throw CommandParseError.missingArgument("clear-reserved-area") }
     return .clearReservedArea
   },
-  clientVerb("diagnostic-mark", .other) { _, _ in .diagnosticMark },
+  clientVerb("diagnostic-mark", .other) { arguments, _ in
+    try onlyNoArguments(arguments, "diagnostic-mark")
+    return .diagnosticMark
+  },
 ]
 
 /// Every verb Defi accepts, layout and daemon alike.

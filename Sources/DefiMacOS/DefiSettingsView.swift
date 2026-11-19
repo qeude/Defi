@@ -435,11 +435,14 @@ enum PresetKind {
   /// Matches the validation in DefiConfig: a stacked window never takes the whole column.
   var maximum: Double { self == .width ? 100 : 95 }
 
-  /// Percentages the add menu offers; a duplicate would stop the preset cycle on its first copy.
+  /// Percentages the add menu offers.
   func addableChoices(to values: [Double]) -> [Int] {
-    [25, 33, 50, 67, 75, 100].filter { choice in
-      Double(choice) <= maximum && !values.contains { abs($0 * 100 - Double(choice)) < 0.5 }
-    }
+    [25, 33, 50, 67, 75, 100].filter { Double($0) <= maximum && !Self.duplicates(Double($0), in: values) }
+  }
+
+  /// A duplicate preset would stop the preset cycle on its first copy.
+  static func duplicates(_ percentage: Double, in values: [Double], except index: Int? = nil) -> Bool {
+    values.indices.contains { $0 != index && abs(values[$0] * 100 - percentage) < 0.5 }
   }
 }
 
@@ -511,6 +514,7 @@ private struct PresetRows: View {
   }
 
   private func update(_ index: Int, percentage: Double) {
+    guard !PresetKind.duplicates(percentage, in: values, except: index) else { return }
     var values = values
     values[index] = percentage / 100
     save(values)

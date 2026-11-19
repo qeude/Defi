@@ -144,5 +144,7 @@ struct SettingsSearchTests {
   @Test func presetAddMenuOffersNoDuplicateOrOutOfRangeValue() {
     #expect(PresetKind.height.addableChoices(to: [0.33, 0.50, 0.66]) == [25, 67, 75])
     #expect(PresetKind.width.addableChoices(to: [0.33, 0.50, 0.66, 0.80]) == [25, 67, 75, 100])
+    #expect(PresetKind.duplicates(50, in: [0.33, 0.50, 0.66], except: 0))
+    #expect(!PresetKind.duplicates(50, in: [0.33, 0.50, 0.66], except: 1), "an unchanged edit is not a duplicate")
   }
 }
