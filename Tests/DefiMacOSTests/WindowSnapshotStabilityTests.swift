@@ -836,7 +836,7 @@ struct WindowSnapshotStabilityTests {
       nativeFullscreenProcesses: Set<pid_t> = [],
       minimized: Set<WindowID> = [],
       ignoredReasons: [WindowID: String] = [:]
-    ) -> (String, String?) {
+    ) -> (CGWindowDiscoveryClassification, String?) {
       cgWindowDiscoveryClassification(
         record: record(windowID), windows: windows,
         processIDsByWindowID: processIDs, appIdentity: "com.example",
@@ -849,10 +849,10 @@ struct WindowSnapshotStabilityTests {
       )
     }
 
-    #expect(classification(tiledID).0 == "tiled")
-    #expect(classification(floatingID).0 == "floating")
-    #expect(classification(modalID).0 == "transient")
-    #expect(classification(tiledID, nativeFullscreen: [tiledID]).0 == "native-fullscreen")
+    #expect(classification(tiledID).0 == .tiled)
+    #expect(classification(floatingID).0 == .floating)
+    #expect(classification(modalID).0 == .transient)
+    #expect(classification(tiledID, nativeFullscreen: [tiledID]).0 == .nativeFullscreen)
     #expect(
       cgWindowDiscoveryClassification(
         record: record(unresolvedID, frame: frame), windows: [],
@@ -861,15 +861,15 @@ struct WindowSnapshotStabilityTests {
         nativeFullscreenProcessIDs: [42],
         monitors: [MonitorSnapshot(id: MonitorID(rawValue: 1), frame: frame)],
         transientWindowIDs: [], minimizedWindowIDs: [], ignoredReasonsByWindowID: [:]
-      ).classification == "native-fullscreen"
+      ).classification == .nativeFullscreen
     )
-    #expect(classification(minimizedID, minimized: [minimizedID]).0 == "minimized")
+    #expect(classification(minimizedID, minimized: [minimizedID]).0 == .minimized)
     #expect(classification(ignoredID, ignoredReasons: [ignoredID: "unsupported-role:AXMenu"]) ==
-      ("ignored", "unsupported-role:AXMenu"))
+      (.ignored, "unsupported-role:AXMenu"))
     #expect(classification(
-      ignoredID, ignoredReasons: [ignoredID: "frame-below-80x60"]
-    ) == ("transient", "frame-below-80x60"))
-    #expect(classification(unresolvedID).0 == "unresolved")
+      ignoredID, ignoredReasons: [ignoredID: frameBelowMinimumAreaReason]
+    ) == (.transient, frameBelowMinimumAreaReason))
+    #expect(classification(unresolvedID).0 == .unresolved)
   }
 
   @Test func partialDiscoveryRetainsUnchangedWindowExclusions() {
@@ -888,15 +888,15 @@ struct WindowSnapshotStabilityTests {
     let previous = [
       CGWindowDiscoveryDiagnostic(
         identity: ignoredIdentity, appIdentity: "com.example",
-        classification: "ignored", reason: "unsupported-role:AXMenu", retry: nil
+        classification: .ignored, reason: "unsupported-role:AXMenu", retry: nil
       ),
       CGWindowDiscoveryDiagnostic(
         identity: minimizedIdentity, appIdentity: "com.example",
-        classification: "minimized", reason: nil, retry: nil
+        classification: .minimized, reason: nil, retry: nil
       ),
       CGWindowDiscoveryDiagnostic(
         identity: refreshedIdentity, appIdentity: "com.example",
-        classification: "ignored", reason: "application-policy", retry: nil
+        classification: .ignored, reason: applicationPolicyIgnoreReason, retry: nil
       ),
     ]
 

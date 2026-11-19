@@ -1016,7 +1016,7 @@ extension SnapshotEngine {
       return .unavailable
     case .ignored:
       return .ignored(
-        reason: attributes.minimized == true ? "AX-minimized" : "frame-below-80x60",
+        reason: attributes.minimized == true ? "AX-minimized" : frameBelowMinimumAreaReason,
         title: attributes.title
       )
     case .usable(let usableFrame):
