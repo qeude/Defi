@@ -29,7 +29,8 @@ let nativeFullscreenPlaceholderHint = "Press Return to open"
 @MainActor
 final class NativeFullscreenPlaceholderManager {
   private var panels: [WindowID: NativeFullscreenPlaceholderPanel] = [:]
-  var activationHandler: ((WindowID) -> Void)?
+  var activationHandler: ((WindowID?) -> Void)?
+  var selectionHandler: ((WindowID) -> Void)?
 
   private var anchors: [MonitorID: NSPanel] = [:]
   private var suppressedMonitorIDs: Set<MonitorID> = []
@@ -155,8 +156,8 @@ final class NativeFullscreenPlaceholderManager {
     // macOS may hand the keyboard back to the anchor after a switch: Return there still opens
     // the selected placeholder, and other keys are dropped as on the placeholder itself.
     anchor.onActivate = { [weak self] in
-      guard let self, let windowID = self.selectedPlaceholderID else { return }
-      self.activationHandler?(windowID)
+      guard let self, self.selectedPlaceholderID != nil else { return }
+      self.activationHandler?(nil)
     }
     // Ordered in once from the desktop and never out, it stays on that Space.
     anchor.orderBack(nil)
@@ -207,9 +208,11 @@ final class NativeFullscreenPlaceholderManager {
       if let existing = panels[placeholder.windowID] {
         panel = existing
       } else {
-        panel = NativeFullscreenPlaceholderPanel(placeholder: placeholder) { [weak self] in
-          self?.activationHandler?(placeholder.windowID)
-        }
+        panel = NativeFullscreenPlaceholderPanel(
+          placeholder: placeholder,
+          onSelect: { [weak self] in self?.selectionHandler?(placeholder.windowID) },
+          onActivate: { [weak self] in self?.activationHandler?($0) }
+        )
         surfacesChanged = true
       }
       panels[placeholder.windowID] = panel
@@ -280,22 +283,33 @@ private final class NativeFullscreenPlaceholderPanel {
     panel.windowNumber > 0 ? CGWindowID(panel.windowNumber) : nil
   }
 
-  init(placeholder: NativeFullscreenPlaceholder, onActivate: @escaping () -> Void) {
+  init(
+    placeholder: NativeFullscreenPlaceholder,
+    onSelect: @escaping () -> Void,
+    onActivate: @escaping (WindowID?) -> Void
+  ) {
     self.placeholder = placeholder
     placeholderView = NativeFullscreenPlaceholderView(
       appID: placeholder.appID,
       title: placeholder.title
     )
+    // A click selects the slot like a click on a window; a double-click opens it as Return does.
+    placeholderView.onClick = { clickCount in
+      switch clickCount {
+      case 1: onSelect()
+      case 2: onActivate(placeholder.windowID)
+      default: break
+      }
+    }
     panel = KeyPanel(
       contentRect: .zero,
       styleMask: [.borderless, .nonactivatingPanel],
       backing: .buffered,
       defer: false
     )
-    panel.onActivate = onActivate
+    panel.onActivate = { onActivate(nil) }
     panel.isOpaque = false
     panel.backgroundColor = .clear
-    panel.ignoresMouseEvents = true
     panel.hasShadow = false
     panel.sharingType = .readOnly
     panel.level = .normal
@@ -398,6 +412,7 @@ private final class NativeFullscreenPlaceholderView: NSView {
   private var title: String
   private var selected = false
   private var accentColor: UInt32 = 0
+  var onClick: ((Int) -> Void)?
 
   init(appID: String, title: String) {
     self.appID = appID
@@ -414,6 +429,14 @@ private final class NativeFullscreenPlaceholderView: NSView {
   }
 
   override var wantsUpdateLayer: Bool { true }
+
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+  override func mouseDown(with event: NSEvent) {
+    // A modified click is not a selection, as on managed windows.
+    guard event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else { return }
+    onClick?(event.clickCount)
+  }
 
   // The same picture the overlay carries during motions, so the handoff is invisible.
   override func updateLayer() {

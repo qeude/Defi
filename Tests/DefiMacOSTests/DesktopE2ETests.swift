@@ -22,6 +22,52 @@ private struct DesktopPreflightFailure: Error, CustomStringConvertible {
 final class DesktopE2ETests: XCTestCase {
   // MARK: Focus
 
+  func testFullscreenPlaceholderReceivesDesktopClicks() throws {
+    _ = try preflight()
+    let cursor = try XCTUnwrap(CGEvent(source: nil)?.location)
+    defer { CGWarpMouseCursorPosition(cursor) }
+    let manager = NativeFullscreenPlaceholderManager()
+    defer { manager.hide() }
+    let displayID = CGMainDisplayID()
+    let bounds = CGDisplayBounds(displayID)
+    let center = CGPoint(x: bounds.midX, y: bounds.midY)
+    XCTAssertEqual(CGWarpMouseCursorPosition(center), .success)
+    let windowID = WindowID(rawValue: 7)
+    var selected: [WindowID] = []
+    var activated: [WindowID?] = []
+    manager.selectionHandler = { selected.append($0) }
+    manager.activationHandler = { activated.append($0) }
+    manager.sync([
+      NativeFullscreenPlaceholder(
+        windowID: windowID, monitorID: MonitorID(rawValue: UInt64(displayID)),
+        appID: "com.apple.Finder", title: "Defi desktop fixture",
+        frame: Rect(x: bounds.midX - 150, y: bounds.midY - 100, width: 300, height: 200))
+    ], selectedWindowID: nil, stackingWindowID: nil, accentColor: 0xffc0_99ff)
+
+    func click(_ count: Int, flags: CGEventFlags = []) throws {
+      for type: CGEventType in [.mouseMoved, .leftMouseDown, .leftMouseUp] {
+        let event = try XCTUnwrap(CGEvent(mouseEventSource: nil, mouseType: type,
+          mouseCursorPosition: center, mouseButton: .left))
+        event.flags = flags
+        event.setIntegerValueField(.mouseEventClickState, value: Int64(count))
+        event.post(tap: .cghidEventTap)
+        pumpApplicationEvents(until: { false }, timeout: 0.08)
+      }
+    }
+
+    try click(1)
+    XCTAssertTrue(pumpApplicationEvents(until: { selected == [windowID] }, timeout: 2),
+      "The placeholder must receive the click. Windows at the pointer: \(windowsDescription(at: center))")
+    XCTAssertTrue(activated.isEmpty)
+    try click(2)
+    XCTAssertTrue(pumpApplicationEvents(until: { activated == [windowID] }, timeout: 2))
+    try click(1, flags: .maskCommand)
+    try click(1)
+    XCTAssertTrue(pumpApplicationEvents(until: { selected.count >= 2 }, timeout: 2))
+    XCTAssertEqual(selected, [windowID, windowID])
+    XCTAssertEqual(activated, [windowID])
+  }
+
   func testFocusFollowsLatestNativeIntent() throws {
     let platform = try preflight()
     let fixtures = try openFixtures(platform)

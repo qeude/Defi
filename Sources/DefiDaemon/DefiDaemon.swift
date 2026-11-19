@@ -290,7 +290,26 @@ final class Daemon {
       diagnostics?.recordAnomaly(uptime: uptime, event: event)
     }
     platform.setNativeFullscreenActivationHandler { [weak self] windowID in
-      NavigationActor.enqueue { _ = self?.handle("activate-window") }
+      let inputTimestamp = ProcessInfo.processInfo.systemUptime
+      NavigationActor.enqueue {
+        guard let self, self.desktopSessionActive else { return }
+        _ = self.handle("activate-window", inputTimestamp: inputTimestamp, placeholderWindowID: windowID)
+      }
+    }
+    platform.setNativeFullscreenSelectionHandler { [weak self] windowID in
+      NavigationActor.enqueue {
+        guard let self, self.desktopSessionActive, !self.overviewState.isOpen,
+          self.state.nativeFullscreenWindowIDs.contains(windowID) else { return }
+        self.focusClickedWindow(windowID)
+        // As after a keyboard selection, the placeholder takes the keyboard so Return opens it.
+        if let monitorID = self.state.monitorID(containing: windowID),
+          self.state.selectedWindowID(on: monitorID) == windowID
+        {
+          _ = self.platform.focus(windowID)
+        }
+        // No native focus event follows to redraw the placeholder as selected.
+        self.scheduleTick()
+      }
     }
   }
 
