@@ -31,6 +31,15 @@ final class DesktopE2ETests: XCTestCase {
     let displayID = CGMainDisplayID()
     let bounds = CGDisplayBounds(displayID)
     let center = CGPoint(x: bounds.midX, y: bounds.midY)
+    let screen = try XCTUnwrap(NSScreen.screens.first { self.monitorID(of: $0)?.rawValue == UInt64(displayID) })
+    let sibling = NSWindow(
+      contentRect: CGRect(x: screen.visibleFrame.minX + 20, y: screen.visibleFrame.minY + 20,
+        width: 120, height: 80),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    sibling.isReleasedWhenClosed = false
+    sibling.orderFrontRegardless()
+    defer { sibling.close() }
+    let siblingID = WindowID(rawValue: UInt64(sibling.windowNumber))
     XCTAssertEqual(CGWarpMouseCursorPosition(center), .success)
     let windowID = WindowID(rawValue: 7)
     var selected: [WindowID] = []
@@ -42,7 +51,7 @@ final class DesktopE2ETests: XCTestCase {
         windowID: windowID, monitorID: MonitorID(rawValue: UInt64(displayID)),
         appID: "com.apple.Finder", title: "Defi desktop fixture",
         frame: Rect(x: bounds.midX - 150, y: bounds.midY - 100, width: 300, height: 200))
-    ], selectedWindowID: nil, stackingWindowID: nil, accentColor: 0xffc0_99ff)
+    ], selectedWindowID: nil, stackingWindowID: siblingID, accentColor: 0xffc0_99ff)
 
     func click(_ count: Int, flags: CGEventFlags = []) throws {
       for type: CGEventType in [.mouseMoved, .leftMouseDown, .leftMouseUp] {
