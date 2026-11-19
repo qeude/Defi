@@ -102,7 +102,7 @@ extension MacOSPlatform {
         NSRunningApplication(processIdentifier: processID)?.activationPolicy == .regular,
         processID != ProcessInfo.processInfo.processIdentifier || isStandardWindow(element),
         case let createdNumber = self?.windowIDProvider.windowID(for: element),
-        !windowOpenedBefore(createdNumber) {
+        !windowOpenedBefore(createdNumber), !floatsAtCreation(createdNumber, processID: processID) {
         // Only the latest window's check may release the hold: an earlier one timing out
         // would cut short the hold a later window still waits on.
         let opening = ProcessInfo.processInfo.systemUptime
@@ -867,6 +867,16 @@ func applicationFocusedWindow(_ processID: pid_t) -> AXUIElement? {
   guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &value) == .success,
     let value, CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
   return (value as! AXUIElement)
+}
+
+/// A window already above the standard level when created never opens a column, so it never
+/// holds the screen: Photoshop recreates its contextual task bar at every zoom or brush
+/// change, and even a hold released at once froze the screen at every key. A level not set
+/// yet reads as standard and holds as before.
+private func floatsAtCreation(_ number: CGWindowID?, processID: pid_t) -> Bool {
+  guard let number, windowFloatsAboveRibbon(number) else { return false }
+  ribbonProxyLogger.notice("open-hold-skipped pid=\(processID) window=\(number) floats")
+  return true
 }
 
 /// Whether WindowServer shows this window above the standard level.
