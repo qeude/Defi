@@ -97,6 +97,7 @@ let package = Package(
         "DefiMacOS",
         "DefiConfig",
         "DefiCore",
+        "DefiIPC",
         "DefiModel",
       ]
     ),

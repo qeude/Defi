@@ -20,6 +20,7 @@ tart get "$VM" >/dev/null || {
 # Build before queueing. Concurrent runs would share one guest desktop, and one could stop the VM under another.
 if [[ -z "${DEFI_VM_LOCKED:-}" ]]; then
   ./script/test_desktop.sh --build-tests
+  swiftc -swift-version 6 -parse-as-library Tests/Fixtures/ClampFixture.swift -o .build/desktop-fixtures/ClampFixture
   if [[ "${DEFI_VM_SECOND_DISPLAY:-0}" == 1 ]]; then
     clang -fobjc-arc -w -framework Foundation -framework AppKit -framework CoreGraphics \
       Tests/Fixtures/VirtualDisplayFixture.m -o .build/desktop-fixtures/DefiVirtualDisplay
@@ -32,6 +33,10 @@ vm_start
 
 COPYFILE_DISABLE=1 tar -C .build/debug -cf - DefiMacOSTests.xctest $(cd .build/debug && ls -d ./*.bundle 2>/dev/null) | vm 'tar -C ~/defi-e2e -xf -'
 vm 'cat > ~/defi-e2e/fixture && chmod +x ~/defi-e2e/fixture' < .build/desktop-fixtures/DefiDesktopFocusFixture
+# The daemon lane runs the real daemon beside its resource bundles; a rewritten inode keeps a stale signature.
+for tool in .build/debug/defi-daemon .build/desktop-fixtures/ClampFixture; do
+  vm "rm -f ~/defi-e2e/${tool##*/} && cat > ~/defi-e2e/${tool##*/} && chmod +x ~/defi-e2e/${tool##*/}" < "$tool"
+done
 if [[ "${DEFI_VM_SECOND_DISPLAY:-0}" == 1 ]]; then
   vm 'cat > ~/defi-e2e/DefiVirtualDisplay && chmod +x ~/defi-e2e/DefiVirtualDisplay' < .build/desktop-fixtures/DefiVirtualDisplay
   vm 'sudo -n launchctl asuser 501 sudo -n -u admin nohup ~/defi-e2e/DefiVirtualDisplay >/dev/null 2>&1 & sleep 4'
@@ -42,6 +47,7 @@ X="/Volumes/My Shared Files/xcode/Contents/Developer"
 P="$X/Platforms/MacOSX.platform/Developer"
 cd ~/defi-e2e
 exec /usr/bin/env DEVELOPER_DIR="$X" DEFI_E2E=1 DEFI_DESKTOP_FIXTURE_BINARY="$HOME/defi-e2e/fixture" \
+  DEFI_E2E_DAEMON_BINARY="$HOME/defi-e2e/defi-daemon" DEFI_E2E_CLAMP_FIXTURE_BINARY="$HOME/defi-e2e/ClampFixture" \
   DEFI_E2E_FIXTURE_DISCOVERY_SECONDS=20 \
   DYLD_FRAMEWORK_PATH="$P/Library/Frameworks:$P/Library/PrivateFrameworks" \
   DYLD_LIBRARY_PATH="$P/usr/lib:$X/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx" \
