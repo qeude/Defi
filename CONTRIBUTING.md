@@ -114,10 +114,11 @@ serial runner, because SwiftPM's parallel XML writer can hide skipped cases.
 Zero executed tests or any skipped test make the result incomplete, never a full
 pass.
 
-Two lanes may skip by name, and are listed under `desktop.not_run` with their
-reason: `testTwoDisplay*` needs two displays, and
-`testPerfOverviewNavigationRenderBudget` runs only with `DEFI_E2E_PERF=1`. They
-never count as passed. The report also records the session `restoration` and
+Three lanes may skip by name, and are listed under `desktop.not_run` with their
+reason: `testTwoDisplay*` needs two displays,
+`testPerfOverviewNavigationRenderBudget` runs only with `DEFI_E2E_PERF=1`, and
+`vm-daemon` (window drags and stack constraints) runs only in the VM. They never
+count as passed. The report also records the session `restoration` and
 the `daemons` count before and after, which must both be exactly one. Visual
 inspection is always reported as `not-run`.
 
@@ -206,6 +207,10 @@ runs with `--no-audio`, so alert sounds from test shortcuts stay off your
 speakers; pass it too when you start the VM by hand. From the second boot on,
 the script disables guest services Defi never touches, such as Siri, iCloud, and
 Shortcuts. It also clears the image's boot banner.
+
+The `vm-daemon` lane runs the real `defi-daemon` on ClampFixture windows and
+drags them through the HID tap. That daemon tiles every window on the display,
+so the lane runs only in the VM, where `script/test_vm.sh` copies both binaries.
 
 The VM runs with SIP disabled, so it cannot certify SIP-enabled behavior, the
 signed installed app, real multi-display hardware, or animation quality.

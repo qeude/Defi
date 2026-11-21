@@ -1485,7 +1485,7 @@ final class DesktopE2ETests: XCTestCase {
   // MARK: Harness
 
   /// One loud preflight replaces per-test silent skips.
-  private func preflight() throws -> MacOSPlatform {
+  func preflight() throws -> MacOSPlatform {
     guard ProcessInfo.processInfo.environment["DEFI_E2E"] == "1" else {
       throw XCTSkip("Set DEFI_E2E=1 to run real-desktop tests")
     }
@@ -1517,7 +1517,7 @@ final class DesktopE2ETests: XCTestCase {
   }
 
   /// verify.sh accepts a skip only with this marker and reports it as not run.
-  private func notRun(lane: String, reason: String) throws -> Never {
+  func notRun(lane: String, reason: String) throws -> Never {
     print("DEFI_E2E not-run lane=\(lane) test=\(name) reason=\(reason)")
     throw XCTSkip("\(lane) lane: \(reason)")
   }
@@ -1613,7 +1613,7 @@ final class DesktopE2ETests: XCTestCase {
   }
 
   @discardableResult
-  private func pumpRunLoop(until condition: () -> Bool, timeout: TimeInterval) -> Bool {
+  func pumpRunLoop(until condition: () -> Bool, timeout: TimeInterval) -> Bool {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {
       if condition() { return true }

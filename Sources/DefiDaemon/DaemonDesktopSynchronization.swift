@@ -854,7 +854,7 @@ extension Daemon {
           droppedOnOverlay = true
           mouseGestureDroppedOnOverlay = true
           platform.recordPerformanceTrace("mouse-drop window=\(gestureWindowID.rawValue) target=\(target)")
-        } else if draggedByUser, let gestureWindowID,
+        } else if draggedByUser, !mouseGestureDroppedOnOverlay, let gestureWindowID,
           let actualFrame,
           let mouseGestureInitialFrame,
           reorderTiledWindowAfterCompletedMouseDrag(

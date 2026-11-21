@@ -1,6 +1,6 @@
 import DefiConfig
 import DefiModel
-import DefiRuntime
+@testable import DefiRuntime
 import Foundation
 import Synchronization
 import Testing
@@ -233,6 +233,69 @@ struct DaemonDesktopSynchronizationTests {
       forceApplicationInventoryRefresh: false, targetedWindowRetryRefresh: false,
       consumePeriodicWindowRefresh: false)
     #expect(next.floatingWindowFrames[parked.id] == frame)
+  }
+
+  /// A release over a stack the window cannot join changes nothing, also when a late
+  /// mouse event makes the next snapshot look like a release-only gesture.
+  @Test
+  @NavigationActor
+  func rejectedStackDropSurvivesALateGestureSnapshot() async throws {
+    let directory = URL(filePath: "/tmp/defi-rejected-drop-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let configURL = directory.appending(path: "config.toml")
+    try "[layout]\ndefault_column_width = 0.5\n[animation]\nenabled = false\n"
+      .write(to: configURL, atomically: true, encoding: .utf8)
+    let menuBar = await MainActor.run { MenuBarState(accessibilityTrusted: { false }) }
+    let daemon = try Daemon(
+      options: DaemonOptions(arguments: ["--config", configURL.path, "--socket", directory.appending(path: "d.sock").path]),
+      menuBar: menuBar,
+      instanceLockURL: directory.appending(path: "d.lock"),
+      topologyStore: WorkspaceTopologyStore(url: directory.appending(path: "topology.json")),
+      workspaceStatePublisher: { _ in },
+      desktopSnapshotOverviewUpdater: { _ in }
+    )
+    defer { daemon.flushPendingTopologyWrite() }
+    let monitor = MonitorSnapshot(id: MonitorID(rawValue: 1), frame: Rect(x: 0, y: 0, width: 1_000, height: 700))
+    daemon.latestMonitors = [monitor]
+    daemon.activeMonitorID = monitor.id
+    daemon.state.attachMonitor(monitor.id)
+    // Frames at the layout's targets: the drag detection compares sizes with them.
+    func window(_ id: UInt64, x: Double) -> Window {
+      Window(id: WindowID(rawValue: id), appID: "app-\(id)", title: "Window \(id)",
+        frame: Rect(x: x, y: 12, width: 480, height: 676), monitorID: monitor.id)
+    }
+    let f = WindowID(rawValue: 1), g = WindowID(rawValue: 2)
+    for discovered in [window(1, x: 12), window(2, x: 508)] {
+      try discoverWindow(discovered, decision: RuleDecision(), isNativelyFocused: false, state: &daemon.state)
+    }
+    focusWindow(g, state: &daemon.state)
+    func columns() -> [[WindowID]] { daemon.state.monitors[0].workspaces[0].columns.map(\.windows) }
+    func sync(gAt x: Double, buttonDown: Bool, gesture: Bool) {
+      daemon.applyDesktopSnapshot(
+        DesktopSnapshot(monitors: [monitor], windows: [window(1, x: 12), window(2, x: x)], focusedWindowID: g,
+          externallyChangedFrames: gesture ? [g: window(2, x: x).frame] : [:], leftMouseButtonDown: buttonDown,
+          mouseResizeGestureObserved: gesture, mouseFocusIntentWindowID: g),
+        nativeFocusWasPending: false, forceFullWindowRefresh: false, forceWindowListRefresh: false,
+        forceApplicationInventoryRefresh: false, targetedWindowRetryRefresh: false,
+        consumePeriodicWindowRefresh: false)
+    }
+    leftPressPointerTravelled.store(true, ordering: .relaxed)
+    defer { leftPressPointerTravelled.store(false, ordering: .relaxed) }
+
+    sync(gAt: 508, buttonDown: false, gesture: false)
+    #expect(columns() == [[f], [g]])
+    daemon.beginMouseGesture()
+    sync(gAt: 260, buttonDown: true, gesture: true)
+    let rejected = MouseStackTarget(monitorID: monitor.id, workspaceID: daemon.state.monitors[0].workspaces[0].id,
+      columnIndex: 0, row: 0)
+    daemon.proxyPreviewTarget = .rejectedStack(rejected)
+    sync(gAt: 20, buttonDown: false, gesture: true)
+    #expect(columns() == [[f], [g]], "The rejected drop must change nothing")
+    #expect(daemon.platform.frameCoordinatorTrace.contains("mouse-drop window=2 target=rejectedStack"))
+    // The release's own mouse event can land after its snapshot and mark the next one.
+    sync(gAt: 10, buttonDown: false, gesture: true)
+    #expect(columns() == [[f], [g]], "A late gesture snapshot must not reorder the rejected window natively")
   }
 
   /// A floating window an app opens on another display, such as Settings where the app last
