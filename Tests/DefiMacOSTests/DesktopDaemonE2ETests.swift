@@ -207,6 +207,59 @@ extension DesktopE2ETests {
     XCTAssertTrue(daemon.settle(windows))
     let flick = try swipe(4, by: -400, every: 0.004)
     XCTAssertLessThanOrEqual(flick.count, 1, "A flick across columns must tap at most once; taps=\(flick)")
+||||||| parent of 2f4055ef (feat: close-window presses the window's close button)
+
+  func testCloseWindowWaitsForTheAppToDestroyIt() throws {
+    let lane = try daemonLane()
+    let daemon = try lane.startDaemon(config: "[layout]\ndefault_column_width = 0.3\n")
+    defer { daemon.stop() }
+    var windows: [DesktopFixtureWindow] = []
+    defer { windows.forEach { $0.close() } }
+    func open(refusesClose: Bool = false) throws -> UInt64 {
+      let window = try lane.openWindow(refusesClose: refusesClose, daemon: daemon)
+      windows.append(window)
+      return window.windowID
+    }
+    func managed() throws -> Set<UInt64> {
+      Set(try daemon.workspaces().monitors.flatMap(\.workspaces).flatMap(\.windows).map(\.id))
+    }
+    func gone(_ id: UInt64) -> Bool { pumpRunLoop(until: { (try? managed())?.contains(id) == false }, timeout: 5) }
+
+    let workspace = try daemon.switchToEmptyWorkspace()
+    let a = try open(), keeper = try open(refusesClose: true), stacked = try open()
+    try daemon.run("join-window left")
+    XCTAssertTrue(daemon.converge(workspace, to: [[a], [keeper, stacked]]), daemon.diagnostics(workspace))
+
+    XCTAssertEqual(try daemon.run("close-window"), "closing \(stacked)")
+    XCTAssertTrue(gone(stacked), "A stacked window must close; \(daemon.diagnostics(workspace))")
+    XCTAssertTrue(daemon.converge(workspace, to: [[a], [keeper]]), daemon.diagnostics(workspace))
+
+    try daemon.run("workspace \(workspace)")
+    try daemon.run("focus-column last")
+    XCTAssertTrue(pumpRunLoop(until: { (try? daemon.status("focused")) == "\(keeper)" }, timeout: 3))
+    XCTAssertEqual(try daemon.run("close-window"), "closing \(keeper)")
+    XCTAssertFalse(gone(keeper), "A window whose app refuses to close must stay managed")
+    XCTAssertEqual(try daemon.columns(workspace), [[a], [keeper]])
+    XCTAssertEqual(try daemon.status("focused"), "\(keeper)", "A refused close must keep focus")
+
+    let floating = try open()
+    try daemon.run("toggle-floating")
+    XCTAssertEqual(try daemon.run("close-window"), "closing \(floating)")
+    XCTAssertTrue(gone(floating), "A floating window must close")
+
+    try daemon.run("workspace \(workspace)")
+    try daemon.run("focus-column first")
+    XCTAssertTrue(pumpRunLoop(until: { (try? daemon.status("focused")) == "\(a)" }, timeout: 3))
+    XCTAssertTrue(pumpRunLoop(until: { daemon.settled() }, timeout: 5))
+    let toggled = try daemon.run("toggle-overview")
+    XCTAssertTrue(pumpRunLoop(until: { (try? daemon.status("overview")) == "open" }, timeout: 3),
+      "toggle-overview: \(toggled); \((try? daemon.run("status"))?.split(separator: " ").filter { $0.hasPrefix("overview") } ?? [])"
+        + "\n\(daemon.logTail())")
+    try daemon.run("close-window")
+    XCTAssertTrue(gone(a), "In the Overview, close-window must close the selected card's window")
+    try daemon.run("toggle-overview")
+
+    XCTAssertFalse(try daemon.send("close-window 1").ok, "An unknown ID must be refused")
   }
 
   private func daemonLane() throws -> DesktopDaemonLane {
@@ -237,8 +290,11 @@ struct DesktopDaemonLane {
   }
 
   /// Opens one fixture window and waits until the daemon tiles it, focused, as the last column.
-  func openWindow(minimumHeight: Double?, daemon: DesktopDaemon) throws -> DesktopFixtureWindow {
-    let window = try DesktopFixtureWindow(binary: fixtureBinary, minimumHeight: minimumHeight, pump: pump)
+  func openWindow(minimumHeight: Double? = nil, refusesClose: Bool = false, daemon: DesktopDaemon) throws
+    -> DesktopFixtureWindow
+  {
+    let window = try DesktopFixtureWindow(
+      binary: fixtureBinary, minimumHeight: minimumHeight, refusesClose: refusesClose, pump: pump)
     do {
       // Constraints are read when discovery adopts the window, a few hundred ms after it appears.
       guard pump({ (try? daemon.tiledWindowIDs())?.contains(window.windowID) == true }, 8) else {
@@ -503,7 +559,8 @@ final class DesktopFixtureWindow {
   private let pump: (() -> Bool, TimeInterval) -> Bool
   private var sequence = 0
 
-  init(binary: String, minimumHeight: Double?, pump: @escaping (() -> Bool, TimeInterval) -> Bool) throws {
+  init(binary: String, minimumHeight: Double?, refusesClose: Bool = false,
+    pump: @escaping (() -> Bool, TimeInterval) -> Bool) throws {
     self.pump = pump
     let token = UUID().uuidString.lowercased()
     directory = FileManager.default.temporaryDirectory.appending(path: "DefiClampFixture-\(token)")
@@ -519,6 +576,7 @@ final class DesktopFixtureWindow {
       process.executableURL = executable
       var environment = ProcessInfo.processInfo.environment
       environment["DEFI_FIXTURE_MIN"] = minimumHeight.map { "200,\(Int($0.rounded(.up)))" }
+      environment["DEFI_FIXTURE_REFUSE_CLOSE"] = refusesClose ? "1" : nil
       process.environment = environment
       process.standardInput = input
       process.standardOutput = output

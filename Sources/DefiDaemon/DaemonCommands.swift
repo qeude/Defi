@@ -414,10 +414,18 @@ extension Daemon {
       if case .spawnShell(let script) = parsedCommand {
         return spawnShell(script)
       }
+      if case .closeWindow(let windowID) = parsedCommand,
+        windowID != nil || monitorIndex != nil || !overviewState.isOpen
+      {
+        let monitorID = monitorIndex.map { self.monitorID(atAppKitIndex: $0) } ?? activeMonitorID
+        return closeWindow(windowID ?? monitorID.flatMap { state.selectedWindowID(on: $0) })
+      }
       if overviewState.isOpen, parsedCommand == .activateWindow {
         return .failure("the overview is open; choose a window there instead")
       }
-      if overviewState.isOpen, parsedCommand.editsSelectedLayout, monitorIndex == nil {
+      if overviewState.isOpen, parsedCommand.editsSelectedLayout || parsedCommand == .closeWindow(nil),
+        monitorIndex == nil
+      {
         let originatingSession = overviewToggleState.snapshot().sessionGeneration
         deferredResponse?.deferResponse()
         DispatchQueue.main.async { [weak self] in
@@ -1090,6 +1098,47 @@ func floatingWindowIDsMovedBetweenMonitors(
       else { return nil }
       return windowID
     })
+}
+
+@NavigationActor
+extension Daemon {
+  /// Presses the close button. The window stays managed until macOS destroys it, so a
+  /// window that answers with a sheet keeps its place and focus.
+  func closeWindow(_ windowID: WindowID?) -> CommandResponse {
+    guard let windowID else { return .failure("no focused window to close") }
+    guard let processID = state.windows[windowID]?.processID, platform.pressCloseButton(windowID) else {
+      return .failure("unknown window: \(windowID.rawValue)")
+    }
+    let timestamp = ProcessInfo.processInfo.systemUptime
+    platform.userInputTracker.record(timestamp: timestamp, closeIntent: true)
+    refreshAfterWindowClose(processID: processID, timestamp: timestamp, trackedWindowID: windowID)
+    return .success("closing \(windowID.rawValue)")
+  }
+
+  /// Apps report a closed window late or not at all; reread the process until it is gone.
+  func refreshAfterWindowClose(processID: pid_t, timestamp: TimeInterval, trackedWindowID: WindowID?) {
+    let previousWindowCount = state.windows.values.lazy.filter { $0.processID == processID }.count
+    for delay in windowCloseRefreshDelays {
+      NavigationActor.shared.queue.asyncAfter(deadline: .now() + .milliseconds(delay)) {
+        NavigationActor.assumeIsolated {
+          let input = self.platform.userInputTracker.snapshot
+          guard self.desktopSessionActive,
+            windowCloseRetryIsCurrent(
+              intentTimestamp: timestamp,
+              latestInputTimestamp: input.latestEventTimestamp,
+              latestCloseIntentTimestamp: input.latestCloseIntent
+            ),
+            trackedWindowID.map({ self.state.windows[$0] != nil }) ?? true,
+            self.state.windows.values.lazy.filter({ $0.processID == processID }).count >= previousWindowCount
+          else { return }
+          self.platform.recordPerformanceTrace("window-close-retry pid=\(processID) delay=\(delay)")
+          self.platform.requestWindowTopologyRefresh(processID: processID, inputTimestamp: timestamp)
+          self.needsDesktopSync = true
+          self.scheduleTick()
+        }
+      }
+    }
+  }
 }
 
 private func monitorIDsByWindow(

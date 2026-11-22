@@ -538,3 +538,31 @@ extension MacOSPlatform {
   }
 
 }
+
+extension MacOSPlatform {
+  /// Presses the window's close button off the input path. The window leaves the model only when
+  /// macOS reports it destroyed: an app may answer with a sheet and keep it.
+  public func pressCloseButton(_ windowID: WindowID) -> Bool {
+    guard let element = elements[windowID] else { return false }
+    let window = PreparedAXWindowElement(
+      windowID: windowID, processID: processIDs[windowID] ?? 0, element: element, usesBatchedAttributeReads: false)
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      let element = window.element
+      let result = AXMessagingTimeoutAccess.shared.withTimeout(1, elements: [element]) { () -> AXError in
+        var button: CFTypeRef?
+        let read = AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &button)
+        guard read == .success, let button, CFGetTypeID(button) == AXUIElementGetTypeID() else {
+          return read == .success ? .attributeUnsupported : read
+        }
+        let closeButton = unsafeDowncast(button, to: AXUIElement.self)
+        return performAccessibilityWrite(on: closeButton) {
+          AXUIElementPerformAction(closeButton, kAXPressAction as CFString)
+        }
+      }.rawValue
+      NavigationActor.enqueue {
+        self?.recordPerformanceTrace("close-window window=\(windowID.rawValue) result=\(result)")
+      }
+    }
+    return true
+  }
+}

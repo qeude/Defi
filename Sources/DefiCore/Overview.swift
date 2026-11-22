@@ -634,3 +634,32 @@ private extension Rect {
       && y < other.y + other.height && y + height > other.y
   }
 }
+
+/// The card that takes a closed window's selection, as `removeWindow` moves focus: the next
+/// window of its layer or column, else the previous one, else the column to the right, else
+/// the one to the left. Only windows still in `remaining` qualify.
+public func overviewNeighbor(
+  ofClosed windowID: WindowID, in workspace: Workspace, remaining: Workspace
+) -> WindowID? {
+  let survivors = Set(remaining.columns.flatMap(\.windows) + remaining.floatingWindows)
+  func after(_ windows: [WindowID], _ index: Int) -> [WindowID] {
+    Array(windows[(index + 1)...]) + windows[..<index].reversed()
+  }
+  func focusedFirst(_ column: Column) -> [WindowID] {
+    column.windows.indices.contains(column.focusedWindow)
+      ? [column.windows[column.focusedWindow]] + column.windows : column.windows
+  }
+  let candidates: [WindowID]
+  if let index = workspace.floatingWindows.firstIndex(of: windowID) {
+    candidates = after(workspace.floatingWindows, index) + workspace.columns.flatMap(focusedFirst)
+  } else if let column = workspace.columns.firstIndex(where: { $0.windows.contains(windowID) }),
+    let row = workspace.columns[column].windows.firstIndex(of: windowID)
+  {
+    let columns = workspace.columns
+    candidates = after(columns[column].windows, row)
+      + (columns[(column + 1)...] + columns[..<column].reversed()).flatMap(focusedFirst)
+  } else {
+    return nil
+  }
+  return candidates.first(where: survivors.contains)
+}

@@ -29,7 +29,7 @@ final class HotKeyRegistration: @unchecked Sendable {
   @MainActor private var observer: CFRunLoopObserver?
   @MainActor private var suspended: Bool?
   @MainActor private var bindings: [Key: (accelerator: String, command: String)]
-  @MainActor private var closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
+  @MainActor private var closeWindowKeyCodes = CloseWindowKeyCodes()
   @MainActor private var layoutObserver: KeyboardLayoutObserver?
   /// Accelerators whose chord another app already reserves; a layout change or reload retries them.
   @MainActor private var held: [String] = []

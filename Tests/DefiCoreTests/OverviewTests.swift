@@ -667,3 +667,32 @@ struct OverviewTests {
     )
   }
 }
+
+struct OverviewNeighborTests {
+  private func id(_ raw: UInt64) -> WindowID { WindowID(rawValue: raw) }
+  private func workspace(_ columns: [[UInt64]], floating: [UInt64] = []) -> Workspace {
+    Workspace(id: WorkspaceID(rawValue: "w"),
+      columns: columns.map { Column(windows: $0.map(id), focusedWindow: 0, width: .fraction(0.5)) },
+      floatingWindows: floating.map(id))
+  }
+
+  // closed window, columns before, columns after, expected selection
+  @Test(arguments: [
+    (2, [[1, 2, 3]], [[1, 3]], 3),
+    (3, [[1, 2, 3]], [[1, 2]], 2),
+    (2, [[1], [2], [3]], [[1], [3]], 3),
+    (3, [[1], [2], [3]], [[1], [2]], 2),
+    (1, [[1]], [], nil),
+  ] as [(UInt64, [[UInt64]], [[UInt64]], UInt64?)])
+  func tiledNeighbor(closed: UInt64, before: [[UInt64]], after: [[UInt64]], expected: UInt64?) {
+    #expect(overviewNeighbor(ofClosed: id(closed), in: workspace(before), remaining: workspace(after))
+      == expected.map(id))
+  }
+
+  @Test func floatingNeighborPrefersFloatingThenTiled() {
+    #expect(overviewNeighbor(ofClosed: id(5), in: workspace([[1]], floating: [4, 5]),
+      remaining: workspace([[1]], floating: [4])) == id(4))
+    #expect(overviewNeighbor(ofClosed: id(5), in: workspace([[1]], floating: [5]),
+      remaining: workspace([[1]])) == id(1))
+  }
+}

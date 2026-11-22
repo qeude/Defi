@@ -625,6 +625,16 @@ public final class OverviewController: NSObject {
       previewPermissionState = windowPreviewsEnabled ? .notDetermined : .disabled
     }
     self.snapshot = snapshot
+    // A closed card hands its selection to a neighbor only once macOS destroyed its window.
+    if case .window(let windowID, let monitorID, let workspaceID)? = selection, snapshot.windows[windowID] == nil,
+      let before = previousSnapshot?.workspace(workspaceID, on: monitorID),
+      let after = snapshot.workspace(workspaceID, on: monitorID),
+      let neighbor = overviewNeighbor(ofClosed: windowID, in: before, remaining: after)
+    {
+      selection = .window(windowID: neighbor, monitorID: monitorID, workspaceID: workspaceID)
+      hasDeferredSelection = true
+      alignSelectionOnNextUpdate = true
+    }
     selectionsByWorkspace = selectionsByWorkspace.filter { $0.value.isValid(in: snapshot) }
     previews = previews.filter { id, picture in
       snapshot.windows[id].map { $0.processID == picture.processID && $0.appID == picture.appID } == true
@@ -968,8 +978,9 @@ public final class OverviewController: NSObject {
   {
     guard isOpen, !selectionCommitPending, let snapshot, let selection,
       let windowID = selection.windowID, let window = snapshot.windows[windowID],
-      !snapshot.nativeFullscreenWindowIDs.contains(windowID), window.transientOwnerID == nil,
-      !window.floating || command == .toggleFloating else { return nil }
+      command == .closeWindow(nil) || (!snapshot.nativeFullscreenWindowIDs.contains(windowID)
+        && window.transientOwnerID == nil && (!window.floating || command == .toggleFloating))
+    else { return nil }
     hasDeferredSelection = true
     return (windowID, window.appID, selection.location.monitorID, selection.location.workspaceID)
   }
@@ -2217,6 +2228,10 @@ private struct OverviewTiledPosition: Equatable {
 }
 
 private extension OverviewSnapshot {
+  func workspace(_ workspaceID: WorkspaceID, on monitorID: MonitorID) -> Workspace? {
+    monitors.first { $0.id == monitorID }?.workspaces.first { $0.id == workspaceID }
+  }
+
   func location(of windowID: WindowID) -> OverviewLocation? {
     for monitor in monitors {
       for workspace in monitor.workspaces
