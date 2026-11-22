@@ -1,0 +1,13 @@
+{
+  "disposition" : "ignored",
+  "reason" : "text-accessory",
+  "window" : {
+    "appID" : "com.apple.TextEdit",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXDialog",
+    "title" : ""
+  }
+}

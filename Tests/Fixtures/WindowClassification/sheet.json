@@ -1,0 +1,12 @@
+{
+  "disposition" : "floating",
+  "reason" : "sheet",
+  "window" : {
+    "appID" : "com.example.app",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXSheet",
+    "title" : ""
+  }
+}

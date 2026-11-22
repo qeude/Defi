@@ -578,15 +578,14 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           let previousDisposition = previousWindowID.map {
             floatingWindowIDs.contains($0) ? WindowDisposition.floating : .tiled
           }
-          let disposition = AXMessagingTimeoutAccess.shared.withTimeout(
+          let classification = AXMessagingTimeoutAccess.shared.withTimeout(
             accessibilityReadTimeoutSeconds,
             elements: [element]
           ) {
             windowDisposition(
               candidate,
               element: element,
-              configuredFloating: decision.floating,
-              forceTiling: decision.forceTiling,
+              rule: decision.window,
               previousDisposition: previousDisposition,
               // A known window keeps its close button and resizability; modal state is re-read.
               reuseCachedCapabilities: !refreshesWindowList || previousWindowID != nil,
@@ -595,6 +594,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
               } : nil
             )
           }
+          let disposition = classification.disposition
           switch disposition {
           case .unavailable:
             unresolvedOutcomesByProcess[processID, default: []].insert("AX-management-metadata-unavailable")
@@ -610,9 +610,7 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
             }
             continue
           case .ignored:
-            ignoredWindowReasonsByID[candidate.id] = windowExclusionReason(
-              appID: candidate.appID, role: candidate.role, subrole: candidate.subrole
-            )
+            ignoredWindowReasonsByID[candidate.id] = classification.reason
             if let previousWindowID {
               ignoredPreviousWindowIDs.insert(previousWindowID)
             }
