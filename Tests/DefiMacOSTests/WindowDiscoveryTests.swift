@@ -276,6 +276,23 @@ struct WindowDiscoveryTests {
       ).map(\.id) == expected)
   }
 
+  @Test
+  func `A picture in picture window stays unmanaged so it shows on every workspace`() {
+    // It would float, and a floating window parks with its workspace; its layer keeps it unmatched.
+    #expect(classifyWindow(role: kAXWindowRole, subrole: kAXStandardWindowSubrole, appID: "com.example.browser",
+      hasCloseButton: false, canResize: false, configuredFloating: false, forceTiling: false) == .floating)
+    let frame = Rect(x: 900, y: 600, width: 320, height: 180)
+    let browser = CGWindowRecord(id: 1, processID: 42, layer: 0, title: "Video",
+      frame: Rect(x: 0, y: 0, width: 1200, height: 800))
+    let pip = CGWindowRecord(id: 2, processID: 42, layer: 3, title: "Picture in Picture", frame: frame)
+    let eligible = eligibleCGWindowRecords(role: kAXWindowRole, for: kAXStandardWindowSubrole, in: [browser, pip])
+    #expect(eligible.map(\.id) == [browser.id])
+    for axWindowID in [nil, pip.id] as [CGWindowID?] {
+      #expect(cgWindowRecordForDiscovery(axWindowID: axWindowID, preferredWindowID: nil, processID: 42,
+        title: pip.title, frame: frame, records: eligible, excluding: []) == nil)
+    }
+  }
+
   // role, subrole, app, close button, resizable, modal, configured floating, force tiling -> disposition
   @Test(arguments: [
     (kAXWindowRole, kAXStandardWindowSubrole, "net.imput.helium", true, true, false, false, false, .tiled),
