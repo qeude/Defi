@@ -546,6 +546,12 @@ extension MacOSPlatform {
     guard let element = elements[windowID] else { return false }
     let window = PreparedAXWindowElement(
       windowID: windowID, processID: processIDs[windowID] ?? 0, element: element, usesBatchedAttributeReads: false)
+    pressCloseButton(window, retries: [0.1, 0.25, 0.5])
+    return true
+  }
+
+  // An app still handling a frame change or launch answers cannotComplete; a later press lands.
+  private func pressCloseButton(_ window: PreparedAXWindowElement, retries: ArraySlice<TimeInterval>) {
     DispatchQueue.global(qos: .userInitiated).async { [weak self] in
       let element = window.element
       let result = AXMessagingTimeoutAccess.shared.withTimeout(1, elements: [element]) { () -> AXError in
@@ -558,11 +564,14 @@ extension MacOSPlatform {
         return performAccessibilityWrite(on: closeButton) {
           AXUIElementPerformAction(closeButton, kAXPressAction as CFString)
         }
-      }.rawValue
+      }
       NavigationActor.enqueue {
-        self?.recordPerformanceTrace("close-window window=\(windowID.rawValue) result=\(result)")
+        self?.recordPerformanceTrace("close-window window=\(window.windowID.rawValue) result=\(result.rawValue)")
+      }
+      guard result == .cannotComplete, let delay = retries.first else { return }
+      DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) {
+        self?.pressCloseButton(window, retries: retries.dropFirst())
       }
     }
-    return true
   }
 }
