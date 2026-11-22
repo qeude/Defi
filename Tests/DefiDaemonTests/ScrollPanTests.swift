@@ -85,3 +85,34 @@ struct ScrollPanTests {
     #expect(daemon.focus.submittedCommandFocus == nil)
   }
 }
+
+struct ScrollPanLandingTests {
+  @Test
+  func `A sideways swipe lands on each column it passes, as a release there would`() {
+    let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    let settings = LayoutSettings(innerHorizontalGap: 0, outerRightGap: 0, outerLeftGap: 0)
+    let workspace = Workspace(id: WorkspaceID(rawValue: "a"),
+      columns: (1...4).map { Column(window: WindowID(rawValue: UInt64($0)), width: .fraction(0.5)) })
+    let pan = ScrollPan(id: 1, vertical: false, monitorID: MonitorID(rawValue: 1),
+      workspaceID: workspace.id, viewport: viewport, start: 0, scale: viewport.width / scrollPanWidthTravel,
+      bounds: -1_000...0, dimension: viewport.width, stiffness: 0.55, rest: 0, stripWidth: 1_000,
+      workspaceHeight: 700, steps: 0...0)
+    // Half-width columns rest at 0 (the first two), 0.5 and 1: the second is in view from the start.
+    var landings: [Int] = []
+    for travel in stride(from: 0.0, through: -2_000, by: -25) {
+      guard let column = pan.landing(travel: travel, workspace: workspace, windows: [], settings: settings,
+        snaps: true)?.column else { continue }
+      if landings.last != column { landings.append(column) }
+    }
+    #expect(landings == [0, 2, 3])
+  }
+
+  @Test
+  func `A vertical swipe lands on the nearest workspace in reach`() {
+    let pan = ScrollPan(id: 1, vertical: true, monitorID: MonitorID(rawValue: 1),
+      workspaceID: WorkspaceID(rawValue: "a"), viewport: Rect(x: 0, y: 0, width: 1_000, height: 700),
+      start: 0, scale: 700 / scrollPanWorkspaceTravel, bounds: -700...700, dimension: 35, stiffness: 0.5,
+      rest: 0, stripWidth: 1_000, workspaceHeight: 700, steps: -1...1)
+    #expect([0, -150, -250, -2_000, 250].map { pan.step(travel: $0) } == [0, 0, 1, 1, -1])
+  }
+}

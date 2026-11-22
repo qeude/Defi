@@ -796,6 +796,8 @@ starts with the modifier held works on the display under the pointer:
   would stop.
 - A **mouse wheel** focuses one column per notch sideways (or with Shift), and one
   workspace per notch vertically, at most one every 150 ms.
+- On a Force Touch trackpad, a light tap marks each column, or workspace, the
+  swipe would land on if you let go there. A fast flick taps once.
 
 <details>
 <summary>Gesture details</summary>

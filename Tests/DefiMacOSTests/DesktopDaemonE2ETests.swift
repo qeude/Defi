@@ -155,6 +155,60 @@ extension DesktopE2ETests {
     XCTAssertEqual(try daemon.appliedWrites(to: huge, over: 3), 0, "An oversized window must not be resized again")
   }
 
+  func testScrollGestureTapsOncePerColumnItWouldLandOn() throws {
+    let lane = try daemonLane()
+    let daemon = try lane.startDaemon(config: """
+      [layout]
+      default_column_width = 0.3
+      [input]
+      scroll_gestures = true
+      scroll_gesture_modifier = "ctrl+alt"
+      """)
+    defer { daemon.stop() }
+    var windows: [DesktopFixtureWindow] = []
+    defer { windows.forEach { $0.close() } }
+    let workspace = try daemon.switchToEmptyWorkspace()
+    for _ in 1...6 { windows.append(try lane.openWindow(minimumHeight: nil, daemon: daemon)) }
+    try daemon.run("focus-column first")
+    XCTAssertTrue(daemon.converge(workspace) { $0.count == 6 } && daemon.settle(windows))
+
+    /// Posts one modified two-finger swipe of `steps` deltas, `interval` apart, and returns the
+    /// landings its haptic taps reported.
+    func swipe(_ steps: Int, by delta: Int32, every interval: TimeInterval) throws -> [Int] {
+      var recording = try daemon.startRecording()
+      let display = CGDisplayBounds(CGMainDisplayID())
+      CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+        mouseCursorPosition: CGPoint(x: display.midX, y: display.midY), mouseButton: .left)?.post(tap: .cghidEventTap)
+      let events: [(phase: Int64, dx: Int32)] = [(1, 0)] + Array(repeating: (2, delta), count: steps) + [(4, 0)]
+      for event in events {
+        guard let scroll = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+          wheel1: 0, wheel2: event.dx, wheel3: 0) else { continue }
+        scroll.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        scroll.setIntegerValueField(.scrollWheelEventScrollPhase, value: event.phase)
+        scroll.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(event.dx))
+        scroll.flags = [.maskControl, .maskAlternate]
+        scroll.post(tap: .cghidEventTap)
+        let deadline = Date().addingTimeInterval(interval)
+        repeat { Thread.sleep(forTimeInterval: 0.005); try daemon.record(&recording) } while Date() < deadline
+      }
+      _ = pumpRunLoop(until: { daemon.settled() }, timeout: 3)
+      try daemon.record(&recording)
+      let tap = "scroll-pan-haptic "
+      return recording.events.filter { $0.hasPrefix(tap) }
+        .compactMap { $0.split(separator: " ").last.flatMap { Int($0.dropFirst("landing=".count)) } }
+    }
+
+    let slow = try swipe(40, by: -40, every: 0.02)
+    XCTAssertGreaterThanOrEqual(slow.count, 2, "A slow swipe across columns must tap for each; taps=\(slow)")
+    XCTAssertEqual(slow, slow.sorted(), "Swiping one way must tap for columns in order; taps=\(slow)")
+    XCTAssertEqual(Set(slow).count, slow.count, "No column may tap twice; taps=\(slow)")
+
+    try daemon.run("focus-column first")
+    XCTAssertTrue(daemon.settle(windows))
+    let flick = try swipe(4, by: -400, every: 0.004)
+    XCTAssertLessThanOrEqual(flick.count, 1, "A flick across columns must tap at most once; taps=\(flick)")
+  }
+
   private func daemonLane() throws -> DesktopDaemonLane {
     let environment = ProcessInfo.processInfo.environment
     var virtualMachine: Int32 = 0

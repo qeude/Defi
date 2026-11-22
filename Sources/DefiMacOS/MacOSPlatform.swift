@@ -72,9 +72,13 @@ public final class MacOSPlatform {
     let trackpad = leftDragFromTrackpad.load(ordering: .relaxed)
     recordPerformanceTrace("drop-slot-haptic trackpad=\(trackpad)")
     guard trackpad else { return }
-    DispatchQueue.main.async {
-      NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
-    }
+    DispatchQueue.main.async { playAlignmentHaptic() }
+  }
+  /// Taps the trackpad each time the column, or workspace, that releasing scroll gesture `id`
+  /// at a travel would land on changes. `landing` runs on the main queue.
+  public func beginScrollPanDetents(_ id: UInt64, landing: @escaping @Sendable (Double) -> Int?) {
+    let coordinator = frameCoordinator
+    ScrollPanDetents.shared.begin(id, landing: landing) { coordinator.recordTrace($0) }
   }
   private var windowProxyPreview: (frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?, hint: Rect?)?
   private var windowProxyHostRetryAt: TimeInterval = 0
@@ -176,12 +180,14 @@ public final class MacOSPlatform {
 
   /// The gesture released: the next animated layout settles the strip from where it is drawn.
   public func endScrollPan(velocity: Double, vertical: Bool) {
+    ScrollPanDetents.shared.end()
     scrollPanDisplay.map { RibbonProxyPresenter.on($0).endPan(velocity: velocity, vertical: vertical) }
     scrollPanDisplay = nil
   }
 
   /// The gesture gave way to something else: the windows show where they really are.
   public func cancelScrollPan() {
+    ScrollPanDetents.shared.end()
     scrollPanDisplay.map { RibbonProxyPresenter.on($0).cancel("scroll-pan") }
     scrollPanDisplay = nil
   }
