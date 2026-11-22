@@ -35,7 +35,10 @@ public func parkedFrame(
       width: width, height: height + parkingVerticalSlack
     )
     let own = horizontalOverlap(candidate, display)
-    return otherDisplays.reduce(0) { total, other in
+    // macOS pulls a window out from under a side Dock until part of it shows, so that edge leaks.
+    let leftDock = candidate.x < left ? visibleFrame.x - left : 0
+    let rightDock = candidate.x + width > right ? right - visibleFrame.x - visibleFrame.width : 0
+    return max(leftDock, rightDock, 0) * height + otherDisplays.reduce(0) { total, other in
       let shared = horizontalOverlap(candidate, other)
       return total + (shared > own ? shared * height : intersectionArea(probe, other))
     }

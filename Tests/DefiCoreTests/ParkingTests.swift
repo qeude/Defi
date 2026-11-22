@@ -47,6 +47,8 @@ struct ParkingTests {
     (externalFrame, externalVisible, [sideFrame], -1_199, 40),
     (sideFrame, sideVisible, [externalFrame], 4_071, 423),
     (externalFrame, externalVisible, [Rect(x: 0, y: 1_440, width: 1_512, height: 982)], -1_199, 40),
+    // macOS keeps a window clear of a side Dock, so the edge away from it takes it
+    (externalFrame, Rect(x: 46, y: 30, width: 2_514, height: 1_367), [], 2_559, 40),
   ] as [(Rect, Rect, [Rect], Double, Double)])
   func `Each display parks at a free side edge`(display: Rect, visible: Rect, others: [Rect], x: Double,
     y: Double) {
