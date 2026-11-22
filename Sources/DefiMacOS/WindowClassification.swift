@@ -11,6 +11,8 @@ struct WindowClassificationInput: Codable, Equatable, Sendable {
   var subrole: String?
   var title = ""
   var identifier: String?
+  var bundlePath: String?
+  var childRoles: [String]?
   /// Each button is nil when the window has none, else whether it is enabled.
   var closeButton: Bool?
   var zoomButton: Bool?
@@ -31,6 +33,35 @@ struct WindowClassificationReport: Codable, Equatable, Sendable {
   var window: WindowClassificationInput
   var disposition: WindowDisposition
   var reason: String
+}
+
+// Built-in placement for apps the general rules misread. Every `[[rules]]` `window` value overrides it.
+private let builtinIgnoredWindowIdentifiers: [String: String] = [
+  "com.apple.dt.xcode": "open_quickly",
+  "com.mitchellh.ghostty": "com.mitchellh.ghostty.quickTerminal",
+]
+/// Their hotkey windows are the only standard windows without a full-screen button.
+private let builtinHotkeyWindowApplicationIDs: Set<String> = ["com.googlecode.iterm2"]
+/// Their floating windows are child frames inside another window.
+private let builtinChildFrameApplicationIDs: Set<String> = ["org.gnu.emacs"]
+/// Their windows tile without title bar buttons: terminals that hide the title bar, and editors.
+private let builtinTiledWithoutButtonsApplicationIDs: Set<String> = [
+  "com.github.wez.wezterm",
+  "com.googlecode.iterm2",
+  "com.microsoft.vscode",
+  "com.vscodium",
+  "net.kovidgoyal.kitty",
+  "org.alacritty",
+]
+private let inputMethodBundleDirectory = "/Library/Input Methods/"
+private let menuRoles: Set<String> = ["AXMenu", "AXMenuItem", "AXPopover"]
+
+func readsButtonsWithoutChrome(appID: String) -> Bool {
+  builtinTiledWithoutButtonsApplicationIDs.contains(appID.lowercased())
+}
+
+func readsIdentifier(appID: String) -> Bool {
+  builtinIgnoredWindowIdentifiers[appID.lowercased()] != nil
 }
 
 private let ignoredWindowApplicationIDs: Set<String> = [
@@ -107,6 +138,18 @@ func windowButtonState(_ element: AXUIElement, _ attribute: String) -> Bool? {
   return enabled as? Bool ?? true
 }
 
+/// The roles of a window's first children: a Qt menu is a dialog holding a menu.
+func windowChildRoles(_ element: AXUIElement) -> [String] {
+  var children: CFTypeRef?
+  AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &children)
+  // shortcut: reads three children at most; read more if an app nests its menu deeper in the list.
+  return (children as? [AXUIElement] ?? []).prefix(3).compactMap { child in
+    var role: CFTypeRef?
+    AXUIElementCopyAttributeValue(child, kAXRoleAttribute as CFString, &role)
+    return role as? String
+  }
+}
+
 func classifyWindow(_ window: WindowClassificationInput, rule: RuleWindow?) -> WindowClassification {
   func outcome(_ disposition: WindowDisposition, _ reason: String) -> WindowClassification {
     WindowClassification(disposition: disposition, reason: reason)
@@ -119,6 +162,23 @@ func classifyWindow(_ window: WindowClassificationInput, rule: RuleWindow?) -> W
   case .forceTiled: return outcome(.tiled, "rule:force-tiled")
   case .forceFloating: return outcome(.floating, "rule:force-floating")
   case nil: break
+  }
+  if let identifier = window.identifier, builtinIgnoredWindowIdentifiers[appID] == identifier {
+    return outcome(.ignored, "builtin:\(identifier)")
+  }
+  if window.bundlePath?.contains(inputMethodBundleDirectory) == true { return outcome(.ignored, "builtin:input-method") }
+  if window.role.map(menuRoles.contains) == true
+    || (window.subrole == kAXDialogSubrole && window.childRoles?.contains(kAXMenuRole) == true)
+  {
+    return outcome(.ignored, "builtin:menu")
+  }
+  if builtinChildFrameApplicationIDs.contains(appID), window.subrole == kAXFloatingWindowSubrole {
+    return outcome(.ignored, "builtin:child-frame")
+  }
+  if builtinHotkeyWindowApplicationIDs.contains(appID), window.subrole == kAXStandardWindowSubrole,
+    window.fullScreenButton == nil
+  {
+    return outcome(.ignored, "builtin:hotkey-window")
   }
   if window.subrole == kAXDialogSubrole,
     isSystemTextAccessory(title: window.title, hasCloseButton: window.closeButton != nil, isModal: window.modal)
@@ -139,6 +199,9 @@ func classifyWindow(_ window: WindowClassificationInput, rule: RuleWindow?) -> W
   guard let subrole = window.subrole else { return outcome(.unavailable, "subrole-unavailable") }
   if isAppDrawnPopup(subrole: subrole, isModal: false) { return outcome(.ignored, "app-drawn-popup") }
   if subrole == kAXStandardWindowSubrole {
+    if builtinTiledWithoutButtonsApplicationIDs.contains(appID), window.resizable {
+      return outcome(.tiled, "builtin:tiles-without-buttons")
+    }
     guard window.closeButton != nil else { return outcome(.floating, "no-close-button") }
     guard window.resizable else { return outcome(.floating, "fixed-size") }
     // A window without an enabled full-screen or zoom button is not designed to be big, such as Finder copy progress.
@@ -178,6 +241,8 @@ extension MacOSPlatform {
       subrole: read(kAXSubroleAttribute) as? String,
       title: read(kAXTitleAttribute) as? String ?? "",
       identifier: read(kAXIdentifierAttribute) as? String,
+      bundlePath: application.bundleURL?.path,
+      childRoles: windowChildRoles(element),
       closeButton: windowButtonState(element, kAXCloseButtonAttribute),
       zoomButton: windowButtonState(element, kAXZoomButtonAttribute),
       fullScreenButton: windowButtonState(element, kAXFullScreenButtonAttribute),

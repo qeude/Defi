@@ -1,0 +1,14 @@
+{
+  "disposition" : "floating",
+  "reason" : "rule:force-floating",
+  "rule" : "force-floating",
+  "window" : {
+    "appID" : "net.kovidgoyal.kitty",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : true,
+    "role" : "AXWindow",
+    "subrole" : "AXStandardWindow",
+    "title" : "zsh"
+  }
+}

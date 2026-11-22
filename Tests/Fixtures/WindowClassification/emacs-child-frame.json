@@ -1,0 +1,13 @@
+{
+  "disposition" : "ignored",
+  "reason" : "builtin:child-frame",
+  "window" : {
+    "appID" : "org.gnu.Emacs",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXFloatingWindow",
+    "title" : ""
+  }
+}

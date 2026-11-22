@@ -1,0 +1,14 @@
+{
+  "disposition" : "ignored",
+  "reason" : "builtin:input-method",
+  "window" : {
+    "appID" : "com.apple.inputmethod.Kotoeri.RomajiTyping",
+    "bundlePath" : "/System/Library/Input Methods/JapaneseIM-RomajiTyping.app",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXFloatingWindow",
+    "title" : ""
+  }
+}

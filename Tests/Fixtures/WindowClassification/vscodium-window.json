@@ -1,0 +1,16 @@
+{
+  "disposition" : "tiled",
+  "reason" : "builtin:tiles-without-buttons",
+  "window" : {
+    "appID" : "com.vscodium",
+    "closeButton" : true,
+    "fullScreenButton" : false,
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : true,
+    "role" : "AXWindow",
+    "subrole" : "AXStandardWindow",
+    "title" : "Welcome",
+    "zoomButton" : false
+  }
+}

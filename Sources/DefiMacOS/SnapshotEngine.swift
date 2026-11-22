@@ -54,7 +54,7 @@ final class SnapshotEngine: @unchecked Sendable {
   var readApplicationFacts: (pid_t, NSRunningApplication?) -> RunningApplicationFacts? = { processID, application in
     (application ?? NSRunningApplication(processIdentifier: processID)).map {
       RunningApplicationFacts(terminated: $0.isTerminated, regular: $0.activationPolicy == .regular,
-        bundleIdentifier: $0.bundleIdentifier, localizedName: $0.localizedName)
+        bundleIdentifier: $0.bundleIdentifier, localizedName: $0.localizedName, bundlePath: $0.bundleURL?.path)
     }
   }
 
@@ -1132,15 +1132,27 @@ extension SnapshotEngine {
   ) -> WindowClassification {
     // Discovery already dropped windows whose layer is ineligible.
     var input = WindowClassificationInput(
-      appID: window.appID, role: window.role, subrole: window.subrole, title: window.title)
+      appID: window.appID, role: window.role, subrole: window.subrole, title: window.title,
+      bundlePath: window.processID.flatMap { applicationFacts($0, nil, refresh: false)?.bundlePath })
+    func readIdentifier() -> String? {
+      guard readsIdentifier(appID: window.appID) else { return nil }
+      var identifier: CFTypeRef?
+      AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &identifier)
+      return identifier as? String
+    }
     if rule != nil || window.role != kAXWindowRole || window.subrole != kAXStandardWindowSubrole {
-      if rule == nil, window.subrole == kAXDialogSubrole, window.title.isEmpty {
+      guard rule == nil else { return classifyWindow(input, rule: rule) }
+      input.identifier = readIdentifier()
+      if window.subrole == kAXDialogSubrole {
+        input.childRoles = windowChildRoles(element)
+      }
+      if window.subrole == kAXDialogSubrole, window.title.isEmpty {
         var close: CFTypeRef?, modal: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &close)
         AXUIElementCopyAttributeValue(element, kAXModalAttribute as CFString, &modal)
         input.closeButton = close == nil ? nil : true
         input.modal = modal as? Bool ?? false
-      } else if rule == nil, isAppDrawnPopup(subrole: window.subrole, isModal: false) {
+      } else if isAppDrawnPopup(subrole: window.subrole, isModal: false) {
         // Only popup subroles hinge on modality: a modal one is a real dialog.
         input.modal = preparedModalState ?? {
           var modal: CFTypeRef?
@@ -1148,7 +1160,7 @@ extension SnapshotEngine {
           return modal as? Bool ?? false
         }()
       }
-      return classifyWindow(input, rule: rule)
+      return classifyWindow(input, rule: nil)
     }
     if reuseCachedCapabilities,
       var capabilities = windowManagementCapabilities[window.id]
@@ -1225,10 +1237,11 @@ extension SnapshotEngine {
       isSettable: sizeSettable.boolValue
     )
     // Only a window that would tile needs the extra reads.
-    let growable = hasCloseButton && canResize
+    let growable = hasCloseButton && canResize || readsButtonsWithoutChrome(appID: window.appID)
     let capabilities = WindowManagementCapabilities(
       hasCloseButton: hasCloseButton,
       canResize: canResize,
+      identifier: readIdentifier(),
       zoomButton: growable ? windowButtonState(element, kAXZoomButtonAttribute) : nil,
       fullScreenButton: growable ? windowButtonState(element, kAXFullScreenButtonAttribute) : nil,
       isModal: isModal
@@ -1534,6 +1547,7 @@ struct RunningApplicationFacts: Equatable {
   let regular: Bool
   let bundleIdentifier: String?
   let localizedName: String?
+  var bundlePath: String?
 }
 
 private struct Storage {

@@ -1,0 +1,14 @@
+{
+  "disposition" : "ignored",
+  "reason" : "builtin:input-method",
+  "window" : {
+    "appID" : "im.rime.inputmethod.Squirrel",
+    "bundlePath" : "/Library/Input Methods/Squirrel.app",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXFloatingWindow",
+    "title" : ""
+  }
+}

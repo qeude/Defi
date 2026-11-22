@@ -291,11 +291,12 @@ title = "picture-in-picture"
 window = "force-floating"
 ```
 
-Tile a terminal that hides its title bar buttons, which would otherwise float:
+Tile an app that hides its title bar buttons, which would otherwise float.
+kitty, Alacritty, WezTerm, iTerm2, VS Code, and VSCodium already tile:
 
 ```toml
 [[rules]]
-app_id = "net.kovidgoyal.kitty"
+app_id = "org.example.terminal"
 window = "force-tiled"
 ```
 
@@ -339,6 +340,12 @@ system-floating windows are app-drawn menus or palettes and stay unmanaged;
 and position, park with their workspace, and stay on their monitor.
 `window = "force-tiled"` also tiles the app's dialogs and fixed-size windows, so
 add `title` when only one window needs it.
+
+Some apps get built-in placement. Resizable standard windows of kitty,
+Alacritty, WezTerm, iTerm2, VS Code, and VSCodium tile even without title bar
+buttons. Defi never manages Ghostty's quick terminal, Xcode's Open Quickly,
+iTerm2's hotkey window, Emacs child frames, input method windows, or menus that
+Qt apps draw as windows. A `window` rule overrides all of these.
 
 Initial widths do not override later manual resizing or widths restored on
 daemon restart. Tiled windows still fill the available height.

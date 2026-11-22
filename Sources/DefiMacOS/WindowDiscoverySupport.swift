@@ -582,6 +582,7 @@ func frameFromAXValues(
 struct WindowManagementCapabilities: Equatable {
   let hasCloseButton: Bool
   let canResize: Bool
+  let identifier: String?
   let zoomButton: Bool?
   let fullScreenButton: Bool?
   var isModal: Bool
@@ -589,6 +590,7 @@ struct WindowManagementCapabilities: Equatable {
   func apply(to input: inout WindowClassificationInput) {
     input.closeButton = hasCloseButton ? true : nil
     input.resizable = canResize
+    input.identifier = identifier
     input.zoomButton = zoomButton
     input.fullScreenButton = fullScreenButton
     input.modal = isModal

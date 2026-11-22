@@ -1,0 +1,13 @@
+{
+  "disposition" : "tiled",
+  "reason" : "builtin:tiles-without-buttons",
+  "window" : {
+    "appID" : "com.github.wez.wezterm",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : true,
+    "role" : "AXWindow",
+    "subrole" : "AXStandardWindow",
+    "title" : "zsh"
+  }
+}

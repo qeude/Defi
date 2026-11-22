@@ -1,0 +1,14 @@
+{
+  "disposition" : "ignored",
+  "reason" : "builtin:open_quickly",
+  "window" : {
+    "appID" : "com.apple.dt.Xcode",
+    "identifier" : "open_quickly",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXDialog",
+    "title" : "Open Quickly"
+  }
+}

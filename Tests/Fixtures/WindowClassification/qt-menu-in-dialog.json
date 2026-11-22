@@ -1,0 +1,16 @@
+{
+  "disposition" : "ignored",
+  "reason" : "builtin:menu",
+  "window" : {
+    "appID" : "org.qt-project.qtcreator",
+    "childRoles" : [
+      "AXMenu"
+    ],
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXDialog",
+    "title" : ""
+  }
+}

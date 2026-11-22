@@ -1,0 +1,14 @@
+{
+  "disposition" : "ignored",
+  "reason" : "builtin:com.mitchellh.ghostty.quickTerminal",
+  "window" : {
+    "appID" : "com.mitchellh.ghostty",
+    "identifier" : "com.mitchellh.ghostty.quickTerminal",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : true,
+    "role" : "AXWindow",
+    "subrole" : "AXFloatingWindow",
+    "title" : ""
+  }
+}

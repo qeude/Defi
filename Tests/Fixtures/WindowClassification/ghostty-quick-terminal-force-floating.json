@@ -1,0 +1,15 @@
+{
+  "disposition" : "floating",
+  "reason" : "rule:force-floating",
+  "rule" : "force-floating",
+  "window" : {
+    "appID" : "com.mitchellh.ghostty",
+    "identifier" : "com.mitchellh.ghostty.quickTerminal",
+    "layer" : 0,
+    "modal" : false,
+    "resizable" : true,
+    "role" : "AXWindow",
+    "subrole" : "AXFloatingWindow",
+    "title" : ""
+  }
+}
