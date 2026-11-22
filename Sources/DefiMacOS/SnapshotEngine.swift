@@ -141,7 +141,14 @@ final class SnapshotEngine: @unchecked Sendable {
       switch kind {
       case .application, .applicationTerminated, .windowCreated, .focus:
         storage.applicationFactsGeneration &+= 1
-        if let processID { storage.applicationFacts[processID] = nil } else { storage.applicationFacts.removeAll() }
+        // Assistive apps also turn AXEnhancedUserInterface on as an app activates, long after its launch.
+        if let processID {
+          storage.applicationFacts[processID] = nil
+          storage.enhancedUIByProcess[processID] = nil
+        } else {
+          storage.applicationFacts.removeAll()
+          storage.enhancedUIByProcess.removeAll()
+        }
       default: break
       }
       if kind == .applicationTerminated || (kind == .windows && windowID != nil) {
