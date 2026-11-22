@@ -582,8 +582,17 @@ func frameFromAXValues(
 struct WindowManagementCapabilities: Equatable {
   let hasCloseButton: Bool
   let canResize: Bool
-  let canGrow: Bool
-  let isModal: Bool
+  let zoomButton: Bool?
+  let fullScreenButton: Bool?
+  var isModal: Bool
+
+  func apply(to input: inout WindowClassificationInput) {
+    input.closeButton = hasCloseButton ? true : nil
+    input.resizable = canResize
+    input.zoomButton = zoomButton
+    input.fullScreenButton = fullScreenButton
+    input.modal = isModal
+  }
 }
 
 func shouldDisableBatchedWindowAttributeReads(failureCount: Int) -> Bool {

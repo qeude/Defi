@@ -109,12 +109,8 @@ func eligibleCGWindowRecords(
   allowsConfiguredNonzeroLayer: Bool = false,
   in records: [CGWindowRecord]
 ) -> [CGWindowRecord] {
-  let acceptsFloatingLevel =
-    allowsConfiguredNonzeroLayer
-    || role == kAXSheetRole
-    || subrole.map(automaticFloatingWindowSubroles.contains) == true
-  return records.filter { record in
-    record.layer == 0 || (acceptsFloatingLevel && record.layer > 0)
+  records.filter {
+    windowLayerIsEligible($0.layer, role: role, subrole: subrole, allowsConfiguredNonzeroLayer: allowsConfiguredNonzeroLayer)
   }
 }
 
@@ -589,7 +585,7 @@ private func windowTitleMatchRank(_ cgTitle: String, _ accessibilityTitle: Strin
   return cgTitle == accessibilityTitle ? 0 : 2
 }
 
-enum WindowDisposition: Equatable {
+enum WindowDisposition: String, Codable, Equatable, Sendable {
   case tiled
   case floating
   case ignored
@@ -602,56 +598,6 @@ func floatingOrigin(
 ) -> FloatingOrigin? {
   guard disposition == .floating else { return nil }
   return configuredFloating ? .configured : .automatic
-}
-
-private let ignoredWindowApplicationIDs: Set<String> = [
-  "com.apple.dock",
-  "com.apple.systemuiserver",
-  "com.raycast.macos",
-]
-
-func isIgnoredWindowApplication(_ appID: String) -> Bool {
-  ignoredWindowApplicationIDs.contains(appID.lowercased())
-}
-
-func windowExclusionReason(appID: String, role: String?, subrole: String?) -> String {
-  if isIgnoredWindowApplication(appID) {
-    return applicationPolicyIgnoreReason
-  }
-  if role != kAXWindowRole {
-    return "unsupported-role:\(role ?? "missing")"
-  }
-  return "unsupported-subrole:\(subrole ?? "missing")"
-}
-
-private let automaticFloatingWindowSubroles: Set<String> = [
-  "AXDialog",
-  "AXFloatingWindow",
-  "AXSystemDialog",
-  "AXSystemFloatingWindow",
-]
-
-private let automaticFloatingWindowApplicationIDs: Set<String> = [
-  "com.apple.quicklook.quicklookuiservice"
-]
-
-/// Whether the window can grow through an enabled full-screen or zoom button. A window
-/// that offers neither is not designed to be big, such as Finder copy progress. Unknown reads count as growable.
-func windowCanGrow(_ element: AXUIElement) -> Bool {
-  [kAXFullScreenButtonAttribute, kAXZoomButtonAttribute].contains { attribute in
-    var button: CFTypeRef?
-    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &button)
-    guard error == .success, let button else {
-      return error != .noValue && error != .attributeUnsupported
-    }
-    var enabled: CFTypeRef?
-    guard AXUIElementCopyAttributeValue(
-      (button as! AXUIElement), kAXEnabledAttribute as CFString, &enabled) == .success
-    else {
-      return true
-    }
-    return enabled as? Bool ?? true
-  }
 }
 
 /// The frame of a titled document window outside a native tab group, read with a short
@@ -674,70 +620,6 @@ func ownWindowFrame(_ element: AXUIElement) -> Rect?? {
     }
     return .some(tabbed ? nil : frameFromAXValues(positionValue: read[1], sizeValue: read[2]))
   }
-}
-
-/// App-drawn menus and palettes (Yab's action menu). AeroSpace, yabai, OmniWM and
-/// Amethyst never manage these subroles either; a modal one is a real dialog.
-func isAppDrawnPopup(subrole: String?, isModal: Bool) -> Bool {
-  !isModal && (subrole == "AXSystemDialog" || subrole == "AXSystemFloatingWindow")
-}
-
-/// A system text accessory: a remote view TextEdit shows as an untitled dialog each time its
-/// text settles. It animates its own size and refuses to move, so managing it opened a floating
-/// window on the overlay and held every workspace landing until it timed out.
-func isSystemTextAccessory(title: String, hasCloseButton: Bool, isModal: Bool) -> Bool {
-  title.isEmpty && !hasCloseButton && !isModal
-}
-
-/// A new window that is a system text accessory, such as an input method's candidate list,
-/// read with a short timeout; false when the app does not answer in time.
-func isTextInputAccessory(_ element: AXUIElement) -> Bool {
-  AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [element]) {
-    var values: CFArray?
-    AXUIElementCopyMultipleAttributeValues(element,
-      [kAXSubroleAttribute, kAXTitleAttribute, kAXCloseButtonAttribute, kAXModalAttribute] as CFArray,
-      [], &values)
-    let read = values as? [AnyObject] ?? []
-    // A missing attribute reads back as an AXValue error, not as the attribute's type.
-    guard read.count == 4, read[0] as? String == kAXDialogSubrole else { return false }
-    return isSystemTextAccessory(title: read[1] as? String ?? "",
-      hasCloseButton: CFGetTypeID(read[2]) == AXUIElementGetTypeID(), isModal: read[3] as? Bool ?? false)
-  }
-}
-
-func classifyWindow(
-  role: String?,
-  subrole: String?,
-  appID: String,
-  hasCloseButton: Bool,
-  canResize: Bool,
-  canGrow: Bool = true,
-  isModal: Bool = false,
-  configuredFloating: Bool,
-  forceTiling: Bool
-) -> WindowDisposition {
-  if forceTiling { return .tiled }
-  if configuredFloating { return .floating }
-  if ignoredWindowApplicationIDs.contains(appID.lowercased()) { return .ignored }
-  if role == kAXSheetRole { return .floating }
-  guard role != nil else { return .unavailable }
-  guard role == kAXWindowRole else { return .ignored }
-  if isModal
-    || automaticFloatingWindowApplicationIDs.contains(appID.lowercased())
-  {
-    return .floating
-  }
-  guard subrole != nil else { return .unavailable }
-  if isAppDrawnPopup(subrole: subrole, isModal: false) { return .ignored }
-  if subrole == kAXStandardWindowSubrole, hasCloseButton, canResize, canGrow {
-    return .tiled
-  }
-  if subrole == kAXStandardWindowSubrole
-    || subrole.map(automaticFloatingWindowSubroles.contains) == true
-  {
-    return .floating
-  }
-  return .ignored
 }
 
 func fallbackDispositionForTransientWindowMetadata(

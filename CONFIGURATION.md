@@ -1236,6 +1236,20 @@ Defi also records a marker on its own (`kind=marker`, `event=auto`, with a
 or an animation frame gap over 50 ms, at most once per 30 seconds and 20 times
 per hour.
 
+When Defi tiles, floats, or ignores a window you expected it to place
+differently, run `defi inspect-window` with that window focused. It prints, as
+JSON, what Defi reads from the window (role, subrole, title bar buttons,
+resizability, modality, window layer), the matching `[[rules]]` `window` value,
+and the resulting `disposition` with its `reason`. Run it from a terminal with a
+delay so you have time to focus the window:
+
+```sh
+sleep 3; defi inspect-window
+```
+
+The output includes the window title; remove it before sharing. Attached to an
+issue, the output becomes a test fixture.
+
 ## Built-in defaults
 
 These values apply without a config file. Your config should only contain what

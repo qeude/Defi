@@ -71,6 +71,7 @@ public enum DaemonVerb: Equatable, Sendable {
   case status
   case trace
   case borderAudit
+  case inspectWindow
   case restore
   /// `quit` restores the windows; `handoff` leaves them for the next daemon.
   case stop(handsOffWindows: Bool)
@@ -326,6 +327,10 @@ public let daemonVerbSpecs: [CommandSpec] = [
   daemon("border-audit", .other) { arguments, _ in
     try onlyNoArguments(arguments, "border-audit")
     return .borderAudit
+  },
+  daemon("inspect-window", .window) { arguments, _ in
+    try onlyNoArguments(arguments, "inspect-window")
+    return .inspectWindow
   },
   daemon("restore", .other) { arguments, _ in try onlyNoArguments(arguments, "restore"); return .restore },
   daemon("quit", .other) { arguments, _ in
