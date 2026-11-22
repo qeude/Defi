@@ -152,6 +152,16 @@ public func reduce(
     return index
   }
 
+  // A width command shows its width: it leaves fullscreen first, as `fullscreen-window` would.
+  if command.resizesSelectedColumnWidth,
+    let index = try? workspaceIndex(state.monitors[monitorIndex])
+  {
+    let columnIndex = state.monitors[monitorIndex].workspaces[index].focusedColumn
+    if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex) {
+      state.monitors[monitorIndex].workspaces[index].columns[columnIndex].fullscreen = nil
+    }
+  }
+
   do {
     switch command {
     case .focusColumn(let direction):
@@ -250,6 +260,10 @@ public func reduce(
             workspace: state.monitors[monitorIndex].workspaces[index]
           )
       }
+    case .fullscreenWindow:
+      let index = try workspaceIndex(state.monitors[monitorIndex])
+      try toggleFullscreenWindow(
+        in: &state.monitors[monitorIndex].workspaces[index], settings: layout)
     case .setColumnWidth(let change):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       let columnIndex = state.monitors[monitorIndex].workspaces[index].focusedColumn
@@ -617,8 +631,8 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .moveWindowToWorkspace, .sendWindowToWorkspace, .cycleWidth,
     .moveColumnToWorkspace, .moveWindowToWorkspaceTarget,
     .reorderWorkspace, .moveWorkspaceToMonitor,
-    .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn, .centerVisibleColumns,
-    .toggleFloating, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
+    .maximizeColumn, .fullscreenWindow, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn,
+    .centerVisibleColumns, .toggleFloating, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
     .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
     true
   case .focusColumn, .focusColumnOrMonitor, .focusFloating, .focusWindow, .focusWindowOrWorkspace,
@@ -707,6 +721,7 @@ func groupedTiledColumns(
       width: column.width,
       preMaximizedWidth: column.preMaximizedWidth
     )
+    columns[firstWindowID]?.fullscreen = column.fullscreen
     tiledWindowIDs.formUnion(windows)
   }
   return (columns, tiledWindowIDs)

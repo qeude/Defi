@@ -91,7 +91,9 @@ private func suspendNativeFullscreenWindow(
   let priorPlacement = state.nativeFullscreenWindowIDs.compactMap {
     state.nativeFullscreenTiledPlacements[$0]
   }.first { $0.column.windows.contains(windowID) }
-  let originalColumn = priorPlacement?.column ?? workspace.columns[columnIndex]
+  var originalColumn = priorPlacement?.column ?? workspace.columns[columnIndex]
+  // Native fullscreen replaces Defi's: the window returns as an ordinary column.
+  originalColumn.fullscreen = nil
   let visibleColumnIndex = workspace.columns[..<columnIndex].filter { column in
     column.windows.contains { !state.nativeFullscreenWindowIDs.contains($0) }
   }.count

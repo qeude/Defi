@@ -334,6 +334,41 @@ public func maximizeColumn(_ column: inout Column, defaultWidth: Double) {
   }
 }
 
+/// Niri's `fullscreen-window`: the selected tiled window covers the viewport, expelled
+/// from its stack into a column of its own. The column keeps its stored width. Leaving
+/// puts the strip back where it rested before, unless selection left the column meanwhile.
+public func toggleFullscreenWindow(in workspace: inout Workspace, settings: LayoutSettings) throws {
+  guard workspace.focusedLayer == .tiled,
+    workspace.columns.indices.contains(workspace.focusedColumn)
+  else { return }
+  if workspace.columns[workspace.focusedColumn].isFullscreen {
+    workspace.columns[workspace.focusedColumn].fullscreen = nil
+    if var focus = workspace.scrollFocus,
+      workspace.columns[workspace.focusedColumn].windows.contains(focus.windowID)
+    {
+      // Centring every column owns the offset; a held one would stop centring it.
+      if settings.centerFocusedColumn != .always, let restore = focus.fullscreenRestoreOffset {
+        focus.heldOffset = restore
+      }
+      focus.fullscreenRestoreOffset = nil
+      workspace.scrollFocus = focus
+    }
+    repairWorkspaceScroll(&workspace, settings: settings)
+    return
+  }
+  let restore = workspace.targetScrollOffset
+  try unjoinFocusedWindow(toward: .right, in: &workspace, settings: settings)
+  let column = workspace.columns[workspace.focusedColumn]
+  guard column.windows.indices.contains(column.focusedWindow) else { return }
+  let windowID = column.windows[column.focusedWindow]
+  workspace.columns[workspace.focusedColumn].fullscreen = true
+  var focus = workspace.scrollFocus.flatMap { $0.windowID == windowID ? $0 : nil }
+    ?? ScrollFocus(windowID: windowID, centered: false)
+  focus.fullscreenRestoreOffset = restore
+  workspace.scrollFocus = focus
+  repairWorkspaceScroll(&workspace, settings: settings)
+}
+
 public func joinFocusedWindow(
   _ direction: Direction,
   in workspace: inout Workspace,
@@ -502,6 +537,9 @@ public func swapFocusedWindow(
   }
   workspace.columns[sourceColumnIndex].windows = sourceWindows
   workspace.columns[targetColumnIndex].windows = targetWindows
+  // Fullscreen belongs to the window, which just left its column.
+  workspace.columns[sourceColumnIndex].fullscreen = nil
+  workspace.columns[targetColumnIndex].fullscreen = nil
   workspace.columns[targetColumnIndex].focusedWindow = targetRow
   workspace.focusedColumn = targetColumnIndex
   repairWorkspaceScroll(&workspace, settings: settings)

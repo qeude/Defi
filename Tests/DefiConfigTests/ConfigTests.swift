@@ -339,6 +339,7 @@ struct ConfigTests {
     #expect(config.keys["mod-minus"] == "cycle-width previous")
     #expect(config.keys["mod-equal"] == "cycle-width next")
     #expect(config.keys["mod-f"] == "maximize-column")
+    #expect(config.keys["mod-shift-f"] == "fullscreen-window")
     #expect(config.keys["mod-c"] == "center-column")
     #expect(config.keys["mod-v"] == "toggle-floating")
     #expect(config.keys["mod-shift-v"] == "activate-floating")

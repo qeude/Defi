@@ -155,6 +155,60 @@ extension DesktopE2ETests {
     XCTAssertEqual(try daemon.appliedWrites(to: huge, over: 3), 0, "An oversized window must not be resized again")
   }
 
+  func testFullscreenWindowCoversTheDisplayAndRestores() throws {
+    let lane = try daemonLane()
+    let daemon = try lane.startDaemon(config: "[layout]\ndefault_column_width = 0.4\n")
+    defer { daemon.stop() }
+    var windows: [UInt64: DesktopFixtureWindow] = [:]
+    defer { windows.values.forEach { $0.close() } }
+    let workspace = try daemon.switchToEmptyWorkspace()
+    func open() throws -> UInt64 {
+      let window = try lane.openWindow(minimumHeight: nil, daemon: daemon)
+      windows[window.windowID] = window
+      return window.windowID
+    }
+    let a = try open(), b = try open(), c = try open()
+    try daemon.run("focus-column first")
+    try daemon.run("focus-column right")
+    try daemon.run("join-window left")
+    XCTAssertTrue(daemon.converge(workspace, to: [[a, b], [c]]), daemon.diagnostics(workspace))
+    XCTAssertTrue(daemon.settle(windows.values))
+
+    // The daemon lays out in the main display's visible frame, in top-left coordinates.
+    let screen = try XCTUnwrap(NSScreen.main)
+    let visible = CGRect(x: screen.visibleFrame.minX, y: screen.frame.maxY - screen.visibleFrame.maxY,
+      width: screen.visibleFrame.width, height: screen.visibleFrame.height)
+    func frame(_ id: UInt64) throws -> CGRect { try XCTUnwrap(windows[id]).frame() }
+    func shown(_ id: UInt64) throws -> Double { try frame(id).intersection(visible).width }
+
+    try daemon.run("fullscreen-window")
+    XCTAssertTrue(daemon.converge(workspace, to: [[a], [b], [c]]), daemon.diagnostics(workspace))
+    XCTAssertTrue(daemon.settle(windows.values))
+    let full = try frame(b)
+    for (actual, expected) in [(full.minX, visible.minX), (full.minY, visible.minY),
+      (full.width, visible.width), (full.height, visible.height)] {
+      XCTAssertEqual(actual, expected, accuracy: 2, "The window must cover the visible frame: \(full) vs \(visible)")
+    }
+    XCTAssertTrue(try daemon.status("columnWidth")?.hasSuffix("/fullscreen") == true)
+    // The neighbours park; with the Dock on the left, macOS keeps a parked window's edge under it.
+    XCTAssertEqual(try daemon.status("hidden"), "2")
+
+    // Focus moving away leaves it fullscreen, scrolled out with its column.
+    try daemon.run("focus-column right")
+    XCTAssertTrue(daemon.settle(windows.values))
+    XCTAssertEqual(try frame(b).width, visible.width, accuracy: 2)
+    try daemon.run("focus-column left")
+    XCTAssertTrue(daemon.settle(windows.values))
+    XCTAssertEqual(try frame(b).minX, visible.minX, accuracy: 2)
+
+    try daemon.run("fullscreen-window")
+    XCTAssertTrue(daemon.settle(windows.values))
+    XCTAssertFalse(try daemon.status("columnWidth")?.hasSuffix("/fullscreen") == true)
+    XCTAssertEqual(try daemon.columns(workspace), [[a], [b], [c]], "The window stays in its own column")
+    XCTAssertEqual(try frame(b).width, 0.4 * visible.width, accuracy: 24, "It returns to its column width")
+    XCTAssertGreaterThan(try shown(b), 0.4 * visible.width - 24)
+  }
+
   private func daemonLane() throws -> DesktopDaemonLane {
     let environment = ProcessInfo.processInfo.environment
     var virtualMachine: Int32 = 0

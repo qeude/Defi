@@ -39,7 +39,9 @@ struct OverviewRuntimeTests {
     #expect(!state.pendingNativeFullscreenWidthResetWindowIDs.contains(id))
   }
 
-  @Test(arguments: [Command.cycleWidth(.next), .maximizeColumn, .moveColumn(.right), .unjoinWindows])
+  @Test(arguments: [
+    Command.cycleWidth(.next), .maximizeColumn, .fullscreenWindow, .moveColumn(.right), .unjoinWindows,
+  ])
   func layoutEditUsesOverviewSelectionWithoutActivatingItsWorkspace(command: Command) throws {
     var state = makeState()
     let ids = (11...13).map { WindowID(rawValue: UInt64($0)) }
@@ -63,6 +65,8 @@ struct OverviewRuntimeTests {
       #expect(edited.columns.map(\.windows) == [[ids[0]], [ids[2]], [ids[1]]])
     } else if command == .unjoinWindows {
       #expect(edited.columns.map(\.windows) == [[ids[0]], [ids[1]], [ids[2]]])
+    } else if command == .fullscreenWindow {
+      #expect(edited.columns.map(\.isFullscreen) == [false, true, false])
     } else if command == .cycleWidth(.next) || command == .maximizeColumn {
       #expect(edited.columns[1].width != originalMonitor.workspaces[1].columns[1].width)
       #expect(edited.columns[0].width == originalMonitor.workspaces[1].columns[0].width)

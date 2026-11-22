@@ -44,7 +44,9 @@ public func computeLayout(
       let slot = Rect(x: x, y: slotY, width: width, height: height)
       slotY += height
       let frame: Rect
-      if let window = windowsByID[windowID], window.intrinsicSize {
+      if column.isFullscreen {
+        frame = fullscreenFrame(slotX: x, width: width, strip: viewport, settings: settings)
+      } else if let window = windowsByID[windowID], window.intrinsicSize {
         let intrinsicWidth = min(max(window.frame.width, 1), width)
         let intrinsicHeight = min(max(window.frame.height, 1), height)
         frame = Rect(
@@ -72,7 +74,7 @@ public func computeLayout(
         frame = slot
       }
 
-      var target = cappedStackFrame(applyGaps(
+      var target = column.isFullscreen ? frame : cappedStackFrame(applyGaps(
         frame,
         windowIndex: windowIndex,
         windowCount: column.windows.count,
@@ -229,6 +231,8 @@ private func preferredColumnLayoutWidth(
     : nil
   let requestedWidth: Double
   switch column.width {
+  case _ where column.isFullscreen:
+    requestedWidth = viewport.width
   case .fraction(let fraction):
     requestedWidth = viewport.width * fraction
   case .pixels(let width):
@@ -272,12 +276,14 @@ private func acceptedTiledSizes(
           windowCount: column.windows.count, settings: settings
         )
       )
-      let requested = cappedStackFrame(applyGaps(
-        frame,
-        windowIndex: windowIndex,
-        windowCount: column.windows.count,
-        settings: settings
-      ), window: window)
+      let requested = column.isFullscreen
+        ? fullscreenFrame(slotX: 0, width: preferredWidth, strip: viewport, settings: settings)
+        : cappedStackFrame(applyGaps(
+          frame,
+          windowIndex: windowIndex,
+          windowCount: column.windows.count,
+          settings: settings
+        ), window: window)
       // Moving a window across a stack edge shifts the request by exactly an
       // outer/inner gap difference; the app's clamp is unchanged, so its accepted
       // size still applies. Any other change is a new request.
@@ -350,6 +356,17 @@ private func applyGaps(
     width: max(rect.width - clampedLeft - clampedRight, 1),
     height: max(rect.height - clampedTop - clampedBottom, 1)
   )
+}
+
+/// A fullscreen column's slot spans the strip like a maximized one, but its window covers
+/// the whole viewport: outer and inner gaps do not apply, as in Niri.
+private func fullscreenFrame(slotX: Double, width: Double, strip: Rect, settings: LayoutSettings)
+  -> Rect
+{
+  let inner = max(settings.innerHorizontalGap, 0)
+  let left = max(settings.outerLeftGap, 0) - inner
+  let right = max(settings.outerRightGap, 0) - inner
+  return Rect(x: slotX - left, y: strip.y, width: width + left + right, height: strip.height)
 }
 
 /// Width bounds are the window's own; its column also holds the gaps beside it.

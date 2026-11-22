@@ -101,6 +101,9 @@ public func focusedColumnScrollTarget(
   let free =
     recordedFocus.map { $0.free == true && selectedColumn?.windows.contains($0.windowID) == true }
     ?? false
+  let fullscreenRestoreOffset = recordedFocus.flatMap {
+    selectedColumn?.windows.contains($0.windowID) == true ? $0.fullscreenRestoreOffset : nil
+  }
   let held = recordedFocus.flatMap { recorded in
     recorded.heldOffset.flatMap { held in
       if selectedColumn?.windows.contains(recorded.windowID) == true {
@@ -136,7 +139,7 @@ public func focusedColumnScrollTarget(
     selectedWindowID.map {
       ScrollFocus(
         windowID: $0, centered: overflows, pinned: pinned ? true : nil, free: free ? true : nil,
-        heldOffset: held.map { _ in offset })
+        heldOffset: held.map { _ in offset }, fullscreenRestoreOffset: fullscreenRestoreOffset)
     }
   )
 }

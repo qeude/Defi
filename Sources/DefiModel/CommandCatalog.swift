@@ -272,6 +272,7 @@ public let commandSpecs: [CommandSpec] = [
     .cycleWidth(try parseDirection(arguments, label: "direction"))
   },
   layout("maximize-column", .size) { _, _ in .maximizeColumn },
+  layout("fullscreen-window", .size) { _, _ in .fullscreenWindow },
   layout("set-column-width", .size, .text(suggestions: ["-10%", "+10%"])) { arguments, _ in
     .setColumnWidth(try parseColumnWidthChange(try argument(arguments, label: "width")))
   },

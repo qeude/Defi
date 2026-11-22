@@ -387,6 +387,7 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-minus": "cycle-width previous",
       "\(modifier)-equal": "cycle-width next",
       "\(modifier)-f": "maximize-column",
+      "\(modifier)-shift-f": "fullscreen-window",
       "\(modifier)-c": "center-column",
       "\(modifier)-v": "toggle-floating",
       "\(modifier)-shift-v": "activate-floating",

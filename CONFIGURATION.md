@@ -602,6 +602,7 @@ When a workspace is named `up` or `down`, use `move-column-to-workspace-name
 | --- | --- | --- |
 | `cycle-width previous\|next` | Step through `preset_column_widths`, wrapping. | `mod-minus` / `mod-equal`; `mod-r` also steps forward |
 | `maximize-column` | Toggle the focused column between full width and its previous width. | `mod-f` |
+| `fullscreen-window` | Toggle the focused tiled window between covering its display's usable area and its column. See [Fullscreen in the strip](#fullscreen-in-the-strip). | `mod-shift-f` |
 | `set-column-width <width>` | Set the width: `60%` of the usable width, `960` points, or relative, such as `+5%`, `-10%`, or `-40`. | unset |
 | `expand-column-to-available-width` | Grow the focused column into the free space beside the other fully visible columns. | unset |
 | `set-window-height <N%\|+N%\|-N%\|points>` | Set the focused stacked window to `N%` of the column height, change its share by `N` percentage points, or make it `points` tall. The rest of the stack absorbs the difference and keeps its relative heights. | unset |
@@ -694,6 +695,31 @@ fully visible or no space is free.
 After either command, `cycle-width` steps to the nearest preset in its
 direction, as after a native resize: from `60%`, `next` selects `0.66` and
 `previous` selects `0.50`.
+
+<a id="fullscreen-in-the-strip"></a>**Fullscreen in the strip.** `fullscreen-window`
+gives the focused tiled window the whole usable area of its display, the area
+below the menu bar and outside the Dock and reserved edges, without gaps. It
+does not use native macOS fullscreen. The window stays in the strip:
+
+- A stacked window first leaves its stack as a new column on the right, as
+  `consume-or-expel-window right` does, and stays there afterwards. The rest of
+  the stack keeps its heights.
+- Its column keeps its stored width. Toggling again returns to that width and
+  scrolls the strip back to where it was, unless you selected another column
+  in between. Then the column stays where it is.
+- Selecting another column leaves the window fullscreen in place, and it
+  scrolls out of view like any column. On another workspace it parks at
+  fullscreen size.
+- `cycle-width`, `maximize-column`, `set-column-width`, and
+  `expand-column-to-available-width` leave fullscreen first, then change the
+  width. Stacking another window into the column also ends fullscreen.
+- A floating window or a window in native fullscreen ignores the command. A
+  window that enters native fullscreen leaves Defi's fullscreen and comes back
+  as an ordinary column.
+- In the Overview, it applies to the selected window like the other width
+  commands.
+- It survives `defi service restart`. `defi status` shows `/fullscreen` after
+  the focused column's width.
 
 **Stacks.** A stack splits its column's height evenly, after gaps, until a
 height command or a native resize gives its windows their own proportions.
@@ -1140,8 +1166,8 @@ least, using the staircase frames while it is active.
 
 ## Native macOS fullscreen
 
-`maximize-column` only widens a column. It does not enter native fullscreen or
-create a macOS Space. Native fullscreen stays under the control of macOS and
+`maximize-column` and `fullscreen-window` keep the window in the strip. They
+do not enter native fullscreen or create a macOS Space. Native fullscreen stays under the control of macOS and
 the app:
 
 - While a window is in native fullscreen, Defi takes it off the strip and stops
@@ -1333,6 +1359,7 @@ names = []
 "mod-minus" = "cycle-width previous"
 "mod-equal" = "cycle-width next"
 "mod-f" = "maximize-column"
+"mod-shift-f" = "fullscreen-window"
 "mod-c" = "center-column"
 "mod-v" = "toggle-floating"
 "mod-shift-v" = "activate-floating"

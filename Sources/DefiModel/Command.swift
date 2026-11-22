@@ -59,6 +59,7 @@ public enum Command: Equatable, Codable, Sendable {
   case focusMonitor(Direction)
   case cycleWidth(Direction)
   case maximizeColumn
+  case fullscreenWindow
   case setColumnWidth(ColumnWidthChange)
   case expandColumnToAvailableWidth
   case setWindowHeight(WindowHeightChange)
@@ -80,7 +81,8 @@ public enum Command: Equatable, Codable, Sendable {
 
   var effects: CommandEffects {
     switch self {
-    case .cycleWidth, .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth:
+    case .cycleWidth, .maximizeColumn, .fullscreenWindow, .setColumnWidth,
+      .expandColumnToAvailableWidth:
       return CommandEffects(editsSelectedLayout: true, resizesManagedLayout: true)
     case .moveColumn, .moveWindow, .toggleFloating:
       return CommandEffects(editsSelectedLayout: true)
@@ -119,6 +121,12 @@ public enum Command: Equatable, Codable, Sendable {
   }
 
   public var editsSelectedLayout: Bool { effects.editsSelectedLayout }
+  public var resizesSelectedColumnWidth: Bool {
+    switch self {
+    case .cycleWidth, .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth: true
+    default: false
+    }
+  }
   public var animatesManagedLayout: Bool { effects.editsSelectedLayout || effects.resizesManagedLayout }
   public var activatesWorkspace: Bool { effects.activatesWorkspace }
   public var movesWindowBetweenWorkspaces: Bool { effects.movesWindowBetweenWorkspaces }

@@ -58,6 +58,15 @@ public func synchronizeScrollOffsets(
   // stacks converge everywhere without touching each caller.
   separateInfeasibleStacks(state: &state, viewports: viewports)
   for monitorIndex in state.monitors.indices {
+    // A window stacked into a fullscreen column ends its fullscreen.
+    for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
+      for columnIndex in state.monitors[monitorIndex].workspaces[workspaceIndex].columns.indices
+      where state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].windows.count > 1 {
+        state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].fullscreen = nil
+      }
+    }
+  }
+  for monitorIndex in state.monitors.indices {
     let monitorID = state.monitors[monitorIndex].id
     guard let viewport = viewports[monitorID] else { continue }
     for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
@@ -254,7 +263,8 @@ private func tiledWindowWidthLearning(
         continue
       }
       guard workspace.id == state.monitors[monitorIndex].activeWorkspace,
-        workspace.columns[columnIndex].preMaximizedWidth == nil
+        workspace.columns[columnIndex].preMaximizedWidth == nil,
+        !workspace.columns[columnIndex].isFullscreen
       else {
         return nil
       }

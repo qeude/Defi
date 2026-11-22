@@ -122,6 +122,7 @@ func moveFocusedSelection(
         width: sourceColumn.width,
         preMaximizedWidth: sourceColumn.preMaximizedWidth
       )
+      transferredColumn?.fullscreen = sourceColumn.fullscreen
     }
   }
   let ownerWindowIDs = Set(

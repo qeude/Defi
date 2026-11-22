@@ -183,6 +183,7 @@ extension Daemon {
       let column = workspace.columns[workspace.focusedColumn]
       return
         "\(columnWidthStatus(column.width))/pre-max:\(column.preMaximizedWidth.map(columnWidthStatus) ?? "none")"
+        + (column.isFullscreen ? "/fullscreen" : "")
     }()
     let bundle = DiagnosticRecorder.bundleVersion
     let displaySizes = displaySizeDescription(latestMonitors)

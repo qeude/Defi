@@ -8,6 +8,9 @@ public struct Column: Equatable, Codable, Sendable {
   /// Relative height of each stacked window, from a height command or a native resize.
   /// `nil` splits the column evenly; a window missing here takes the mean of the others.
   public var windowHeights: [WindowID: Double]?
+  /// `true` while `fullscreen-window` covers the viewport with the column's only window.
+  /// Never `false`: optional so stores written before it existed still decode.
+  public var fullscreen: Bool?
 
   public init(
     window: WindowID,
@@ -34,6 +37,11 @@ public struct Column: Equatable, Codable, Sendable {
   }
 }
 
+extension Column {
+  /// A column holding more than one window is never fullscreen, whatever its stale flag says.
+  public var isFullscreen: Bool { fullscreen == true && windows.count == 1 }
+}
+
 /// The selected window a scroll target was last resolved for, and whether it
 /// overflowed the screen together with the previous selection when it became selected.
 public struct ScrollFocus: Equatable, Codable, Sendable {
@@ -48,16 +56,20 @@ public struct ScrollFocus: Equatable, Codable, Sendable {
   /// Where `center-visible-columns` left the strip. The strip rests there while the
   /// selected column is fully in view; a selected column outside it drops the offset.
   public var heldOffset: Double?
+  /// Where the strip rested before `fullscreen-window`, restored when it leaves fullscreen
+  /// unless selection left the column in between.
+  public var fullscreenRestoreOffset: Double?
 
   public init(
     windowID: WindowID, centered: Bool, pinned: Bool? = nil, free: Bool? = nil,
-    heldOffset: Double? = nil
+    heldOffset: Double? = nil, fullscreenRestoreOffset: Double? = nil
   ) {
     self.windowID = windowID
     self.centered = centered
     self.pinned = pinned
     self.free = free
     self.heldOffset = heldOffset
+    self.fullscreenRestoreOffset = fullscreenRestoreOffset
   }
 }
 
