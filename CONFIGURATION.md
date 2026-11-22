@@ -897,6 +897,12 @@ sits to the edge, until it reaches the strip's end or the pointer moves away.
 - Release commits the drop at the scrolled position, then the strip reveals the
   dropped column from there.
 
+macOS tiling uses the same places: it fills the screen with a window released in
+the menu bar, and tiles one released against a side edge, before Defi moves it to
+the drop. Turn off its edge tiling in System Settings › Desktop & Dock to avoid
+that jump. Settings › Input › Pointer says when it is on, and Defi explains it
+once after the first drop it affects.
+
 ## `[animation]`
 
 Defi animates windows on an overlay: column navigation, width and order

@@ -190,6 +190,19 @@ and what you expected.
 </details>
 
 <details>
+<summary>A dragged window fills the screen, then jumps back</summary>
+
+Since macOS 15, macOS tiles a window you drag to a screen edge or to the menu
+bar. Defi uses the same places: holding a dragged window at a side edge scrolls
+the strip, and the menu bar targets a column's top. On release, macOS resizes
+the window first and Defi then moves it where you dropped it. Turn off **Drag
+windows to screen edges to tile** and **Drag windows to menu bar to fill
+screen** in System Settings › Desktop & Dock › Windows. Defi's Settings › Input
+› Pointer shows a notice while either is on.
+
+</details>
+
+<details>
 <summary>How do I quit Defi without the menu bar?</summary>
 
 Run `/Applications/Defi.app/Contents/MacOS/defi quit`, or quit `defi-daemon` in

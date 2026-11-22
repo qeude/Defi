@@ -170,3 +170,19 @@ struct DragEdgeScrollTests {
     return state
   }
 }
+
+@Test(arguments: [
+  // pointer x, y, sides on, top on -> macOS tiles
+  (0.0, 400.0, true, true, true), (1_439.0, 400.0, true, false, true), (0.0, 400.0, false, true, false),
+  (48.0, 400.0, true, true, false), (700.0, 10.0, false, true, true), (700.0, 10.0, true, false, false),
+  (700.0, 40.0, true, true, false), (700.0, 0.0, false, true, true),
+])
+func `A release meets macOS tiling only at a side edge or in the menu bar`(
+  x: Double, y: Double, sides: Bool, top: Bool, tiles: Bool
+) {
+  let screen = Rect(x: 0, y: 0, width: 1_440, height: 900)
+  let visible = Rect(x: 0, y: 33, width: 1_440, height: 867)
+  #expect(macOSTilesRelease(at: (x, y), screen: screen, visible: visible, sides: sides, top: top) == tiles)
+  // With the menu bar hidden, only the top edge counts.
+  #expect(macOSTilesRelease(at: (x, y), screen: screen, visible: screen, sides: false, top: top) == (top && y <= 1))
+}

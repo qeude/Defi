@@ -1,5 +1,6 @@
 import CoreGraphics
 import DefiCore
+import DefiMacOS
 import DefiModel
 import DefiRuntime
 import Foundation
@@ -11,6 +12,32 @@ extension Daemon {
 
   func mousePointer() -> (x: Double, y: Double)? {
     CGEvent(source: nil).map { (Double($0.location.x), Double($0.location.y)) }
+  }
+
+  /// Once ever, after a drop released where macOS tiles too: it resizes the window before Defi
+  /// moves it, so the notice names the setting. Only the installed app shows it, never a test.
+  func noticeMacOSTilingOnce() {
+    let shownKey = "macOSTilingNoticeShown"
+    guard Bundle.main.bundleURL.pathExtension == "app", !UserDefaults.standard.bool(forKey: shownKey),
+      let pointer = mousePointer(),
+      let monitor = latestMonitors.first(where: {
+        $0.physicalFrame.contains(centerOf: Rect(x: pointer.x, y: pointer.y, width: 0, height: 0))
+      })
+    else { return }
+    func tiles(_ sides: Bool, _ top: Bool) -> Bool {
+      macOSTilesRelease(at: pointer, screen: monitor.physicalFrame, visible: monitor.frame, sides: sides, top: top)
+    }
+    // Reads the preferences only for a release in a tiling place.
+    guard tiles(true, true) else { return }
+    let tiling = systemWindowTilingByEdgeDrag()
+    guard tiles(tiling.sides, tiling.top) else { return }
+    UserDefaults.standard.set(true, forKey: shownKey)
+    platform.recordPerformanceTrace("macos-tiling-notice")
+    Task { @MainActor in
+      // After Defi has put the window back.
+      try? await Task.sleep(for: .seconds(1.5))
+      presentMacOSTilingNotice()
+    }
   }
 
   /// Every held frame: scrolls the strip while the dragged window rests at a side edge and

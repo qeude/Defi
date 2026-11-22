@@ -715,6 +715,7 @@ private struct InputSettingsView: View {
           .font(.caption)
           .foregroundStyle(.secondary)
         OverviewGestureSettings(model: model)
+        WindowTilingConflict()
       }
       Section("Modifiers") {
         ModKeyRow(model: model)
@@ -2122,6 +2123,38 @@ private struct ScrollGestureSettings: View {
     }
     let count = fingers == 3 ? "three" : "four"
     return "macOS already uses \(count)-finger swipes\(direction). Change them in More Gestures to use them here."
+  }
+}
+
+/// macOS tiling takes a window released where a title-bar drag drops it at an edge.
+private struct WindowTilingConflict: View {
+  @State private var tiling = systemWindowTilingByEdgeDrag()
+
+  var body: some View {
+    Group {
+      if let places = places {
+        HStack(alignment: .firstTextBaseline) {
+          Label("macOS also tiles a window you drag to \(places), then Defi puts it back. "
+            + "Turn off its tiling in Desktop & Dock to drag there smoothly.", systemImage: "exclamationmark.triangle")
+            .font(.caption)
+          Spacer()
+          Button("Desktop & Dock…") { openDesktopAndDockSettings() }
+        }
+      }
+    }
+    // Picks up a change made in System Settings on the way back.
+    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+      tiling = systemWindowTilingByEdgeDrag()
+    }
+  }
+
+  private var places: String? {
+    switch (tiling.sides, tiling.top) {
+    case (true, true): "a screen edge or the menu bar"
+    case (true, false): "a screen's side edge"
+    case (false, true): "the menu bar"
+    case (false, false): nil
+    }
   }
 }
 

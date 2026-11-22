@@ -155,3 +155,12 @@ public struct DragEdgeScroll: Equatable, Sendable {
     return min(lowest, start)...max(highest, start)
   }
 }
+
+/// Whether macOS's own window tiling takes a window released at `pointer`: against a side edge
+/// of the display, or in the menu bar, or at the top edge where a hidden menu bar appears.
+public func macOSTilesRelease(
+  at pointer: (x: Double, y: Double), screen: Rect, visible: Rect, sides: Bool, top: Bool
+) -> Bool {
+  (sides && (pointer.x <= screen.x + 1 || pointer.x >= screen.x + screen.width - 1))
+    || (top && (pointer.y < visible.y || pointer.y <= screen.y + 1))
+}
