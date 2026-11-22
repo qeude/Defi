@@ -64,6 +64,17 @@ public final class MacOSPlatform {
   }
   /// The pointer let go: the next drag starts without a preview.
   public func endWindowProxyPreview() { windowProxyPreview = nil }
+  /// Draws a window resized by a modifier drag: `frames` place every window as the resize
+  /// leaves them, the held one included. No native window moves until the release.
+  public func presentWindowProxyResize(_ frames: [WindowID: Rect], heldWindowID: WindowID) {
+    guard windowProxiesEnabled else { return }
+    if !RibbonProxyPresenter.isCarrying { carryWindowProxy(heldWindowID, stretches: true, followsPointer: false) }
+    for presenter in RibbonProxyPresenter.all {
+      presenter.preview(frames, heldWindowID: heldWindowID, rejectedFrame: nil)
+    }
+  }
+  /// A drag the event tap took ended: no mouse-up reaches the event monitor that ends one.
+  public func endWindowProxyDrag() { RibbonProxyPresenter.endDrag() }
   /// The pointer travelled past a click's jitter since the last left press.
   public var leftPressPointerDragged: Bool { leftPressPointerTravelled.load(ordering: .relaxed) }
   /// A light trackpad tap as a dragged window's drop slot moves, for a trackpad drag
@@ -116,7 +127,7 @@ public final class MacOSPlatform {
 
   /// Hands a tiled window dragged by the pointer to the overlay: its proxy follows the
   /// pointer over every window drawn where it is now.
-  public func carryWindowProxy(_ windowID: WindowID, stretches: Bool) {
+  public func carryWindowProxy(_ windowID: WindowID, stretches: Bool, followsPointer: Bool = true) {
     if RibbonProxyPresenter.isCarrying {
       if hostWindowProxyPreview() { presentPendingWindowProxyPreview() }
       return
@@ -133,7 +144,7 @@ public final class MacOSPlatform {
     let window = lastSnapshotWindows.first { $0.id == windowID }
     let maximumWidth = window?.maximumTiledWidth ?? .infinity
     let minimumWidth = min(max(window?.minimumTiledWidth ?? 0, 240), maximumWidth)
-    presenter.carry(windowID, stretches: stretches, widths: minimumWidth...maximumWidth,
+    presenter.carry(windowID, stretches: stretches, followsPointer: followsPointer, widths: minimumWidth...maximumWidth,
       windows: windowProxyCarryWindows(monitor), viewport: monitor.viewport,
       slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
     // A drag event arrives every frame: a refused carry waits instead of re-reading the

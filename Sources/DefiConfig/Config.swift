@@ -103,6 +103,9 @@ public struct Config: Equatable, Sendable {
   /// The modifier held for scroll gestures.
   public var scrollGestureModifier: String { input.scrollGestureModifier ?? mod }
 
+  /// The modifier held to drag windows anywhere, or "off".
+  public var windowDragModifier: String { input.windowDragModifier ?? mod }
+
   public static var defaultURL: URL {
     FileManager.default.homeDirectoryForCurrentUser
       .appending(path: ".config/defi/config.toml")
@@ -133,6 +136,11 @@ public struct Config: Equatable, Sendable {
       : normalizedAccelerator("\(scrollGestureModifier)-a", aliases: modifierAliases) != nil
     else {
       throw ConfigError.invalidValue("input.scroll_gesture_modifier")
+    }
+    guard windowDragModifier == "off"
+      || normalizedAccelerator("\(windowDragModifier)-a", aliases: modifierAliases) != nil
+    else {
+      throw ConfigError.invalidValue("input.window_drag_modifier")
     }
     guard (3...4).contains(input.overviewGestureFingers) else {
       throw ConfigError.invalidValue("input.overview_gesture_fingers")

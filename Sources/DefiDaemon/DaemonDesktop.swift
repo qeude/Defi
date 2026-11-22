@@ -204,6 +204,7 @@ extension Daemon {
     // Without animations (or with Reduce Motion), the overlay and its pictures are not needed.
     platform.windowProxiesEnabled = animationsEnabled
     platform.windowProxySpring = config.animation
+    publishWindowDragTargets()
     platform.windowProxyDroppedWindowID =
       source == "mouse-drop-animation" ? proxyDroppedWindowID : nil
     proxyDroppedWindowID = nil

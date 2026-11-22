@@ -18,8 +18,9 @@ extension Daemon {
   }
 
   func handlePointerMotion(_ invocation: PointerMotionInvocation) {
-    // The strip is drawn panned over windows that have not moved yet.
-    guard !shouldShutdown, !restorationInFlight, scrollPan == nil else { return }
+    // The strip is drawn panned over windows that have not moved yet; a dragged window
+    // keeps focus until its release.
+    guard !shouldShutdown, !restorationInFlight, scrollPan == nil, windowDrag == nil else { return }
     defer {
       if pendingPointerFocus != nil { scheduleTick() }
     }

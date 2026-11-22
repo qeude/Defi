@@ -203,6 +203,10 @@ final class Daemon {
   var displayMovedFloatingWindowIDs: Set<WindowID> = []
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
   var scrollPan: ScrollPan?
+  /// A window pressed with the drag modifier, until its release.
+  var windowDrag: WindowDrag?
+  /// The managed windows last handed to the event tap for modifier drags.
+  var publishedWindowDragTargets = Set<WindowID>()
   var lastCommandDurationMS = 0.0
   var latestCommandInputTimestamp: TimeInterval = 0
   var commandGeneration: UInt64 = 0

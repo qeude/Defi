@@ -762,6 +762,7 @@ scroll_gesture_speed = 1.0
 scroll_gesture_snap = true
 overview_gesture = false
 overview_gesture_fingers = 4
+# window_drag_modifier = "ctrl+alt"
 ```
 
 | Setting | Default | Values | Description |
@@ -777,6 +778,7 @@ overview_gesture_fingers = 4
 | `scroll_gesture_speed` | `1.0` | `0.25` to `4` | Multiplies how far a swipe moves the strip and the workspaces. |
 | `overview_gesture` | `false` | boolean | Opens the Overview with a swipe up and closes it with one down. Needs Mission Control's swipe elsewhere; see [Overview gesture](#overview-gesture). |
 | `overview_gesture_fingers` | `4` | `3`, `4` | Fingers that swipe the Overview open and closed. |
+| `window_drag_modifier` | `mod` | modifiers like `mod`, or `"off"` | Modifier held to move a window by dragging anywhere in it with the left button, and to resize it with the right button. See [Mouse reordering](#mouse-reordering). |
 
 Pointer-driven focus never moves the pointer, and CLI commands and native app
 focus changes never do either, so the two options can run together without
@@ -893,6 +895,31 @@ sits to the edge, until it reaches the strip's end or the pointer moves away.
   does not scroll.
 - Release commits the drop at the scrolled position, then the strip reveals the
   dropped column from there.
+
+### Dragging with the modifier
+
+Hold `window_drag_modifier` (`mod` by default) and drag anywhere in a window, as
+in Niri. The app under the pointer never sees the press, and focus does not follow
+the pointer until the release.
+
+- **Left button** moves the window exactly as a title-bar drag does: same bands,
+  edge scrolling, and drop rules. A floating window follows the pointer, across
+  displays too.
+- **Right button** resizes the window from the edges nearest the pointer: the left
+  or right edge by the half you press in, and the top or bottom edge as well when
+  you press in the window's upper or lower third. A tiled window changes its
+  column's width, and its height within a stack. Dragging the left edge keeps the
+  right edge still by scrolling the strip, unless the whole strip already fits on
+  screen. The overlay draws the resize and every window lands once on release.
+- A press without a drag focuses the window. Presses with other modifiers, on
+  windows Defi does not manage, and while the Overview is open stay the app's.
+- Without Screen Recording, nothing is drawn during the drag; the release moves or
+  resizes the window just the same.
+
+With the default `mod`, Control is held, which macOS reads as a secondary click:
+Defi takes the whole gesture, so no context menu opens. Command-drags and
+Option-drags stay free for apps and macOS tiling. Set `"off"` to keep every click
+for apps.
 
 ## `[animation]`
 

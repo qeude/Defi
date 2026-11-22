@@ -440,6 +440,8 @@ final class RibbonProxyPresenter {
   /// The carried window's own slot in the ribbon, and a stacking slot that overrides it.
   private var ownSlot: Rect?
   private var previewSlot: Rect?
+  /// The held stretch is a modifier resize, drawn by `preview` instead of the pointer.
+  private var resizesByPreview = false
   /// The mark shown for the drop while held; the slot is where the window lands.
   private var previewHint: Rect?
   private var rejectionMarker: CALayer?
@@ -1231,13 +1233,23 @@ final class RibbonProxyPresenter {
 
   /// A tiled window started moving under the pointer: from here its proxy follows the
   /// pointer on the overlay, lifted, while the native window moves unseen below.
-  func carry(_ id: WindowID, stretches: Bool, widths: ClosedRange<Double> = 240...Double.infinity,
+  /// Without `followsPointer`, a stretch is drawn by `preview` alone (a modifier resize).
+  func carry(_ id: WindowID, stretches: Bool, followsPointer: Bool = true,
+    widths: ClosedRange<Double> = 240...Double.infinity,
     windows: [RibbonProxyWindow], viewport: Rect, slot: Rect?, generation submission: UInt64) {
     guard case .idle = drag, begin(windows: windows, viewport: viewport, generation: submission,
       nativeTargets: [:], duration: ribbonProxySpringDuration, selectedWindowID: id,
       keepsOffscreen: true),
       let layer = windowLayers[id], let layers
     else { return }
+    resizesByPreview = stretches && !followsPointer
+    if resizesByPreview {
+      drag = .stretching(id)
+      layer.zPosition = 200_000
+      layer.sublayers?.first { $0.name == "content" }?.masksToBounds = true
+      ribbonProxyLogger.notice("resize id=\(id.rawValue)")
+      return
+    }
     if stretches {
       drag = .stretching(id)
       if let held = windows.first(where: { $0.id == id }) {
@@ -1353,18 +1365,19 @@ final class RibbonProxyPresenter {
   /// pointer follows it frame by frame, and only layout changes spring.
   func preview(_ frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?, hint: Rect? = nil,
     scroll: (shift: Double, windowIDs: Set<WindowID>)? = nil) {
-    guard drag == .carrying(heldWindowID) || drag == .hosting(heldWindowID), let layers else { return }
+    let resizes = resizesByPreview && drag == .stretching(heldWindowID)
+    guard drag == .carrying(heldWindowID) || drag == .hosting(heldWindowID) || resizes, let layers else { return }
     let now = CACurrentMediaTime()
     func shift(_ id: WindowID) -> CGFloat { scroll.map { $0.windowIDs.contains(id) ? $0.shift : 0 } ?? 0 }
     CATransaction.begin(); CATransaction.setDisableActions(true)
-    for (id, layer) in windowLayers where id != heldWindowID {
+    for (id, layer) in windowLayers where id != heldWindowID || resizes {
       guard let target = frames[id] else { continue }
       let current = (layer.presentation() ?? layer).frame
       let followed = layer.frame.offsetBy(dx: shift(id), dy: 0)
       var to = local(target, layers.area)
       // Same height and place: keep the app's own vertical placement (some snap a few points).
       // A window moving to another row of its stack keeps its height but must move.
-      if abs(to.height - followed.height) < 40, abs(to.minY - followed.minY) < 40 {
+      if !resizes, abs(to.height - followed.height) < 40, abs(to.minY - followed.minY) < 40 {
         to.origin.y = followed.minY; to.size.height = followed.height
       }
       // Logical and native frames differ by a point or two: not a move.
@@ -1391,9 +1404,10 @@ final class RibbonProxyPresenter {
         ribbonProxyMove(sublayer, from: starts[ObjectIdentifier(sublayer)] ?? end, to: end)
       }
     }
-    previewSlot = frames[heldWindowID]
+    // A resize lands where it is drawn: no slot to mark.
+    previewSlot = resizes ? nil : frames[heldWindowID]
     previewHint = hint
-    showSlot(in: layers, following: shift(heldWindowID))
+    if !resizes { showSlot(in: layers, following: shift(heldWindowID)) }
     showRejection(rejectedFrame, in: layers)
     ribbonProxyCommit(#line)
   }

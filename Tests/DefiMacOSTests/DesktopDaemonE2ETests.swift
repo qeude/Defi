@@ -83,6 +83,48 @@ extension DesktopE2ETests {
       expect: [[f], [g]], preview: { $0.hasPrefix("rejectedStack(") })
   }
 
+  func testModifierDragMovesAndResizesFromAnywhere() throws {
+    let lane = try daemonLane()
+    let daemon = try lane.startDaemon(config: "[layout]\ndefault_column_width = 0.3\n")
+    defer { daemon.stop() }
+    var windows: [UInt64: DesktopFixtureWindow] = [:]
+    defer { windows.values.forEach { $0.close() } }
+    let workspace = try daemon.switchToEmptyWorkspace()
+    for _ in 0..<3 {
+      let window = try lane.openWindow(minimumHeight: nil, daemon: daemon)
+      windows[window.windowID] = window
+    }
+    let ids = try daemon.columns(workspace).joined().map { $0 }
+    XCTAssertEqual(ids.count, 3, daemon.diagnostics(workspace))
+    let (a, b, c) = (ids[0], ids[1], ids[2])
+    func frame(_ id: UInt64) throws -> CGRect { try XCTUnwrap(windows[id]).frame() }
+    // The default `mod`.
+    let mod: CGEventFlags = [.maskControl, .maskAlternate]
+
+    // From the middle of the window, far from its title bar.
+    let moved = try daemon.drag(try XCTUnwrap(windows[c]), from: CGPoint(x: try frame(c).midX, y: try frame(c).midY),
+      to: CGPoint(x: try frame(a).minX + 0.15 * frame(a).width, y: try frame(c).midY), flags: mod, workspace: workspace)
+    XCTAssertEqual(moved.held, [[a], [b], [c]], "Membership must not change while the button is held")
+    XCTAssertEqual(moved.previews.last, "column(index: 0)", "previews: \(moved.previews)")
+    XCTAssertEqual(moved.drops, ["column(index: 0)"], "Release must commit the previewed target once")
+    XCTAssertTrue(daemon.converge(workspace, to: [[c], [a], [b]]),
+      daemon.diagnostics(workspace) + "\n" + moved.events.suffix(40).joined(separator: "\n"))
+    XCTAssertTrue(daemon.settle(windows.values))
+    XCTAssertEqual(try daemon.status("focused"), "\(c)", "The dropped window takes focus")
+
+    // A right drag near the right edge widens the column by the pointer's travel.
+    let before = try frame(a)
+    let resized = try daemon.drag(try XCTUnwrap(windows[a]), from: CGPoint(x: before.maxX - 20, y: before.midY),
+      to: CGPoint(x: before.maxX + 100, y: before.midY), button: .right, flags: mod, workspace: workspace)
+    XCTAssertEqual(resized.held, [[c], [a], [b]])
+    XCTAssertTrue(resized.drops.isEmpty, "A resize drops nothing: \(resized.drops)")
+    XCTAssertTrue(daemon.settle(windows.values))
+    let after = try frame(a)
+    XCTAssertEqual(after.width - before.width, 120, accuracy: 4, "The column must widen by the drag: \(before) → \(after)")
+    XCTAssertEqual(after.minX, before.minX, accuracy: 2, "The left edge stays")
+    XCTAssertEqual(try daemon.columns(workspace), [[c], [a], [b]])
+  }
+
   func testStackConstraintsHoldOnRealWindows() throws {
     let lane = try daemonLane()
     let daemon = try lane.startDaemon(config: "[layout]\ndefault_column_width = 0.4\n")
@@ -357,19 +399,24 @@ final class DesktopDaemon {
 
   /// A human-paced title-bar drag through the HID tap: down, 30 moves at about 20 ms, a 350 ms
   /// hold, then release. Returns the previews and membership while held, and the drops after.
-  func drag(_ window: DesktopFixtureWindow, to target: CGPoint, workspace: String) throws
+  /// Drags by the title bar, or from `start` with `flags` held (a modifier drag).
+  func drag(_ window: DesktopFixtureWindow, from start: CGPoint? = nil, to target: CGPoint,
+    button: CGMouseButton = .left, flags: CGEventFlags = [], workspace: String) throws
     -> (previews: [String], held: [[UInt64]], drops: [String], events: [String])
   {
     Thread.sleep(forTimeInterval: 0.5)
     let frame = try window.frame()
-    let start = CGPoint(x: frame.midX, y: frame.minY + 12)
+    let start = start ?? CGPoint(x: frame.midX, y: frame.minY + 12)
+    let (down, dragged, up): (CGEventType, CGEventType, CGEventType) = button == .right
+      ? (.rightMouseDown, .rightMouseDragged, .rightMouseUp) : (.leftMouseDown, .leftMouseDragged, .leftMouseUp)
     // Away from the display edges, macOS's own window tiling never engages.
     let display = CGDisplayBounds(CGMainDisplayID()).insetBy(dx: 80, dy: 0)
     let end = CGPoint(x: min(max(target.x, display.minX), display.maxX), y: target.y)
     var recording = try startRecording()
     func post(_ type: CGEventType, _ point: CGPoint) {
-      CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)?
-        .post(tap: .cghidEventTap)
+      let event = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: button)
+      if type != .mouseMoved { event?.flags = flags }
+      event?.post(tap: .cghidEventTap)
     }
     func wait(_ seconds: TimeInterval) throws {
       let deadline = Date().addingTimeInterval(seconds)
@@ -380,24 +427,27 @@ final class DesktopDaemon {
     }
     post(.mouseMoved, start)
     try wait(0.08)
-    post(.leftMouseDown, start)
+    post(down, start)
     var released = false
-    defer { if !released { post(.leftMouseUp, end) } }
+    defer { if !released { post(up, end) } }
     try wait(0.12)
     for step in 1...30 {
       let t = Double(step) / 30
-      post(.leftMouseDragged, CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t))
+      post(dragged, CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t))
       try wait(0.02)
     }
     try wait(0.35)
     let held = try columns(workspace)
     try record(&recording)
     let heldEvents = recording.events.count
-    post(.leftMouseUp, end)
+    post(up, end)
     released = true
     let drop = "mouse-drop window=\(window.windowID) target="
+    let ended = "window-drag-ended window=\(window.windowID) "
     let deadline = Date().addingTimeInterval(2)
-    while !recording.events.contains(where: { $0.hasPrefix(drop) }), Date() < deadline { try wait(0.02) }
+    while !recording.events.contains(where: { $0.hasPrefix(drop) || $0.hasPrefix(ended) }), Date() < deadline {
+      try wait(0.02)
+    }
     // A second commit of the same release would follow within a few frames.
     try wait(0.3)
     let preview = "mouse-drop-preview window=\(window.windowID) target="

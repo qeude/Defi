@@ -153,6 +153,8 @@ struct ConfigTests {
       .invalidValue("input.focus_follows_mouse_max_scroll_amount")),
     ("[input]\nscroll_gesture_modifier = \"tab\"", .invalidValue("input.scroll_gesture_modifier")),
     ("[input]\nscroll_gesture_modifier = \"\"", .invalidValue("input.scroll_gesture_modifier")),
+    ("[input]\nwindow_drag_modifier = \"none\"", .invalidValue("input.window_drag_modifier")),
+    ("[input]\nwindow_drag_modifier = \"\"", .invalidValue("input.window_drag_modifier")),
     ("[input]\nscroll_gesture_speed = 0", .invalidValue("input.scroll_gesture_speed")),
     ("[input]\nscroll_gesture_fingers = 5", .invalidValue("input.scroll_gesture_fingers")),
     ("[input]\noverview_gesture_fingers = 2", .invalidValue("input.overview_gesture_fingers")),
@@ -247,6 +249,9 @@ struct ConfigTests {
     #expect(config.input.scrollGestures)
     #expect(config.scrollGestureModifier == "cmd+shift")
     #expect(Config().scrollGestureModifier == Config().mod)
+    #expect(Config().windowDragModifier == Config().mod)
+    #expect(try Config.decode(Data("[input]\nwindow_drag_modifier = \"off\"".utf8)).windowDragModifier == "off")
+    #expect(try Config.decode(Data("[input]\nwindow_drag_modifier = \"cmd+alt\"".utf8)).windowDragModifier == "cmd+alt")
     let swipe = try Config.decode(Data("[input]\nscroll_gesture_fingers = 3\nscroll_gesture_modifier = \"none\"".utf8))
     #expect(swipe.input.scrollGestureFingers == 3)
     #expect(Config().input.scrollGestureFingers == 2)

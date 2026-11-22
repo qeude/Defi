@@ -40,6 +40,8 @@ public final class HotKeyManager {
     @NavigationActor @Sendable (OverviewKeyAction) -> Void
   public typealias ScrollGestureHandler =
     @NavigationActor @Sendable (ScrollGestureAction) -> Void
+  public typealias WindowDragHandler =
+    @NavigationActor @Sendable (WindowDragAction) -> Void
 
   private let bindings: [Key: (accelerator: String, command: String)]
   private let handler: Handler
@@ -60,6 +62,8 @@ public final class HotKeyManager {
   private let scrollGestureModifierBits: UInt64
   private let scrollGestureFingers: Int
   private let overviewGestureFingers: Int?
+  private let windowDragHandler: WindowDragHandler?
+  private let windowDragModifierBits: UInt64?
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
@@ -108,6 +112,7 @@ public final class HotKeyManager {
     overviewSwipeHandler: @escaping @Sendable (OverviewSwipeEvent) -> Void = { _ in },
     cheatsheetHandler: @escaping @NavigationActor @Sendable (CheatsheetInput) -> Void = { _ in },
     scrollGestureHandler: ScrollGestureHandler? = nil,
+    windowDragHandler: WindowDragHandler? = nil,
     registrationHandler: @escaping @NavigationActor @Sendable (Bool, HotKeyError?, [String]) -> Void = { _, _, _ in },
     handler: @escaping Handler
   ) {
@@ -138,6 +143,11 @@ public final class HotKeyManager {
     // Two-finger swipes without a modifier would take every app's scrolling.
     self.scrollGestureHandler = config.input.scrollGestures && gestureModifierBits != nil
       && (scrollGestureModifierBits != 0 || scrollGestureFingers >= 3) ? scrollGestureHandler : nil
+    windowDragModifierBits = config.windowDragModifier == "off" ? nil : try? Key(
+      accelerator: "\(config.windowDragModifier)-a",
+      aliases: config.modifierAliases
+    ).modifierBits
+    self.windowDragHandler = windowDragModifierBits == nil ? nil : windowDragHandler
     self.userInputTracker = userInputTracker
     self.pointerMotionTracker = pointerMotionTracker
     self.displayPointerRouter = displayPointerRouter
@@ -202,6 +212,7 @@ public final class HotKeyManager {
     let overviewCancelHandler = self.overviewCancelHandler
     let cheatsheetHandler = self.cheatsheetHandler
     let scrollGestureHandler = self.scrollGestureHandler
+    let windowDragHandler = self.windowDragHandler
     let context = InputMonitor(
       bindings: bindings.mapValues(\.command),
       userInputTracker: userInputTracker,
@@ -221,6 +232,10 @@ public final class HotKeyManager {
       deliverOverviewSwipe: overviewSwipeHandler,
       deliverScrollGesture: { action in
         NavigationActor.enqueue { scrollGestureHandler?(action) }
+      },
+      windowDragModifierBits: windowDragHandler == nil ? nil : windowDragModifierBits,
+      deliverWindowDrag: { action in
+        NavigationActor.enqueue { windowDragHandler?(action) }
       }
     ) { invocation in
       NavigationActor.enqueue {
@@ -260,7 +275,14 @@ public final class HotKeyManager {
       | (1 << CGEventMask(CGEventType.otherMouseDown.rawValue))
       | (1 << CGEventMask(gestureEventType))
       | (scrollIntercepted ? 0 : 1 << CGEventMask(CGEventType.scrollWheel.rawValue))
-    let interceptorMask = mask & ~passive
+    var interceptorMask = mask & ~passive
+    // A window drag takes its press, drags, and release from the app under the pointer.
+    if windowDragHandler != nil {
+      for eventType in [CGEventType.leftMouseDown, .leftMouseDragged, .leftMouseUp,
+        .rightMouseDown, .rightMouseDragged, .rightMouseUp] {
+        interceptorMask |= CGEventMask(1 << eventType.rawValue)
+      }
+    }
     let interceptorCallback: CGEventTapCallBack = { _, type, event, userInfo in
       guard let userInfo else { return Unmanaged.passUnretained(event) }
       return Unmanaged<InputMonitor>.fromOpaque(userInfo).takeUnretainedValue()
@@ -323,6 +345,12 @@ public final class HotKeyManager {
 
   public func setRecentWindowsOpen(_ open: Bool) {
     context?.setRecentWindowsOpen(open)
+  }
+
+  /// The windows a drag with the modifier may take: managed ones only, so every other
+  /// window and the desktop keep their clicks.
+  public func setWindowDragTargets(_ windowIDs: Set<WindowID>) {
+    context?.setWindowDragTargets(windowIDs)
   }
 
   public func stop() {
@@ -393,6 +421,10 @@ final class InputMonitor: @unchecked Sendable {
   private var overviewSwipe: OverviewSwipe?
   private let deliverOverviewSwipe: @Sendable (OverviewSwipeEvent) -> Void
   private var stripSwipeHeld = false
+  /// Nil when window drags are off; the recognizer lives on the tap thread.
+  private var windowDrag: WindowDragTap?
+  private var windowDragTargets = Set<WindowID>()
+  private let deliverWindowDrag: @Sendable (WindowDragAction) -> Void
   /// Modifiers the latest key or flags event announced. A Hyper key remapped in software
   /// announces them only there: the trackpad's scroll events never carry them.
   private var announcedModifierBits: UInt64 = 0
@@ -412,6 +444,8 @@ final class InputMonitor: @unchecked Sendable {
     overviewGestureFingers: Int? = nil,
     deliverOverviewSwipe: @escaping @Sendable (OverviewSwipeEvent) -> Void = { _ in },
     deliverScrollGesture: @escaping @Sendable (ScrollGestureAction) -> Void = { _ in },
+    windowDragModifierBits: UInt64? = nil,
+    deliverWindowDrag: @escaping @Sendable (WindowDragAction) -> Void = { _ in },
     deliver: @escaping @Sendable (HotKeyInvocation) -> Void,
     deliverOverview: @escaping @Sendable (OverviewKeyAction) -> Void,
     deliverPointerMotion: @escaping @Sendable (PointerMotionInvocation) -> Void,
@@ -427,6 +461,8 @@ final class InputMonitor: @unchecked Sendable {
     self.deliverCheatsheet = deliverCheatsheet
     self.scrollGestureModifierBits = scrollGestureModifierBits
     self.deliverScrollGesture = deliverScrollGesture
+    windowDrag = windowDragModifierBits.map(WindowDragTap.init(modifierBits:))
+    self.deliverWindowDrag = deliverWindowDrag
     self.scrollGestureFingers = scrollGestureFingers
     fingerSwipe = FingerSwipe(fingers: scrollGestureFingers)
     overviewSwipe = overviewGestureFingers.map(OverviewSwipe.init(fingers:))
@@ -555,6 +591,7 @@ final class InputMonitor: @unchecked Sendable {
       reenables += 1
       // A release missed while the tap was off must not keep gestures armed.
       announcedModifierBits = 0
+      let droppedWindowDrag = windowDrag?.reset()
       pointerTransitionState.reset()
       pendingPointerMotion = nil
       pointerDeliveryGeneration &+= 1
@@ -566,6 +603,7 @@ final class InputMonitor: @unchecked Sendable {
       pointerMotionTracker.invalidate(at: timestamp)
       for tap in taps { CGEvent.tapEnable(tap: tap.port, enable: true) }
       deliverCheatsheet(.dismiss)
+      if let droppedWindowDrag { deliverWindowDrag(droppedWindowDrag) }
       // The release that would confirm may have been missed: nothing changes.
       if recentWindowsHoldBits != nil {
         recentWindowsHoldBits = nil
@@ -744,6 +782,9 @@ final class InputMonitor: @unchecked Sendable {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
       return handle(type: type, event: event)
     }
+    if windowDrag != nil, WindowDragTap.button(type) != nil, interceptWindowDrag(type, event) {
+      return nil
+    }
     if eventTracksPhysicalPointerMotion(type) {
       if displayPointerRouter?.route(event) == true {
         event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: 0)
@@ -796,6 +837,31 @@ final class InputMonitor: @unchecked Sendable {
     }
     return Unmanaged.passUnretained(event)
   }
+
+  /// Returns whether a window drag took the event.
+  private func interceptWindowDrag(_ type: CGEventType, _ event: CGEvent) -> Bool {
+    let timestamp = Double(event.timestamp) / 1_000_000_000
+    let (overview, targets) = lock.withLock { (overviewModeEnabled, windowDragTargets) }
+    let modifierBits = hotKeyModifierBits(event.flags)
+    let pressed = type == .leftMouseDown || type == .rightMouseDown
+    let windowID = mouseFocusIntentWindowID(rawWindowID: event.getIntegerValueField(
+      .mouseEventWindowUnderMousePointerThatCanHandleThisEvent))
+      ?? (pressed && modifierBits == windowDrag!.modifierBits ? windowDragHitTest(at: event.location) : nil)
+    let (consumed, action) = windowDrag!.handle(type, modifierBits: modifierBits,
+      windowID: windowID, location: event.location, timestamp: timestamp,
+      accepts: { !overview && targets.contains($0) })
+    if case .began = action {
+      // NSEvent.EventSubtype.touch, which CGEventMouseSubtype does not name.
+      leftDragFromTrackpad.store(event.getIntegerValueField(.mouseEventSubtype) == 3, ordering: .relaxed)
+      userInputTracker.record(timestamp: timestamp, focusIntent: nil, closeIntent: false, typing: false, press: true)
+      deliverCheatsheet(.dismiss)
+    }
+    if eventTracksPhysicalPointerMotion(type) { pointerMotionTracker.record(timestamp: timestamp) }
+    if let action { deliverWindowDrag(action) }
+    return consumed
+  }
+
+  func setWindowDragTargets(_ windowIDs: Set<WindowID>) { lock.withLock { windowDragTargets = windowIDs } }
 
   private func swipeTakesScroll(_ event: CGEvent) -> Bool {
     let momentumPhase = event.getIntegerValueField(.scrollWheelEventMomentumPhase)

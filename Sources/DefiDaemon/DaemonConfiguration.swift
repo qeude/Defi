@@ -227,6 +227,7 @@ extension Daemon {
       || previous.mod != next.mod
       || previous.showCheatsheetOnModifierHold != next.showCheatsheetOnModifierHold
       || previous.input.focusFollowsMouse != next.input.focusFollowsMouse
+      || previous.windowDragModifier != next.windowDragModifier
       || previous.input.mouseFollowsFocus != next.input.mouseFollowsFocus
       || previous.input.scrollGestures != next.input.scrollGestures
       || previous.scrollGestureModifier != next.scrollGestureModifier
@@ -332,6 +333,10 @@ extension Daemon {
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         self.handleScrollGesture(action)
       },
+      windowDragHandler: { [weak self] action in
+        guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
+        self.handleWindowDrag(action)
+      },
       registrationHandler: { [weak self] enabled, error, held in
         guard let self, self.hotKeyGeneration.withLock({ $0 == generation }) else { return }
         let message = error.map { "Keyboard shortcuts unavailable: \($0)" }
@@ -353,6 +358,10 @@ extension Daemon {
     do {
       try manager.start()
       hotKeys = manager
+      // A new tap starts empty: hand it the managed windows again.
+      cancelWindowDrag()
+      publishedWindowDragTargets = []
+      publishWindowDragTargets()
       // Registration finishes asynchronously and reports through registrationHandler; saying
       // "unavailable" before then flashes a false alarm on every reload.
       let keyboardMessage = manager.bindingError.map {

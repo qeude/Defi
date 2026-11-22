@@ -20,6 +20,9 @@ public struct InputConfig: Codable, Equatable, Sendable {
   public var overviewGesture: Bool
   /// Three or four.
   public var overviewGestureFingers: Int
+  /// Held to move a window with a left drag and resize it with a right drag; nil uses
+  /// `mod`, "off" turns both off.
+  public var windowDragModifier: String?
 
   public init(
     focusFollowsMouse: Bool = false,
@@ -32,7 +35,8 @@ public struct InputConfig: Codable, Equatable, Sendable {
     scrollGestureSpeed: Double = 1,
     scrollGestureSnap: Bool = true,
     overviewGesture: Bool = false,
-    overviewGestureFingers: Int = 4
+    overviewGestureFingers: Int = 4,
+    windowDragModifier: String? = nil
   ) {
     self.focusFollowsMouse = focusFollowsMouse
     self.focusFollowsMouseMaxScrollAmount = focusFollowsMouseMaxScrollAmount
@@ -45,6 +49,7 @@ public struct InputConfig: Codable, Equatable, Sendable {
     self.scrollGestureSnap = scrollGestureSnap
     self.overviewGesture = overviewGesture
     self.overviewGestureFingers = overviewGestureFingers
+    self.windowDragModifier = windowDragModifier
   }
 
   /// Swipes that move the strip keep their vertical axis for the workspaces.
@@ -64,6 +69,7 @@ public struct InputConfig: Codable, Equatable, Sendable {
     case scrollGestureSnap = "scroll_gesture_snap"
     case overviewGesture = "overview_gesture"
     case overviewGestureFingers = "overview_gesture_fingers"
+    case windowDragModifier = "window_drag_modifier"
   }
 
   public init(from decoder: Decoder) throws {
@@ -94,6 +100,7 @@ public struct InputConfig: Codable, Equatable, Sendable {
       try values.decodeIfPresent(Bool.self, forKey: .overviewGesture) ?? defaults.overviewGesture
     overviewGestureFingers =
       try values.decodeIfPresent(Int.self, forKey: .overviewGestureFingers) ?? defaults.overviewGestureFingers
+    windowDragModifier = try values.decodeIfPresent(String.self, forKey: .windowDragModifier)
   }
 }
 

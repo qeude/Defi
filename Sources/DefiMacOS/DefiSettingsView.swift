@@ -715,6 +715,22 @@ private struct InputSettingsView: View {
           .font(.caption)
           .foregroundStyle(.secondary)
         OverviewGestureSettings(model: model)
+        Toggle(SettingsOption.windowDrag.title, isOn: Binding(
+          get: { model.config.windowDragModifier != "off" },
+          set: { on in
+            if on {
+              model.reset(table: "input", key: "window_drag_modifier")
+            } else {
+              model.set(table: "input", key: "window_drag_modifier", value: tomlString("off"))
+            }
+          }
+        ))
+          .settingsSearchTarget(.windowDrag)
+        Text(model.config.windowDragModifier == "off"
+          ? "Drag windows by their title bar."
+          : "Hold \(model.config.windowDragModifier) and drag anywhere in a window: left button moves it, right button resizes it.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
       Section("Modifiers") {
         ModKeyRow(model: model)
