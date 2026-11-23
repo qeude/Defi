@@ -6,6 +6,14 @@ struct OverviewTests {
   let monitorID = MonitorID(rawValue: 1)
   let monitorFrame = Rect(x: 0, y: 0, width: 1_000, height: 800)
 
+  @Test(arguments: [
+    ("", true), ("saf", true), ("SAFARI", true), ("cafe", true), ("Café", true),
+    ("safari menu", true), ("menu safari", true), ("  menu  ", true), ("safari mail", false), ("x", false),
+  ])
+  func filterMatchesEveryWordIgnoringCaseAndAccents(query: String, matches: Bool) {
+    #expect(overviewFilterMatches(query: query, text: "Café menu Safari") == matches)
+  }
+
   @Test func floatingMovementUsesWorkspaceRelativePosition() {
     func projection(workspaceX: Double, windowX: Double) -> OverviewProjection {
       OverviewProjection(monitorID: monitorID, workspaces: [OverviewWorkspaceProjection(

@@ -272,18 +272,10 @@ extension Daemon {
           trackedWindowID: selectedProcessID == processID ? selectedWindowID : nil)
       },
       overviewHandler: { [weak self] action in
-        guard self?.desktopSessionActive == true else { return }
-        self?.handleCheatsheetInput(.dismiss)
-        DispatchQueue.main.async { [weak self] in
-          self?.overviewController?.handleKey(action)
-          self?.publishOverviewState()
-        }
-      },
-      overviewCancelHandler: { [weak self] in
         NavigationActor.enqueue { [weak self] in self?.handleCheatsheetInput(.dismiss) }
         DispatchQueue.main.async { [weak self] in
           self?.cheatsheetController?.close()
-          self?.overviewController?.close()
+          self?.overviewController?.handleKey(action)
           self?.publishOverviewState()
         }
       },

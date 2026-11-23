@@ -463,20 +463,29 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(onNavigation { manager.tapReenableCount }, 0)
 
     let closed = DesktopValue(false)
-    let overview = onNavigation { HotKeyManager(config: Config(),
-      overviewCancelHandler: { DispatchQueue.main.async { closed.value = true } }) { _ in } }
+    let filtered = Mutex<[OverviewKeyAction]>([])
+    let overview = onNavigation { HotKeyManager(config: Config(), overviewHandler: { action in
+      if case .filter = action { filtered.withLock { $0.append(action) } }
+      if action == .escape { DispatchQueue.main.async { closed.value = true } }
+    }) { _ in } }
     try onNavigation { try overview.start() }
     onNavigation { overview.overviewModeSetter(true) }
     defer { onNavigation { overview.stop() } }
     let entered = DispatchSemaphore(value: 0), release = DispatchSemaphore(value: 0)
     NavigationActor.enqueue { entered.signal(); release.wait() }
     XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+    // Created here: the event takes its text from the keyboard layout, which is read on the main thread.
+    let letter = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_A), keyDown: true))
+    letter.flags = []
     DispatchQueue.global(qos: .userInteractive).async {
+      letter.post(tap: .cghidEventTap)
       CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: true)?.post(tap: .cghidEventTap)
     }
     let cancelled = pumpRunLoop(until: { closed.value }, timeout: 1)
     release.signal()
     XCTAssertTrue(cancelled, "Escape must reach the Overview without waiting for the navigation lane")
+    XCTAssertEqual(filtered.withLock { $0 }, [.filter(.text("a"))],
+      "A typed letter must reach the Overview filter before the Escape that follows it")
 
     let motions = DesktopValue(0)
     let pointer = onNavigation { HotKeyManager(
@@ -1230,6 +1239,40 @@ final class DesktopE2ETests: XCTestCase {
       NSRect(x: card.x, y: card.y, width: card.width, height: card.height), to: nil)).minY
     let superseded = await waitUntil(timeout: 1) { minY().map { abs($0 - expected) <= 1 } == true }
     XCTAssertTrue(superseded, "An unrelated workspace activation must supersede the predicted destination")
+
+    func cards() -> [NSAccessibilityElement] {
+      ((input.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement })
+        .filter { $0.accessibilityRole() == .button }
+    }
+    func field() -> NSView? {
+      (input.accessibilityChildren() ?? []).compactMap { $0 as? OverviewFilterField }.first
+    }
+    controller.handleKey(.filter(.text("window")))
+    controller.handleKey(.filter(.text(" 4")))
+    let shown = await waitUntil(timeout: 1) {
+      field().map { $0.alphaValue == 1 && $0.accessibilityValue() as? String == "window 4" } == true
+    }
+    XCTAssertTrue(shown, "The filter field must fade in with the query")
+    let glided = await waitUntil(timeout: 1) {
+      cards().first { $0.isAccessibilitySelected() }?.accessibilityLabel() == "Vertical window 4"
+    }
+    XCTAssertTrue(glided, "The selection must glide to the only card matching every word")
+    XCTAssertEqual(cards().filter { $0.accessibilityHelp()?.contains("does not match") == true }.count,
+      cards().count - 1, "Every other card must dim")
+    controller.handleKey(.escape)
+    let cleared = await waitUntil(timeout: 1) { field() == nil }
+    XCTAssertTrue(cleared, "Escape must clear the filter first")
+    XCTAssertTrue(controller.isOpen, "The first Escape must keep the Overview open")
+    XCTAssertTrue(nativeSelections.isEmpty, "Filtering must not move native windows")
+
+    controller.handleKey(.filter(.text("window")))
+    let refiltered = await waitUntil(timeout: 1) { field()?.alphaValue == 1 }
+    XCTAssertTrue(refiltered)
+    controller.close()
+    controller.open(snapshot: snapshot(2), layout: LayoutSettings(), windowPreviewsEnabled: false)
+    let reopened = try XCTUnwrap(NSApp.windows.compactMap { $0.contentView.flatMap(findView) }.first)
+    XCTAssertFalse((reopened.accessibilityChildren() ?? []).contains { $0 is OverviewFilterField },
+      "A new Overview session must not show the last session's filter")
   }
 
   // MARK: Two-display lane

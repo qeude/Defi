@@ -190,6 +190,10 @@ public final class OverviewController: NSObject {
   private var previewMonitorIDs: [WindowID: MonitorID] = [:]
   private var selectionsByWorkspace: [WorkspaceID: OverviewSelection] = [:]
   private var selection: OverviewSelection?
+  private(set) var filterQuery = ""
+  private var filterMatches: [OverviewSelection] = []
+  private var filterMonitorID: MonitorID?
+  private var appNames: [Int32: String] = [:]
   private var hasDeferredSelection = false
   private var selectionCommitPending = false
   private var selectionAlignmentFinished = false
@@ -488,6 +492,10 @@ public final class OverviewController: NSObject {
     }
     idlePreparationRetry?.cancel(); idlePreparationRetry = nil
     sessionGeneration &+= 1
+    filterQuery = ""
+    filterMatches = []
+    appNames = [:]
+    for panel in panels.values { panel.view.clearFilter() }
     self.snapshot = snapshot
     self.layout = layout
     borderStyle = WindowBorderStyle(config: borders)
@@ -635,6 +643,7 @@ public final class OverviewController: NSObject {
       hasDeferredSelection = true
       alignSelectionOnNextUpdate = true
     }
+    refreshFilterMatches()
     selectionsByWorkspace = selectionsByWorkspace.filter { $0.value.isValid(in: snapshot) }
     previews = previews.filter { id, picture in
       snapshot.windows[id].map { $0.processID == picture.processID && $0.appID == picture.appID } == true
@@ -953,10 +962,14 @@ public final class OverviewController: NSObject {
 
   public func handleKey(_ action: OverviewKeyAction) {
     guard isOpen else { return }
-    guard !selectionCommitPending || action == .cancel else { return }
+    guard !selectionCommitPending || action == .cancel || action == .escape else { return }
     switch action {
     case .cancel:
       close()
+    case .escape:
+      if filterQuery.isEmpty || selectionCommitPending { close() } else { setFilter("") }
+    case .filter(let key):
+      applyFilterKey(key)
     case .select:
       chooseSelection()
     case .left, .right, .up, .down, .firstColumn, .lastColumn, .workspaceUp, .workspaceDown, .workspace,
@@ -1084,6 +1097,107 @@ public final class OverviewController: NSObject {
       || viewport.horizontalOffsets[workspace.id, default: workspace.scrollOffset] != workspace.targetScrollOffset
   }
 
+  private func applyFilterKey(_ key: OverviewFilterKey) {
+    var query = filterQuery
+    switch key {
+    case .text(let text):
+      // A leading space separates nothing.
+      guard !query.isEmpty || !text.allSatisfy(\.isWhitespace) else { return }
+      query += text
+    case .deleteBackward:
+      guard !query.isEmpty else { return }
+      query.removeLast()
+    case .deleteWord:
+      guard !query.isEmpty else { return }
+      while query.last?.isWhitespace == true { query.removeLast() }
+      while let last = query.last, !last.isWhitespace { query.removeLast() }
+    case .next, .previous:
+      cycleFilterMatch(forward: key == .next)
+      return
+    }
+    setFilter(query)
+  }
+
+  private func setFilter(_ query: String) {
+    guard let snapshot, query != filterQuery else { return }
+    if filterQuery.isEmpty {
+      filterMonitorID = selection?.location.monitorID ?? snapshot.activeMonitorID ?? snapshot.monitors.first?.id
+    }
+    filterQuery = query
+    refreshFilterMatches()
+    if !query.isEmpty, let first = filterMatches.first,
+      !filterMatches.contains(where: { $0.windowID == selection?.windowID }) {
+      moveSelection(to: first, in: snapshot)
+    } else {
+      updatePanels()
+    }
+    if let monitorID = filterMonitorID, let view = panels[monitorID]?.view {
+      let announcement = switch (query.isEmpty, filterMatches.count) {
+      case (true, _): "Filter cleared"
+      case (false, 0): "No matches"
+      case (false, 1): "1 match"
+      case (false, let count): "\(count) matches"
+      }
+      NSAccessibility.post(element: view, notification: .announcementRequested, userInfo: [
+        .announcement: announcement,
+        .priority: NSAccessibilityPriorityLevel.high.rawValue,
+      ])
+    }
+  }
+
+  private func cycleFilterMatch(forward: Bool) {
+    guard let snapshot, !filterMatches.isEmpty else { return }
+    let current = filterMatches.firstIndex { $0.windowID == selection?.windowID }
+    let index = current.map { ($0 + (forward ? 1 : -1) + filterMatches.count) % filterMatches.count }
+      ?? (forward ? 0 : filterMatches.count - 1)
+    guard filterMatches[index] != selection else { return }
+    moveSelection(to: filterMatches[index], in: snapshot)
+  }
+
+  private func refreshFilterMatches() {
+    guard let snapshot, !filterQuery.isEmpty else {
+      filterMatches = []
+      return
+    }
+    filterMatches = filterCandidates(in: snapshot).filter { candidate in
+      guard let window = candidate.windowID.flatMap({ snapshot.windows[$0] }) else { return false }
+      return overviewFilterMatches(query: filterQuery, text: "\(window.title) \(appName(of: window)) \(window.appID)")
+    }
+  }
+
+  /// Every card in reading order: the active monitor first, then workspaces top to bottom,
+  /// columns left to right, and floating windows last.
+  private func filterCandidates(in snapshot: OverviewSnapshot) -> [OverviewSelection] {
+    let monitors = snapshot.monitors.filter { $0.id == snapshot.activeMonitorID }
+      + snapshot.monitors.filter { $0.id != snapshot.activeMonitorID }
+    return monitors.flatMap { monitor in
+      monitor.workspaces.flatMap { workspace in
+        (workspace.columns.flatMap(\.windows) + workspace.floatingWindows).map {
+          OverviewSelection.window(windowID: $0, monitorID: monitor.id, workspaceID: workspace.id)
+        }
+      }
+    }
+  }
+
+  private func appName(of window: Window) -> String {
+    guard let processID = window.processID else { return "" }
+    if let name = appNames[processID] { return name }
+    let name = NSRunningApplication(processIdentifier: processID)?.localizedName ?? ""
+    appNames[processID] = name
+    return name
+  }
+
+  private func filterPresentation(on monitorID: MonitorID, snapshot: OverviewSnapshot) -> OverviewFilterPresentation {
+    guard !filterQuery.isEmpty else { return OverviewFilterPresentation() }
+    let matched = Set(filterMatches.compactMap(\.windowID))
+    return OverviewFilterPresentation(
+      query: filterQuery,
+      matchCount: filterMatches.count,
+      dimmedWindowIDs: Set(snapshot.windows.keys).subtracting(matched),
+      showsField: monitorID == filterMonitorID
+    )
+  }
+
   private func navigate(_ action: OverviewKeyAction) {
     guard !selectionCommitPending, let snapshot,
       let target = navigationTarget(
@@ -1092,6 +1206,10 @@ public final class OverviewController: NSObject {
         snapshot: snapshot
       ), target != selection
     else { return }
+    moveSelection(to: target, in: snapshot)
+  }
+
+  private func moveSelection(to target: OverviewSelection, in snapshot: OverviewSnapshot) {
     if selection?.location.monitorID != target.location.monitorID {
       activateMonitorHandler(target.location.monitorID)
     }
@@ -1331,7 +1449,7 @@ public final class OverviewController: NSObject {
         monitorID: monitor.id,
         workspaceID: monitor.workspaces[adjacentIndex].id
       )
-    case .moveUp, .moveDown, .moveToMonitor, .select, .cancel, .layout:
+    case .moveUp, .moveDown, .moveToMonitor, .select, .cancel, .escape, .layout, .filter:
       return selection
     }
   }
@@ -1417,6 +1535,7 @@ public final class OverviewController: NSObject {
       )
       projections[monitorID] = projection
       panel.view.surfaceWindowIDs = surfaceWindowIDs
+      panel.view.filter = filterPresentation(on: monitorID, snapshot: snapshot)
       panel.view.update(
         snapshot: snapshot,
         projection: projection,
