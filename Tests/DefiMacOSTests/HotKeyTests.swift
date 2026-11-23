@@ -52,6 +52,7 @@ struct OverviewHotKeyTests {
     (13, hotKeyModifierBits(.maskCommand), nil, .layout(.closeWindow(nil))), (13, 0, nil, nil),
     (12, hotKeyModifierBits(.maskCommand), nil, nil), (13, hyper, nil, nil),
     (31, hyper, "close-window", .layout(.closeWindow(nil))),
+    (13, hotKeyModifierBits(.maskCommand), "toggle-overview", .cancel),
   ] as [(CGKeyCode, UInt64, String?, OverviewKeyAction?)])
   func overviewKeyActionFollowsKeyAndBinding(keyCode: CGKeyCode, modifiers: UInt64, command: String?,
     action: OverviewKeyAction?) {

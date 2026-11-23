@@ -116,9 +116,9 @@ func overviewKeyAction(
   case 36 where modifierBits == 0: .select
   case 76 where modifierBits == 0: .select
   case 53 where modifierBits == 0: .cancel
+  case _ where command == .toggleOverview: .cancel
   // Command-W closes the selected card's window, not the frontmost app's.
   case closeWindowKeyCode where modifierBits == hotKeyModifierBits(.maskCommand): .layout(.closeWindow(nil))
-  case _ where command == .toggleOverview: .cancel
   default: nil
   }
 }
