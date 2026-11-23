@@ -1,4 +1,5 @@
 import DefiModel
+import Foundation
 
 public struct OverviewPoint: Equatable, Sendable {
   public let x: Double
@@ -662,4 +663,11 @@ public func overviewNeighbor(
     return nil
   }
   return candidates.first(where: survivors.contains)
+}
+
+/// Whether every word of a type-to-filter query appears in `text`, ignoring case, accents and width.
+public func overviewFilterMatches(query: String, text: String) -> Bool {
+  query.split(whereSeparator: \.isWhitespace).allSatisfy {
+    text.range(of: String($0), options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]) != nil
+  }
 }

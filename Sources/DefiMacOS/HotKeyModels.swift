@@ -55,7 +55,38 @@ public enum OverviewKeyAction: Equatable, Sendable {
   case moveDown
   case select
   case cancel
+  /// Escape: clears the type-to-filter query first, then closes like `cancel`.
+  case escape
   case layout(Command)
+  case filter(OverviewFilterKey)
+}
+
+public enum OverviewFilterKey: Equatable, Sendable {
+  case text(String)
+  case deleteBackward
+  case deleteWord
+  case next
+  case previous
+}
+
+/// A key typed into the Overview filter: printable text, Delete, or Tab, without Command or
+/// Control. Callers check bindings and `overviewKeyAction` first, so bound keys keep their action.
+func overviewFilterKey(keyCode: CGKeyCode, modifierBits: UInt64, characters: String) -> OverviewFilterKey? {
+  guard modifierBits & (CGEventFlags.maskCommand.rawValue | CGEventFlags.maskControl.rawValue) == 0 else {
+    return nil
+  }
+  let option = modifierBits & CGEventFlags.maskAlternate.rawValue != 0
+  let shift = modifierBits & CGEventFlags.maskShift.rawValue != 0
+  switch keyCode {
+  case 51: return option ? .deleteWord : .deleteBackward
+  case 48: return shift ? .previous : .next
+  default: break
+  }
+  // Function and navigation keys print private-use characters (U+F700...U+F8FF).
+  let printable = characters.unicodeScalars.allSatisfy {
+    $0.value >= 32 && $0.value != 127 && !(0xF700...0xF8FF).contains($0.value)
+  }
+  return !characters.isEmpty && printable ? .text(characters) : nil
 }
 
 func overviewKeyAction(
@@ -115,7 +146,7 @@ func overviewKeyAction(
   case 126 where navigatesOverview: .up
   case 36 where modifierBits == 0: .select
   case 76 where modifierBits == 0: .select
-  case 53 where modifierBits == 0: .cancel
+  case 53 where modifierBits == 0: .escape
   case _ where command == .toggleOverview: .cancel
   // Command-W closes the selected card's window, not the frontmost app's.
   case closeWindowKeyCode where modifierBits == hotKeyModifierBits(.maskCommand): .layout(.closeWindow(nil))

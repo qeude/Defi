@@ -5,6 +5,16 @@ import DefiModel
 import QuartzCore
 
 let overviewSelectionFadeDuration: TimeInterval = 0.1
+let overviewFilterDimmedOpacity: Float = 0.3
+// Ease-out cubic, as the Overview's other transitions (`animatedScalar`).
+@MainActor let overviewEaseOut = CAMediaTimingFunction(controlPoints: 0.33, 1, 0.68, 1)
+
+struct OverviewFilterPresentation: Equatable {
+  var query = ""
+  var matchCount = 0
+  var dimmedWindowIDs = Set<WindowID>()
+  var showsField = false
+}
 
 // The overview is a retained layer tree: a refresh moves existing textures and the
 // compositor blends them, so no frame rasterizes the panel on the main thread.
@@ -22,6 +32,16 @@ final class OverviewView: NSView {
   // Cross-fades the wallpaper on the next render; Core Animation runs the fade.
   private var desktopFadeDuration: TimeInterval = 0
   var animatesSelection = false
+  var filter = OverviewFilterPresentation() {
+    didSet {
+      guard oldValue != filter else { return }
+      needsDisplay = true
+      filterField.update(query: filter.showsField ? filter.query : "", matchCount: filter.matchCount,
+        animated: animatesSelection && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+      layoutFilterField()
+    }
+  }
+  private let filterField = OverviewFilterField()
   var hasDesktopImage: Bool { desktopImage != nil }
   private var previews: [WindowID: WindowPicture] = [:]
   private var blurredPreviews: [WindowID: CGImage] = [:]
@@ -105,6 +125,22 @@ final class OverviewView: NSView {
     setAccessibilityElement(true)
     setAccessibilityRole(.group)
     setAccessibilityLabel("Defi Overview")
+    addSubview(filterField)
+  }
+
+  override func layout() {
+    super.layout()
+    layoutFilterField()
+  }
+
+  /// Centered above the Dock, or the bottom edge when the Dock is elsewhere.
+  private func layoutFilterField() {
+    let size = filterField.fittingSize
+    let screen = window?.screen
+    let bottomInset = screen.map { $0.visibleFrame.minY - $0.frame.minY } ?? 0
+    filterField.setFrameSize(size)
+    filterField.setFrameOrigin(NSPoint(
+      x: (bounds.width - size.width) / 2, y: bounds.height - bottomInset - 32 - size.height))
   }
 
   func discardPreviewImages() {
@@ -328,6 +364,7 @@ final class OverviewView: NSView {
     let size = frame.size
     setFrame(layers.root, frame.offsetBy(dx: -origin.x, dy: -origin.y))
     layers.root.isHidden = suppressedSurfaceWindowIDs.contains(card.windowID)
+    setFilterOpacity(layers.root, dimmed: filter.dimmedWindowIDs.contains(card.windowID))
     layers.root.cornerRadius = windowCornerRadius
     layers.root.backgroundColor = card.isNativeFullscreen
       ? OverviewCardLayers.fullscreenBackground : OverviewCardLayers.background
@@ -423,6 +460,7 @@ final class OverviewView: NSView {
       layer.add(transition, forKey: "selection")
     }
     layer.setValue(selected, forKey: "selected")
+    setFilterOpacity(layer, dimmed: filter.dimmedWindowIDs.contains(card.windowID))
     guard let border = overviewWindowBorderAppearance(
       isSelected: selected,
       style: borderStyle,
@@ -446,6 +484,36 @@ final class OverviewView: NSView {
     layer.borderWidth = border.width
     layer.borderColor = overviewBorderColor(border.color)
     layer.isHidden = false
+  }
+
+  /// A reused panel opens unfiltered instead of fading out the last session's filter.
+  func clearFilter() {
+    let animates = animatesSelection
+    animatesSelection = false
+    filter = OverviewFilterPresentation()
+    animatesSelection = animates
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    for layer in cardLayers.values.map(\.root) + borderLayers.values {
+      layer.removeAnimation(forKey: "filter")
+      layer.opacity = 1
+    }
+    CATransaction.commit()
+  }
+
+  /// Cards that do not match the filter dim in place; nothing moves.
+  private func setFilterOpacity(_ layer: CALayer, dimmed: Bool) {
+    let opacity = dimmed ? overviewFilterDimmedOpacity : 1
+    guard layer.opacity != opacity else { return }
+    if animatesSelection, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = layer.presentation()?.opacity ?? layer.opacity
+      fade.duration = overviewTransitionDuration
+      fade.timingFunction = overviewEaseOut
+      fade.preferredFrameRateRange = overviewAnimationFrameRate
+      layer.add(fade, forKey: "filter")
+    }
+    layer.opacity = opacity
   }
 
   private func renderOverflowIndicator(
@@ -569,7 +637,8 @@ final class OverviewView: NSView {
         element.setAccessibilityLabel(
           managedWindow.title.isEmpty ? managedWindow.appID : managedWindow.title
         )
-        element.setAccessibilityHelp("Workspace \(workspace.label)")
+        element.setAccessibilityHelp(filter.dimmedWindowIDs.contains(card.windowID)
+          ? "Workspace \(workspace.label), does not match the filter" : "Workspace \(workspace.label)")
         element.setAccessibilitySelected(selection?.windowID == card.windowID)
         element.setAccessibilityFrame(
           window.convertToScreen(convert(visibleFrame, to: nil))
@@ -577,7 +646,7 @@ final class OverviewView: NSView {
         return element
       }
       return [workspaceElement] + windowElements
-    }
+    } + (filterField.isHidden ? [] : [filterField])
   }
 
   private func show(

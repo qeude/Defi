@@ -36,8 +36,6 @@ public final class HotKeyManager {
     @NavigationActor @Sendable (TimeInterval) -> Void
   public typealias CloseIntentHandler =
     @NavigationActor @Sendable (TimeInterval, pid_t?) -> Void
-  public typealias OverviewHandler =
-    @NavigationActor @Sendable (OverviewKeyAction) -> Void
   public typealias ScrollGestureHandler =
     @NavigationActor @Sendable (ScrollGestureAction) -> Void
 
@@ -51,8 +49,7 @@ public final class HotKeyManager {
   private let pointerMotionHandler: PointerMotionHandler?
   private let tapReenabledHandler: TapReenabledHandler
   private let closeIntentHandler: CloseIntentHandler
-  private let overviewHandler: OverviewHandler
-  private let overviewCancelHandler: (@Sendable () -> Void)?
+  private let overviewHandler: @Sendable (OverviewKeyAction) -> Void
   private let overviewSwipeHandler: @Sendable (OverviewSwipeEvent) -> Void
   private let cheatsheetHandler: @NavigationActor @Sendable (CheatsheetInput) -> Void
   private let cheatsheetModifierBits: UInt64?
@@ -103,8 +100,7 @@ public final class HotKeyManager {
     displayPointerRouter: DisplayPointerRouter? = nil,
     tapReenabledHandler: @escaping TapReenabledHandler = { _ in },
     closeIntentHandler: @escaping CloseIntentHandler = { _, _ in },
-    overviewHandler: @escaping OverviewHandler = { _ in },
-    overviewCancelHandler: (@Sendable () -> Void)? = nil,
+    overviewHandler: @escaping @Sendable (OverviewKeyAction) -> Void = { _ in },
     overviewSwipeHandler: @escaping @Sendable (OverviewSwipeEvent) -> Void = { _ in },
     cheatsheetHandler: @escaping @NavigationActor @Sendable (CheatsheetInput) -> Void = { _ in },
     scrollGestureHandler: ScrollGestureHandler? = nil,
@@ -121,7 +117,6 @@ public final class HotKeyManager {
     self.tapReenabledHandler = tapReenabledHandler
     self.closeIntentHandler = closeIntentHandler
     self.overviewHandler = overviewHandler
-    self.overviewCancelHandler = overviewCancelHandler
     self.overviewSwipeHandler = overviewSwipeHandler
     self.cheatsheetHandler = cheatsheetHandler
     cheatsheetModifierBits = try? Key(
@@ -199,7 +194,6 @@ public final class HotKeyManager {
     let tapReenabledHandler = self.tapReenabledHandler
     let closeIntentHandler = self.closeIntentHandler
     let overviewHandler = self.overviewHandler
-    let overviewCancelHandler = self.overviewCancelHandler
     let cheatsheetHandler = self.cheatsheetHandler
     let scrollGestureHandler = self.scrollGestureHandler
     let context = InputMonitor(
@@ -227,14 +221,8 @@ public final class HotKeyManager {
         handler(invocation)
       }
     } deliverOverview: { action in
-      // Escape and the overview toggle must not queue behind slow AX work.
-      if action == .cancel, let overviewCancelHandler {
-        overviewCancelHandler()
-        return
-      }
-      NavigationActor.enqueue {
-        overviewHandler(action)
-      }
+      // Off the navigation queue, so Overview keys never wait for AX work and keep their order.
+      overviewHandler(action)
     } deliverPointerMotion: { invocation in
       NavigationActor.enqueue {
         pointerMotionHandler?(invocation)
@@ -786,7 +774,9 @@ final class InputMonitor: @unchecked Sendable {
     if overview, let action = overviewKeyAction(
       keyCode: code, modifierBits: key.modifierBits, configuredCommand: bindings[key],
       closeWindowKeyCode: closeWindowKeyCode
-    ) {
+    ) ?? (bindings[key] != nil ? nil : overviewFilterKey(
+      keyCode: code, modifierBits: key.modifierBits, characters: typedCharacters(event)
+    ).map(OverviewKeyAction.filter)) {
       capturedModifierReleaseState.reset()
       recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
       let timestamp = Double(event.timestamp) / 1_000_000_000
@@ -999,4 +989,12 @@ func recentWindowsHoldModifiers(_ modifierBits: UInt64) -> UInt64? {
   let held = modifierBits & ~CGEventFlags.maskShift.rawValue
   if held != 0 { return held }
   return modifierBits == 0 ? nil : modifierBits
+}
+
+/// The text the system attached to a key event, from the user's current input source.
+func typedCharacters(_ event: CGEvent) -> String {
+  var length = 0
+  var buffer = [UniChar](repeating: 0, count: 8)
+  event.keyboardGetUnicodeString(maxStringLength: buffer.count, actualStringLength: &length, unicodeString: &buffer)
+  return String(utf16CodeUnits: buffer, count: length)
 }

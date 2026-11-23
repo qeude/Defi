@@ -978,6 +978,15 @@ Command-W or `close-window` closes the selected card's window. The selection
 moves to its neighbor once the window is gone; if the app asks to save first,
 the card stays selected.
 
+Typing filters the Overview by window title and app name, ignoring case and
+accents; with several words, each must match. A small field shows the query,
+cards that do not match dim in place, and the selection moves to the first
+match. Tab and Shift-Tab step through the matches, Delete and Option-Delete
+edit the query, Return opens the selection, and Escape clears the query before a
+second Escape closes the Overview. Shortcuts, arrows, and keys with Command or
+Control keep their action, and while the Overview is open, typed keys never
+reach the app underneath.
+
 Defi asks for Screen Recording right after Accessibility. If it is still missing
 and `window_previews = true`, it asks once more before the first Overview, so the
 panel does not cover the prompt. If access is denied, revoked, or unavailable, the

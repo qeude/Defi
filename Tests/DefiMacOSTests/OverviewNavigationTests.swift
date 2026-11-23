@@ -40,6 +40,68 @@ struct OverviewNavigationTests {
     #expect(!controller.isOpen)
   }
 
+  private func filterFixture() -> (OverviewController, [WindowID], () -> [WindowID]) {
+    let monitor = MonitorID(rawValue: .max)
+    let ids = (1...3).map { WindowID(rawValue: UInt64($0)) }
+    let titles = ["Inbox", "Docs", "News"], apps = ["com.apple.mail", "com.apple.Safari", "com.apple.Safari"]
+    let a = Workspace(id: WorkspaceID(rawValue: "a"), columns: [Column(window: ids[0], width: .fraction(0.5))])
+    let b = Workspace(id: WorkspaceID(rawValue: "b"), columns: [
+      Column(window: ids[1], width: .fraction(0.5)), Column(window: ids[2], width: .fraction(0.5))])
+    let focused = Box<[WindowID]>([])
+    let controller = OverviewController(focusWindow: { id, _, _, _ in focused.value.append(id) },
+      focusWorkspace: { _, _ in }, drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, notificationCenter: NotificationCenter(), commitScrollOffsets: { _ in })
+    controller.open(snapshot: OverviewSnapshot(monitors: [Monitor(id: monitor, workspaces: [a, b], activeWorkspace: a.id)],
+      monitorFrames: [:], windows: Dictionary(uniqueKeysWithValues: ids.indices.map { index in
+        (ids[index], Window(id: ids[index], appID: apps[index], title: titles[index],
+          frame: Rect(x: 0, y: 0, width: 100, height: 100)))
+      })), layout: LayoutSettings(), windowPreviewsEnabled: false)
+    return (controller, ids, { focused.value })
+  }
+
+  private func type(_ text: String, into controller: OverviewController) {
+    for character in text { controller.handleKey(.filter(.text(String(character)))) }
+  }
+
+  @Test func filterSelectsTheFirstMatchAndTabCyclesMatches() {
+    let (controller, ids, focused) = filterFixture()
+    defer { controller.close() }
+    type(" saf", into: controller)
+    #expect(controller.filterQuery == "saf", "A leading space separates nothing")
+    controller.handleKey(.filter(.next))
+    controller.handleKey(.filter(.next))
+    controller.handleKey(.filter(.previous))
+    #expect(focused().isEmpty, "Filtering only moves the selection")
+    controller.handleKey(.select)
+    #expect(focused() == [ids[2]])
+  }
+
+  @Test func filterKeepsAStillMatchingSelectionAndEveryWordMustMatch() {
+    let (controller, ids, focused) = filterFixture()
+    defer { controller.close() }
+    type("safari", into: controller)
+    controller.handleKey(.filter(.next))
+    type(" n", into: controller)
+    controller.handleKey(.filter(.deleteBackward))
+    #expect(controller.filterQuery == "safari ")
+    type("docs", into: controller)
+    controller.handleKey(.filter(.deleteWord))
+    #expect(controller.filterQuery == "safari ")
+    controller.handleKey(.select)
+    #expect(focused() == [ids[1]], "\"safari docs\" moved the selection to its only match")
+  }
+
+  @Test func escapeClearsTheFilterThenClosesWithoutChoosing() {
+    let (controller, _, focused) = filterFixture()
+    type("nothing matches", into: controller)
+    controller.handleKey(.escape)
+    #expect(controller.filterQuery.isEmpty)
+    #expect(controller.isOpen)
+    controller.handleKey(.escape)
+    #expect(!controller.isOpen)
+    #expect(focused().isEmpty)
+  }
+
   @Test(arguments: [WorkspaceTarget.named("b"), .position(2)])
   func directWorkspaceBindingSelectsItsFocusedWindow(target: WorkspaceTarget) {
     let monitor = MonitorID(rawValue: .max)
@@ -289,4 +351,9 @@ struct OverviewNavigationTests {
     #expect(drops == [.newColumn(monitorID: MonitorID(rawValue: 2),
       workspaceID: WorkspaceID(rawValue: "right"), columnIndex: 2)])
   }
+}
+
+private final class Box<Value> {
+  var value: Value
+  init(_ value: Value) { self.value = value }
 }

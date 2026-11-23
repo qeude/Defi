@@ -19,7 +19,7 @@ import Testing
 ///   focused Defi text field, which reach the field unchanged;
 /// - Escape while the cheatsheet shows dismisses it and goes no further;
 /// - with the Overview open, its keys drive the Overview instead of commands, and Command-Tab
-///   closes it and still reaches macOS;
+///   closes it and still reaches macOS, and other typed text, Delete and Tab go to its filter;
 /// - the cheatsheet sees every key down and modifier change outside Defi's text fields, and a
 ///   click dismisses it;
 /// - a delivered command or Overview key is recorded as captured input at its timestamp.
@@ -29,6 +29,20 @@ struct InputModelTests {
     (123, "focus-column left"), (124, "focus-column right"), (126, "focus-workspace up"),
     (44, "toggle-cheatsheet"), (31, "toggle-overview"),
   ]
+
+  /// The text each key event carries, as the system attaches it from the input source.
+  private static func characters(_ code: CGKeyCode) -> String {
+    switch code {
+    case 0: "a"
+    case 48: "\t"
+    case 53: "\u{1B}"
+    case 123: "\u{F702}"
+    case 124: "\u{F703}"
+    case 125: "\u{F701}"
+    case 126: "\u{F700}"
+    default: "x"
+    }
+  }
 
   private struct State {
     var overview = false
@@ -68,6 +82,13 @@ struct InputModelTests {
       if state.overview, let action = overviewKeyAction(
         keyCode: code, modifierBits: key.modifierBits, configuredCommand: bindings[key]) {
         out.overview = [action]
+        out.reachesMacOS = false
+        out.capturedAt = timestamp
+        return out
+      }
+      if state.overview, bindings[key] == nil, let filter = overviewFilterKey(
+        keyCode: code, modifierBits: key.modifierBits, characters: characters(code)) {
+        out.overview = [.filter(filter)]
         out.reachesMacOS = false
         out.capturedAt = timestamp
         return out
@@ -162,6 +183,8 @@ struct InputModelTests {
       case .key(let code, let flags, let autorepeat, let targetsDefi):
         let cgEvent = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
         cgEvent.flags = flags
+        let text = Array(Self.characters(code).utf16)
+        cgEvent.keyboardSetUnicodeString(stringLength: text.count, unicodeString: text)
         cgEvent.timestamp = UInt64(timestamp * 1_000_000_000)
         cgEvent.setIntegerValueField(.keyboardEventAutorepeat, value: autorepeat ? 1 : 0)
         cgEvent.setIntegerValueField(.eventTargetUnixProcessID, value: Int64(targetsDefi ? getpid() : 4_242))

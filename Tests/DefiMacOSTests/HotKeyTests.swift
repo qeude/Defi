@@ -48,7 +48,7 @@ struct OverviewHotKeyTests {
     (124, hyperShift, "move-column-or-to-monitor right", .layout(.moveColumn(.right))),
     (4, hyper, "focus-column left", .left), (37, hyper, "focus-column right", .right),
     (38, hyper, "focus-window down", .down), (40, hyper, "focus-window up", .up),
-    (36, 0, nil, .select), (36, hyper, "focus-column left", .left), (53, 0, nil, .cancel), (0, 0, nil, nil),
+    (36, 0, nil, .select), (36, hyper, "focus-column left", .left), (53, 0, nil, .escape), (0, 0, nil, nil),
     (13, hotKeyModifierBits(.maskCommand), nil, .layout(.closeWindow(nil))), (13, 0, nil, nil),
     (12, hotKeyModifierBits(.maskCommand), nil, nil), (13, hyper, nil, nil),
     (31, hyper, "close-window", .layout(.closeWindow(nil))),
@@ -57,6 +57,47 @@ struct OverviewHotKeyTests {
   func overviewKeyActionFollowsKeyAndBinding(keyCode: CGKeyCode, modifiers: UInt64, command: String?,
     action: OverviewKeyAction?) {
     #expect(overviewKeyAction(keyCode: keyCode, modifierBits: modifiers, configuredCommand: command) == action)
+  }
+
+  // key code, modifiers, characters -> filter key
+  @Test(arguments: [
+    (0, 0, "a", .text("a")), (0, hotKeyModifierBits(.maskShift), "A", .text("A")),
+    (14, hotKeyModifierBits(.maskAlternate), "é", .text("é")), (49, 0, " ", .text(" ")),
+    (0, hotKeyModifierBits(.maskCommand), "a", nil), (0, hotKeyModifierBits(.maskControl), "\u{1}", nil),
+    (51, 0, "\u{8}", .deleteBackward), (51, hotKeyModifierBits(.maskAlternate), "\u{8}", .deleteWord),
+    (48, 0, "\t", .next), (48, hotKeyModifierBits(.maskShift), "\t", .previous),
+    (122, 0, "\u{F704}", nil), (53, 0, "\u{1B}", nil), (0, 0, "", nil),
+  ] as [(CGKeyCode, UInt64, String, OverviewFilterKey?)])
+  func overviewFilterKeyTakesPrintableTextDeleteAndTab(keyCode: CGKeyCode, modifiers: UInt64, characters: String,
+    key: OverviewFilterKey?) {
+    #expect(overviewFilterKey(keyCode: keyCode, modifierBits: modifiers, characters: characters) == key)
+  }
+
+  @Test
+  func overviewModeSwallowsTypedTextButLeavesBoundAndCommandKeys() throws {
+    let bound = try Key(accelerator: "shift-q", aliases: [:])
+    let actions = Mutex<[OverviewKeyAction]>([])
+    let invocations = HotKeyInvocationRecorder()
+    let context = InputMonitor(
+      bindings: [bound: "spawn-sh true"], userInputTracker: UserInputTracker(),
+      pointerMotionTracker: PointerMotionTracker(), tracksPointerWindowTransitions: false,
+      deliver: { invocations.append($0) },
+      deliverOverview: { action in actions.withLock { $0.append(action) } },
+      deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+    context.setHotKeysRegistered(true)
+    func intercepted(_ code: CGKeyCode, _ text: String, _ flags: CGEventFlags = []) throws -> Bool {
+      let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      event.flags = flags
+      event.keyboardSetUnicodeString(stringLength: text.utf16.count, unicodeString: Array(text.utf16))
+      return context.intercept(type: .keyDown, event: event) == nil
+    }
+    #expect(try !intercepted(0, "a"), "Closed, the Overview takes no keys")
+    context.setOverviewModeEnabled(true)
+    #expect(try intercepted(0, "a"))
+    #expect(try !intercepted(0, "a", .maskCommand))
+    #expect(try !intercepted(bound.code, "Q", .maskShift), "A bound key keeps its command")
+    #expect(try intercepted(53, "\u{1B}"))
+    #expect(actions.withLock { $0 } == [.filter(.text("a")), .escape])
   }
 
   @Test(arguments: [false, true])
