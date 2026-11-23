@@ -1714,6 +1714,12 @@ struct PlatformEventTests {
     // An assistive app turns the flag on as an app activates, after Defi read it.
     engine.recordObservation(.focus, processID: 41)
     #expect(engine.enhancedUIByProcess == [42: false])
+    // Defi turned the flag off for its own frame write and will turn it back on.
+    engine.enhancedUIByProcess[43] = true
+    engine.frameCoordinator.deferredEnhancedUIRestores[43] = (1, AXUIElementCreateApplication(43), true)
+    engine.recordObservation(.focus, processID: 43)
+    engine.recordObservation(.focus, processID: nil)
+    #expect(engine.enhancedUIByProcess == [43: true])
   }
 
   @Test
