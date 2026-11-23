@@ -141,7 +141,16 @@ final class SnapshotEngine: @unchecked Sendable {
       switch kind {
       case .application, .applicationTerminated, .windowCreated, .focus:
         storage.applicationFactsGeneration &+= 1
-        if let processID { storage.applicationFacts[processID] = nil } else { storage.applicationFacts.removeAll() }
+        // Assistive apps also turn AXEnhancedUserInterface on as an app activates, long after its launch.
+        // A pending restore means Defi turned it off itself for a frame write, so the cached value still holds.
+        let restoring = frameCoordinator.hasDeferredEnhancedUIRestore
+        if let processID {
+          storage.applicationFacts[processID] = nil
+          if !restoring(processID) { storage.enhancedUIByProcess[processID] = nil }
+        } else {
+          storage.applicationFacts.removeAll()
+          storage.enhancedUIByProcess = storage.enhancedUIByProcess.filter { restoring($0.key) }
+        }
       default: break
       }
       if kind == .applicationTerminated || (kind == .windows && windowID != nil) {

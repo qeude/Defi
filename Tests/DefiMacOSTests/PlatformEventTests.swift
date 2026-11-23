@@ -1706,6 +1706,23 @@ struct PlatformEventTests {
   }
 
   @Test
+  func enhancedUserInterfaceIsReadAgainOnceAnEventNamesTheProcess() {
+    let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
+    engine.enhancedUIByProcess = [41: false, 42: false]
+    engine.recordObservation(.frame, processID: 41)
+    #expect(engine.enhancedUIByProcess == [41: false, 42: false])
+    // An assistive app turns the flag on as an app activates, after Defi read it.
+    engine.recordObservation(.focus, processID: 41)
+    #expect(engine.enhancedUIByProcess == [42: false])
+    // Defi turned the flag off for its own frame write and will turn it back on.
+    engine.enhancedUIByProcess[43] = true
+    engine.frameCoordinator.deferredEnhancedUIRestores[43] = (1, AXUIElementCreateApplication(43), true)
+    engine.recordObservation(.focus, processID: 43)
+    engine.recordObservation(.focus, processID: nil)
+    #expect(engine.enhancedUIByProcess == [43: true])
+  }
+
+  @Test
   func unscopedFrameEventCannotBeNarrowedByALaterWindowEvent() {
     let engine = SnapshotEngine(frameCoordinator: AXFrameCoordinator(), userInputTracker: UserInputTracker())
     engine.recordObservation(.frame, processID: 101)
