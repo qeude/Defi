@@ -93,6 +93,8 @@ func moveFocusedSelection(
   let targetMonitorID = state.monitors[targetMonitorIndex].id
 
   let sourceWorkspace = state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
+  // A floating window has no column, so a column move carries the window alone.
+  let movesWholeColumn = movesWholeColumn && sourceWorkspace.focusedLayer != .floating
   guard
     let selectedWindowID = movesWholeColumn
       ? state.selectedTiledWindowID(on: sourceMonitorID)

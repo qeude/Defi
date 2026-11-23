@@ -262,6 +262,58 @@ extension DesktopE2ETests {
     XCTAssertFalse(try daemon.send("close-window 1").ok, "An unknown ID must be refused")
   }
 
+  func testColumnMoveCarriesTheFocusedFloatingWindow() throws {
+    let lane = try daemonLane()
+    let daemon = try lane.startDaemon(config: "[workspaces]\nnames = [\"a\", \"b\"]\n")
+    defer { daemon.stop() }
+    try daemon.run("workspace a")
+    let tiled = try lane.openWindow(daemon: daemon)
+    defer { tiled.close() }
+    let floating = try lane.openWindow(daemon: daemon)
+    defer { floating.close() }
+    try daemon.run("toggle-floating")
+    XCTAssertTrue(daemon.settle([tiled, floating]))
+    XCTAssertEqual(try daemon.status("focused"), "\(floating.windowID)")
+
+    try daemon.run("move-column-to-workspace b")
+
+    func members(_ workspace: String) throws -> [UInt64] {
+      try XCTUnwrap(daemon.workspaces().monitors.flatMap(\.workspaces).first { $0.id == workspace }).windows.map(\.id)
+    }
+    XCTAssertTrue(pumpRunLoop(until: { (try? members("b")) == [floating.windowID] && daemon.settled() }, timeout: 5),
+      "b=\(String(describing: try? members("b"))) \(daemon.diagnostics("a"))")
+    XCTAssertEqual(try daemon.columns("a"), [[tiled.windowID]])
+    XCTAssertEqual(try daemon.status("focused"), "\(floating.windowID)")
+
+    try daemon.run("toggle-overview")
+    XCTAssertTrue(pumpRunLoop(until: { (try? daemon.status("overview")) == "open" }, timeout: 3))
+    try daemon.run("move-column-to-workspace a")
+    XCTAssertTrue(pumpRunLoop(until: { (try? members("a"))?.contains(floating.windowID) == true }, timeout: 5),
+      "In the Overview: a=\(String(describing: try? members("a")))")
+    XCTAssertEqual(try daemon.columns("a"), [[tiled.windowID]])
+    try daemon.run("toggle-overview")
+    XCTAssertTrue(pumpRunLoop(until: { (try? daemon.status("overview")) != "open" && daemon.settled() }, timeout: 5))
+    XCTAssertEqual(try daemon.status("focused"), "\(floating.windowID)")
+
+    guard let main = NSScreen.screens.first?.frame, let other = NSScreen.screens.dropFirst().first?.frame else {
+      try notRun(lane: "two-display", reason: "requires 2 displays, found \(NSScreen.screens.count)")
+    }
+    let (dx, dy) = (other.midX - main.midX, other.midY - main.midY)
+    let direction = abs(dx) >= abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "up" : "down")
+    func monitor(of id: UInt64) throws -> UInt64? {
+      try daemon.workspaces().monitors.first { $0.workspaces.contains { $0.windows.contains { $0.id == id } } }?.id
+    }
+    let source = try monitor(of: tiled.windowID)
+
+    try daemon.run("move-column-to-monitor \(direction)")
+
+    XCTAssertTrue(pumpRunLoop(until: {
+      (try? monitor(of: floating.windowID)).flatMap { $0 } != source && daemon.settled()
+    }, timeout: 5), "floating monitor=\(String(describing: try? monitor(of: floating.windowID))) source=\(String(describing: source))")
+    XCTAssertEqual(try monitor(of: tiled.windowID), source)
+    XCTAssertEqual(try daemon.status("focused"), "\(floating.windowID)")
+  }
+
   private func daemonLane() throws -> DesktopDaemonLane {
     let environment = ProcessInfo.processInfo.environment
     var virtualMachine: Int32 = 0

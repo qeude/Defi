@@ -146,20 +146,6 @@ private func ipcEventHandler(
   }
 }
 
-func crossMonitorCommandWindowID(
-  _ command: Command,
-  selectedWindowID: WindowID?,
-  selectedTiledWindowID: WindowID?
-) -> WindowID? {
-  switch command {
-  case .moveColumnToMonitor, .moveColumnToWorkspace:
-    return selectedTiledWindowID
-  default:
-    break
-  }
-  return selectedWindowID
-}
-
 func workspaceTargetID(
   for command: Command,
   on monitorID: MonitorID?,
@@ -614,13 +600,6 @@ extension Daemon {
       let previouslySelectedWindowID = commandMonitorID.flatMap {
         state.selectedWindowID(on: $0)
       }
-      let crossMonitorWindowID = crossMonitorCommandWindowID(
-        command,
-        selectedWindowID: previouslySelectedWindowID,
-        selectedTiledWindowID: commandMonitorID.flatMap {
-          state.selectedTiledWindowID(on: $0)
-        }
-      )
       cancelScrollPan()
       commandGeneration &+= 1
       let currentCommandGeneration = commandGeneration
@@ -719,7 +698,7 @@ extension Daemon {
           state.workspaceLocation(for: $0).map { state.monitors[$0.monitorIndex].id }
         }
         ?? (movesAcrossMonitors && command.followsWindowMove
-          ? crossMonitorWindowID.flatMap { nextWindowMonitorIDsMap[$0]?.monitorID }
+          ? previouslySelectedWindowID.flatMap { nextWindowMonitorIDsMap[$0]?.monitorID }
             ?? commandMonitorID
           : commandMonitorID)
       let nextWindowMonitorIDs =

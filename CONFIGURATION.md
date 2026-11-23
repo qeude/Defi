@@ -596,6 +596,9 @@ declared in `[workspaces].names`; rules cannot target dynamic positions.
 When a workspace is named `up` or `down`, use `move-column-to-workspace-name
 <name>` or `move-window-to-workspace-name <name>`.
 
+A floating window has no column: when one is focused, the column commands move
+that window alone.
+
 **Widths and stacks**
 
 | Command | Description | Built-in shortcut |

@@ -154,6 +154,26 @@ struct FloatingWindowTests {
   }
 
   @Test
+  func `Column move carries the focused floater and leaves the strip`() throws {
+    let tools = WorkspaceID(rawValue: "tools")
+    var state = RuntimeState(
+      config: Config(workspaces: WorkspacesConfig(names: ["dev", tools.rawValue]))
+    )
+    state.attachMonitor(monitorID)
+    let tile = window(65)
+    let floater = window(66, floating: true)
+    try discoverWindow(tile, decision: RuleDecision(), state: &state)
+    try discoverWindow(floater, decision: RuleDecision(), state: &state)
+    try reduce(.activateFloating, on: monitorID, state: &state)
+
+    try reduce(.moveColumnToWorkspace(.named(tools.rawValue), follow: true), on: monitorID, state: &state)
+
+    #expect(state.monitors[0].workspaces[0].columns.flatMap(\.windows) == [tile.id])
+    #expect(state.monitors[0].workspaces[1].floatingWindows == [floater.id])
+    #expect(state.selectedWindowID(on: monitorID) == floater.id)
+  }
+
+  @Test
   func `Move focused tile selects tiled layer in target workspace`() throws {
     let tools = WorkspaceID(rawValue: "tools")
     var state = RuntimeState(
