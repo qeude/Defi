@@ -456,3 +456,24 @@ struct ScrollGestureTests {
       == (true, [.focusWorkspace(.up, timestamp: 0)]))
   }
 }
+
+struct ScrollPanDetentTests {
+  /// Feeds landings at the given times and returns those that tapped.
+  private func taps(_ samples: [(landing: Int?, at: TimeInterval)]) -> [Int] {
+    var detent = ScrollPanDetent()
+    return samples.compactMap { detent.update(landing: $0.landing, at: $0.at) ? $0.landing : nil }
+  }
+
+  @Test
+  func `Each change of landing taps once, never the start`() {
+    #expect(taps([(0, 0), (0, 0.1), (1, 0.2), (1, 0.3), (2, 0.4), (1, 0.5)]) == [1, 2, 1])
+    #expect(taps([(0, 0), (nil, 0.1), (0, 0.2)]) == [])
+  }
+
+  @Test
+  func `A flick across columns taps once, and the next change after the pause taps again`() {
+    let gap = ScrollPanDetent.minimumInterval
+    #expect(taps([(0, 0), (1, 1), (2, 1 + gap / 3), (3, 1 + 2 * gap / 3), (3, 1 + gap), (4, 1 + gap)])
+      == [1, 4])
+  }
+}

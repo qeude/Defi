@@ -383,3 +383,78 @@ func eventSeconds(_ stamp: UInt64, ticks: UInt64 = mach_absolute_time(),
   let fromTicks = abs(Double(stamp) - Double(ticks)), fromNanoseconds = abs(Double(stamp) - Double(nanoseconds))
   return Double(stamp) * (fromTicks < fromNanoseconds ? scale : 1) / 1_000_000_000
 }
+
+/// Decides when a scroll gesture taps the trackpad: each time the column (or workspace) a
+/// release would land on changes, at most once per `minimumInterval`, so a fast flick across
+/// many columns taps once instead of buzzing.
+struct ScrollPanDetent {
+  static let minimumInterval = 0.05
+  private var landing: Int?
+  private var lastTap = -Double.infinity
+
+  /// The first landing is where the gesture starts, so it never taps.
+  mutating func update(landing: Int?, at time: TimeInterval) -> Bool {
+    guard let landing, landing != self.landing else { return false }
+    defer { self.landing = landing }
+    guard self.landing != nil, time - lastTap >= Self.minimumInterval else { return false }
+    lastTap = time
+    return true
+  }
+}
+
+/// Runs `ScrollPanDetent` for the running pan on the main queue, off the input thread: the
+/// tap only stores the latest travel, and one main-queue hop at a time reads it.
+final class ScrollPanDetents: @unchecked Sendable {
+  static let shared = ScrollPanDetents()
+  private let lock = NSLock()
+  private typealias Pan = (id: UInt64, landing: @Sendable (Double) -> Int?, trace: @Sendable (String) -> Void)
+  private var pan: Pan?
+  private var travel: (id: UInt64, travel: Double)?
+  private var scheduled = false
+  private var detent = ScrollPanDetent()
+
+  func begin(_ id: UInt64, landing: @escaping @Sendable (Double) -> Int?,
+    trace: @escaping @Sendable (String) -> Void) {
+    lock.withLock { pan = (id, landing, trace); detent = ScrollPanDetent() }
+    schedule()
+  }
+
+  func end() { lock.withLock { pan = nil } }
+
+  /// From the input thread, as the fingers move.
+  func setTravel(_ travel: (id: UInt64, travel: Double)) {
+    lock.withLock { self.travel = travel }
+    schedule()
+  }
+
+  private func schedule() {
+    let hop = lock.withLock {
+      guard !scheduled, let pan, travel?.id == pan.id else { return false }
+      scheduled = true
+      return true
+    }
+    guard hop else { return }
+    DispatchQueue.main.async { MainActor.assumeIsolated { self.evaluate() } }
+  }
+
+  @MainActor private func evaluate() {
+    let current = lock.withLock { () -> (Pan, Double)? in
+      scheduled = false
+      guard let pan, let travel, travel.id == pan.id else { return nil }
+      return (pan, travel.travel)
+    }
+    guard let (pan, travel) = current else { return }
+    let landing = pan.landing(travel)
+    let taps = lock.withLock {
+      self.pan?.id == pan.id && detent.update(landing: landing, at: ProcessInfo.processInfo.systemUptime)
+    }
+    guard taps, let landing else { return }
+    pan.trace("scroll-pan-haptic id=\(pan.id) landing=\(landing)")
+    playAlignmentHaptic()
+  }
+}
+
+/// A light trackpad tap, as macOS gives when something snaps into place.
+@MainActor func playAlignmentHaptic() {
+  NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+}

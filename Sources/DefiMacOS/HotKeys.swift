@@ -862,6 +862,7 @@ final class InputMonitor: @unchecked Sendable {
     // Kept after the fingers lift: the overlay holds the last travel until the settle.
     if let pan = scrollGestures.pan, pan.id != before?.id || pan.travel != before?.travel {
       RibbonProxyPointerTrack.shared.setPanTravel(pan)
+      ScrollPanDetents.shared.setTravel(pan)
     }
     for action in actions { deliverScrollGesture(action) }
     return consumed

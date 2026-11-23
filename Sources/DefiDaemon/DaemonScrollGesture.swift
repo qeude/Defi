@@ -30,6 +30,25 @@ struct ScrollPan {
   func shift(travel: Double) -> Double {
     rubberBanded(start + travel * scale, bounds: bounds, dimension: dimension, stiffness: stiffness)
   }
+
+  /// Vertical: the workspace step a release lands on, Niri's projected position rounded to the
+  /// nearest workspace in reach.
+  func step(travel: Double, momentum: Double = 0) -> Int {
+    min(max(Int(((start + (travel + momentum) * scale) / -workspaceHeight).rounded()), steps.lowerBound),
+      steps.upperBound)
+  }
+
+  /// Sideways: where a release at `travel` settles, carrying on by `momentum` travel.
+  func landing(travel: Double, momentum: Double = 0, workspace: Workspace, windows: [Window],
+    settings: LayoutSettings, snaps: Bool) -> (column: Int, offset: Double, focus: ScrollFocus?)? {
+    let current = rest - shift(travel: travel) / stripWidth
+    let projected = rest - (start + (travel + momentum) * scale) / stripWidth
+    return snaps
+      ? scrollGestureSnap(workspace: workspace, viewport: viewport, windows: windows, settings: settings,
+        rest: rest, current: current, projected: projected)
+      : scrollGestureFreeRest(workspace: workspace, viewport: viewport, windows: windows, settings: settings,
+        current: current, projected: projected)
+  }
 }
 
 /// Niri moves the view one working-area width per 1,200 touchpad units, and one workspace per
@@ -141,6 +160,14 @@ extension Daemon {
       bounds: ribbonPanBounds(resting, start: start ?? 0), dimension: dimension, stiffness: stiffness,
       rest: workspace.targetScrollOffset, stripWidth: stripWidth, workspaceHeight: display.height,
       steps: steps)
+    if let pan = scrollPan {
+      let windows = tiled.compactMap { state.windows[$0] }, settings = state.layout
+      let snaps = config.input.scrollGestureSnap
+      platform.beginScrollPanDetents(id) { travel in
+        vertical ? pan.step(travel: travel)
+          : pan.landing(travel: travel, workspace: workspace, windows: windows, settings: settings, snaps: snaps)?.column
+      }
+    }
     platform.recordPerformanceTrace(
       "scroll-pan-begin id=\(id) vertical=\(vertical) monitor=\(monitorID.rawValue) overlay=\(start != nil)")
   }
@@ -159,11 +186,9 @@ extension Daemon {
     let shift = pan.shift(travel: travel)
     // Past the ends the rubber band absorbs the flick.
     let speed = pan.bounds.contains(shift) ? min(max(velocity * pan.scale, -10_000), 10_000) : 0
-    let projected = pan.start + (travel + velocity * scrollPanProjection) * pan.scale
+    let momentum = velocity * scrollPanProjection
     if pan.vertical {
-      // Niri: the projected position, rounded to the nearest workspace in reach.
-      let target = min(max(Int((projected / -pan.workspaceHeight).rounded()), pan.steps.lowerBound),
-        pan.steps.upperBound)
+      let target = pan.step(travel: travel, momentum: momentum)
       platform.recordPerformanceTrace("scroll-pan-end id=\(id) vertical=true shift=\(Int(shift)) speed=\(Int(speed)) step=\(target)")
       platform.endScrollPan(velocity: speed, vertical: true)
       if target != 0 {
@@ -178,12 +203,8 @@ extension Daemon {
     let previouslySelectedWindowID = state.selectedWindowID(on: pan.monitorID)
     let offset = pan.rest - shift / pan.stripWidth
     let windows = workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] }
-    guard let snap = config.input.scrollGestureSnap
-      ? scrollGestureSnap(workspace: workspace, viewport: pan.viewport, windows: windows,
-        settings: state.layout, rest: pan.rest, current: offset,
-        projected: pan.rest - projected / pan.stripWidth)
-      : scrollGestureFreeRest(workspace: workspace, viewport: pan.viewport, windows: windows,
-        settings: state.layout, current: offset, projected: pan.rest - projected / pan.stripWidth),
+    guard let snap = pan.landing(travel: travel, momentum: momentum, workspace: workspace, windows: windows,
+        settings: state.layout, snaps: config.input.scrollGestureSnap),
       settleScrollGesture(monitorID: pan.monitorID, workspaceID: pan.workspaceID,
         column: snap.column, offset: snap.offset, focus: snap.focus, state: &state)
     else {
