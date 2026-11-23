@@ -996,5 +996,6 @@ func typedCharacters(_ event: CGEvent) -> String {
   var length = 0
   var buffer = [UniChar](repeating: 0, count: 8)
   event.keyboardGetUnicodeString(maxStringLength: buffer.count, actualStringLength: &length, unicodeString: &buffer)
-  return String(utf16CodeUnits: buffer, count: length)
+  // The reported length can exceed the buffer when the event carries more text.
+  return String(utf16CodeUnits: buffer, count: min(length, buffer.count))
 }
