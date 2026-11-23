@@ -494,7 +494,7 @@ public func reduce(
       }
     case .activateWindow, .toggleOverview, .toggleCheatsheet, .openSettings, .recentWindows:
       break
-    case .spawnShell:
+    case .spawnShell, .closeWindow:
       break
     }
   } catch let error as LayoutError {
@@ -624,7 +624,7 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
   case .focusColumn, .focusColumnOrMonitor, .focusFloating, .focusWindow, .focusWindowOrWorkspace,
     .focusWindowPrevious, .focusWindowID, .switchWorkspace, .focusWorkspace, .focusMonitor,
     .activateFloating, .activateWindow, .toggleOverview, .toggleCheatsheet, .openSettings,
-    .recentWindows, .spawnShell:
+    .recentWindows, .spawnShell, .closeWindow:
     false
   }
 }

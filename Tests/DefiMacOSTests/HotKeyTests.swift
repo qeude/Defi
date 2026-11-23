@@ -49,6 +49,10 @@ struct OverviewHotKeyTests {
     (4, hyper, "focus-column left", .left), (37, hyper, "focus-column right", .right),
     (38, hyper, "focus-window down", .down), (40, hyper, "focus-window up", .up),
     (36, 0, nil, .select), (36, hyper, "focus-column left", .left), (53, 0, nil, .cancel), (0, 0, nil, nil),
+    (13, hotKeyModifierBits(.maskCommand), nil, .layout(.closeWindow(nil))), (13, 0, nil, nil),
+    (12, hotKeyModifierBits(.maskCommand), nil, nil), (13, hyper, nil, nil),
+    (31, hyper, "close-window", .layout(.closeWindow(nil))),
+    (13, hotKeyModifierBits(.maskCommand), "toggle-overview", .cancel),
   ] as [(CGKeyCode, UInt64, String?, OverviewKeyAction?)])
   func overviewKeyActionFollowsKeyAndBinding(keyCode: CGKeyCode, modifiers: UInt64, command: String?,
     action: OverviewKeyAction?) {
@@ -124,7 +128,7 @@ struct OverviewHotKeyTests {
     try press(13)
     try press(6)
     #expect(closes.withLock { $0 } == 1)
-    context.setBindings([:], closeWindowKeyCodes: [0, 6])
+    context.setBindings([:], closeWindowKeyCodes: CloseWindowKeyCodes(quit: 0, close: 6))
     try press(6)
     try press(13)
     #expect(closes.withLock { $0 } == 2)

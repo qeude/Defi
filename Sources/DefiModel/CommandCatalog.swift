@@ -306,6 +306,11 @@ public let commandSpecs: [CommandSpec] = [
     guard let rawValue = UInt64(value) else { throw CommandParseError.invalidWindowID(value) }
     return .focusWindowID(WindowID(rawValue: rawValue))
   },
+  layout("close-window", .window) { arguments, _ in
+    guard let value = arguments.first else { return .closeWindow(nil) }
+    guard let rawValue = UInt64(value) else { throw CommandParseError.invalidWindowID(value) }
+    return .closeWindow(WindowID(rawValue: rawValue))
+  },
   layout("spawn-sh", .other, .text(suggestions: []), isConfigurable: false) {
     arguments, remainder in
     guard !remainder.isEmpty else { throw CommandParseError.missingArgument("command") }

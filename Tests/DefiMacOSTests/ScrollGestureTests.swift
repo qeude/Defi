@@ -444,6 +444,8 @@ struct ScrollGestureTests {
     let hyper = CGEventFlags([.maskControl, .maskAlternate, .maskCommand]).rawValue
     let event = try #require(CGEvent(
       scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: -4, wheel3: 0))
+    // A sourceless event copies the modifiers held on the machine running the tests.
+    event.flags = []
     #expect(!ScrollGestureInput(event, modifierBits: hyper).modifierHeld)
     #expect(ScrollGestureInput(event, modifierBits: hyper, announcedModifierBits: hyper).modifierHeld)
   }

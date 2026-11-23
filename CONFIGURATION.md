@@ -614,6 +614,7 @@ When a workspace is named `up` or `down`, use `move-column-to-workspace-name
 | `consume-or-expel-window left\|right` | Alone in its column, the focused window joins the stack on that side, like `join-window`. In a stack, it leaves as a new column on that side. | `mod-leftbracket` / `mod-rightbracket` |
 | `swap-window left\|right` | Swap the focused window with the one at the same row of the adjacent column, or its last window when that column is shorter. Columns keep their widths. | unset |
 | `toggle-floating` | Switch the focused window between tiled and floating. | `mod-v` |
+| `close-window` | Close the focused window, tiled, stacked, or floating, as its close button does. An app that asks to save first keeps the window, and Defi keeps it in place. | unset |
 
 **Other**
 
@@ -967,6 +968,10 @@ beside it; its middle half adds the card to the stack, at the height of the
 pointer. The Overview shows the result at once, and real windows only move to
 the final layout.
 
+Command-W or `close-window` closes the selected card's window. The selection
+moves to its neighbor once the window is gone; if the app asks to save first,
+the card stays selected.
+
 Defi asks for Screen Recording right after Accessibility. If it is still missing
 and `window_previews = true`, it asks once more before the first Overview, so the
 panel does not cover the prompt. If access is denied, revoked, or unavailable, the
@@ -1172,6 +1177,7 @@ CLI-only:
 | `list-workspaces` | Print workspace labels per display. Add `--json` for versioned identity, position, name, icon, kind, app state, and window layout. `icon` is the configured SF Symbol name, absent when none is set. |
 | `list-windows` | Print one managed window per line: ID, app name, and title. Add `--json` for bundle ID, workspace, display, column, row, floating, and focus. |
 | `focus-window-id <id>` | Focus a window by its `list-windows` ID, switching its display to its workspace. |
+| `close-window <id>` | Close a window by its `list-windows` ID, as its close button does. |
 | `subscribe --json` | Keep the connection open and print one JSON event per line. See [Event stream](#event-stream). |
 | `--monitor <index> <command>` | Run a command on a display, by its 1-based `NSScreen.screens` / SketchyBar index. |
 | `set-reserved-area top\|bottom <points>` | Override the reserved edge on every display, or on one with `--monitor`. |

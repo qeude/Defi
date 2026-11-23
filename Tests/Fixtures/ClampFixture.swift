@@ -7,6 +7,7 @@ import ApplicationServices
 // resize, after DEFI_FIXTURE_SNAP_DELAY seconds, to the largest scale of w,h (25% steps)
 // that fits the requested size, keeping the top-left corner. DEFI_FIXTURE_RESIZE_MS blocks the main
 // thread for that long on every resize, like a terminal re-laying out its grid (Ghostty).
+// DEFI_FIXTURE_REFUSE_CLOSE=1 keeps a window its close button asks to close, like an unsaved document.
 private func fixtureSize(_ name: String) -> NSSize? {
   guard let raw = ProcessInfo.processInfo.environment[name] else { return nil }
   let parts = raw.split(separator: ",").compactMap { Double($0) }
@@ -86,6 +87,11 @@ private final class PerformanceFixtureDelegate: NSObject, NSApplicationDelegate,
       snapping = false
       events.append(["kind": "snap", "at": ProcessInfo.processInfo.systemUptime])
     }
+  }
+  func windowShouldClose(_ sender: NSWindow) -> Bool {
+    guard ProcessInfo.processInfo.environment["DEFI_FIXTURE_REFUSE_CLOSE"] == "1" else { return true }
+    events.append(["kind": "close-refused", "at": ProcessInfo.processInfo.systemUptime])
+    return false
   }
   func windowWillClose(_ notification: Notification) {
     if let window = notification.object as? NSWindow {

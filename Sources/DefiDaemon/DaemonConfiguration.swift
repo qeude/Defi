@@ -267,41 +267,9 @@ extension Daemon {
           selectedProcessID: selectedProcessID
         )
         else { return }
-        let previousWindowCount = state.windows.values.lazy.filter {
-          $0.processID == processID
-        }.count
-        let trackedWindowID = selectedProcessID == processID
-          ? selectedWindowID
-          : nil
-        for delay in windowCloseRefreshDelays {
-          NavigationActor.shared.queue.asyncAfter(
-            deadline: .now() + .milliseconds(delay)
-          ) {
-            NavigationActor.assumeIsolated {
-              let input = self.platform.userInputTracker.snapshot
-              guard self.desktopSessionActive,
-                windowCloseRetryIsCurrent(
-                  intentTimestamp: timestamp,
-                  latestInputTimestamp: input.latestEventTimestamp,
-                  latestCloseIntentTimestamp: input.latestCloseIntent
-                ),
-                trackedWindowID.map({ self.state.windows[$0] != nil }) ?? true,
-                self.state.windows.values.lazy.filter({
-                  $0.processID == processID
-                }).count >= previousWindowCount
-              else { return }
-              self.platform.recordPerformanceTrace(
-                "window-close-retry pid=\(processID) delay=\(delay)"
-              )
-              self.platform.requestWindowTopologyRefresh(
-                processID: processID,
-                inputTimestamp: timestamp
-              )
-              self.needsDesktopSync = true
-              self.scheduleTick()
-            }
-          }
-        }
+        refreshAfterWindowClose(
+          processID: processID, timestamp: timestamp,
+          trackedWindowID: selectedProcessID == processID ? selectedWindowID : nil)
       },
       overviewHandler: { [weak self] action in
         guard self?.desktopSessionActive == true else { return }

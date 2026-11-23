@@ -296,6 +296,7 @@ extension Daemon {
     guard overviewState.isOpen, !overviewExitPreparationActive else {
       return .failure("overview is closed or committing selection")
     }
+    if command == .closeWindow(nil) { return closeWindow(intent.windowID) }
     do {
       let floatingUpdates = try applyOverviewLayoutCommand(command, intent: intent,
         viewports: viewportsByMonitor, state: &state)

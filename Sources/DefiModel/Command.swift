@@ -47,6 +47,8 @@ public enum Command: Equatable, Codable, Sendable {
   case focusWindowOrWorkspace(Direction)
   case focusWindowPrevious
   case focusWindowID(WindowID)
+  /// Presses the window's close button: the focused window, or the one named.
+  case closeWindow(WindowID?)
   case recentWindows(RecentWindowsAction)
   case moveWindowToWorkspace(WorkspaceID)
   case sendWindowToWorkspace(WorkspaceID)
@@ -113,7 +115,7 @@ public enum Command: Equatable, Codable, Sendable {
     case .focusColumn, .focusColumnOrMonitor, .moveColumnOrToMonitor, .focusWindow,
       .focusWindowOrWorkspace, .focusWindowPrevious, .recentWindows, .centerColumn,
       .centerVisibleColumns, .activateWindow, .reorderWorkspace, .toggleCheatsheet,
-      .toggleOverview, .openSettings, .spawnShell:
+      .toggleOverview, .openSettings, .spawnShell, .closeWindow:
       return CommandEffects()
     }
   }

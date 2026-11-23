@@ -208,14 +208,14 @@ struct KeyboardLayoutResolverTests {
   // them on keys 0 and 6, and Dvorak-QWERTY⌘ keeps the QWERTY positions under Command.
   @Test
   func closeWindowKeysFollowTheCommandLayer() throws {
-    #expect(closeWindowKeyCodes(layout: nil) == [12, 13])
-    #expect(closeWindowKeyCodes(layout: try installed("US")) == [12, 13])
-    #expect(closeWindowKeyCodes(layout: try installed("French")) == [0, 6])
-    #expect(closeWindowKeyCodes(layout: try installed("Dvorak")) == [7, 43])
-    #expect(closeWindowKeyCodes(layout: try installed("DVORAK-QWERTYCMD")) == [12, 13])
+    #expect(closeWindowKeyCodes(layout: nil) == CloseWindowKeyCodes(quit: 12, close: 13))
+    #expect(closeWindowKeyCodes(layout: try installed("US")) == CloseWindowKeyCodes(quit: 12, close: 13))
+    #expect(closeWindowKeyCodes(layout: try installed("French")) == CloseWindowKeyCodes(quit: 0, close: 6))
+    #expect(closeWindowKeyCodes(layout: try installed("Dvorak")) == CloseWindowKeyCodes(quit: 7, close: 43))
+    #expect(closeWindowKeyCodes(layout: try installed("DVORAK-QWERTYCMD")) == CloseWindowKeyCodes(quit: 12, close: 13))
     // A layout without the letters keeps the physical keys.
-    #expect(closeWindowKeyCodes(layout: KeyboardLayout(characters: [[]: [0: "a"]])) == [12, 13])
-    #expect(try resolution(Config(), try installed("French")).closeWindowKeyCodes == [0, 6])
+    #expect(closeWindowKeyCodes(layout: KeyboardLayout(characters: [[]: [0: "a"]])) == CloseWindowKeyCodes(quit: 12, close: 13))
+    #expect(try resolution(Config(), try installed("French")).closeWindowKeyCodes == CloseWindowKeyCodes(quit: 0, close: 6))
   }
 
   @Test

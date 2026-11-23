@@ -344,7 +344,7 @@ final class InputMonitor: @unchecked Sendable {
   private static let commandTabKeyCode = CGKeyCode(48)
 
   private var bindings: [Key: String]
-  private var closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
+  private var closeWindowKeyCodes = CloseWindowKeyCodes()
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
   private let pointerMotionTracker: PointerMotionTracker
@@ -484,7 +484,7 @@ final class InputMonitor: @unchecked Sendable {
 
   var bindingCount: Int { lock.withLock { bindings.count } }
 
-  func setBindings(_ bindings: [Key: String], closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]) {
+  func setBindings(_ bindings: [Key: String], closeWindowKeyCodes: CloseWindowKeyCodes = CloseWindowKeyCodes()) {
     lock.withLock {
       self.bindings = bindings
       self.closeWindowKeyCodes = closeWindowKeyCodes
@@ -656,6 +656,7 @@ final class InputMonitor: @unchecked Sendable {
     let overviewModeEnabled = overviewModeEnabled
     let cheatsheetVisible = cheatsheetVisible
     let bindings = bindings
+    let closeWindowKeyCode = closeWindowKeyCodes.close
     lock.unlock()
     if cheatsheetVisible && code == 53 { return Unmanaged.passUnretained(event) }
     if overviewModeEnabled,
@@ -665,7 +666,7 @@ final class InputMonitor: @unchecked Sendable {
     }
     if overviewModeEnabled,
       overviewKeyAction(keyCode: code, modifierBits: key.modifierBits,
-                        configuredCommand: bindings[key]) != nil {
+                        configuredCommand: bindings[key], closeWindowKeyCode: closeWindowKeyCode) != nil {
       return Unmanaged.passUnretained(event)
     }
     guard hasRegisteredHotKeys else { return Unmanaged.passUnretained(event) }
@@ -766,7 +767,9 @@ final class InputMonitor: @unchecked Sendable {
     if targetPID == getpid(), textInputFocused() { return Unmanaged.passUnretained(event) }
     let code = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
     let key = Key(code: code, flags: event.flags.rawValue)
-    let (overview, cheatsheet, bindings) = lock.withLock { (overviewModeEnabled, cheatsheetVisible, self.bindings) }
+    let (overview, cheatsheet, bindings, closeWindowKeyCode) = lock.withLock {
+      (overviewModeEnabled, cheatsheetVisible, self.bindings, closeWindowKeyCodes.close)
+    }
     if code == 53, lock.withLock({ recentWindowsOpen }) {
       recentWindowsHoldBits = nil
       capturedModifierReleaseState.reset()
@@ -781,7 +784,8 @@ final class InputMonitor: @unchecked Sendable {
       return nil
     }
     if overview, let action = overviewKeyAction(
-      keyCode: code, modifierBits: key.modifierBits, configuredCommand: bindings[key]
+      keyCode: code, modifierBits: key.modifierBits, configuredCommand: bindings[key],
+      closeWindowKeyCode: closeWindowKeyCode
     ) {
       capturedModifierReleaseState.reset()
       recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)

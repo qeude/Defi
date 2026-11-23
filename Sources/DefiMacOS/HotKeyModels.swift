@@ -61,7 +61,8 @@ public enum OverviewKeyAction: Equatable, Sendable {
 func overviewKeyAction(
   keyCode: CGKeyCode,
   modifierBits: UInt64,
-  configuredCommand: String? = nil
+  configuredCommand: String? = nil,
+  closeWindowKeyCode: CGKeyCode = 13
 ) -> OverviewKeyAction? {
   let command = configuredCommand.flatMap { try? parseCommand($0) }
   if let command {
@@ -84,6 +85,7 @@ func overviewKeyAction(
     case .focusWindow(.down): return .down
     case .focusMonitor(let direction): return .monitor(direction)
     case .activateWindow: return .select
+    case .closeWindow(nil): return .layout(command)
     // shortcut: the overview moves the selected window alone, even for move-column-to-monitor;
     // move whole columns once overview drops can carry a column.
     case .moveColumnToMonitor(let direction), .moveWindowToMonitor(let direction):
@@ -115,6 +117,8 @@ func overviewKeyAction(
   case 76 where modifierBits == 0: .select
   case 53 where modifierBits == 0: .cancel
   case _ where command == .toggleOverview: .cancel
+  // Command-W closes the selected card's window, not the frontmost app's.
+  case closeWindowKeyCode where modifierBits == hotKeyModifierBits(.maskCommand): .layout(.closeWindow(nil))
   default: nil
   }
 }
@@ -261,18 +265,26 @@ struct HotKeyResolution {
   var keys: [Key: (accelerator: String, command: String)] = [:]
   /// Bindings that hold no chord, by accelerator as configured.
   var inactive: [String: HotKeyInactivity] = [:]
-  /// Q and W as Command sees them on this layout; they close a window.
-  var closeWindowKeyCodes: Set<CGKeyCode> = [12, 13]
+  var closeWindowKeyCodes = CloseWindowKeyCodes()
+}
+
+/// Q and W as Command sees them on this layout; they close a window.
+struct CloseWindowKeyCodes: Equatable, Sendable {
+  var quit: CGKeyCode = 12
+  var close: CGKeyCode = 13
+
+  func contains(_ code: CGKeyCode) -> Bool { code == quit || code == close }
 }
 
 /// Names that move together: when either cannot sit on its character without added modifiers,
 /// both take their physical keys, so the pair never splits across the keyboard.
 private let acceleratorPairs = [["leftbracket", "rightbracket"]]
 
-func closeWindowKeyCodes(layout: KeyboardLayout?) -> Set<CGKeyCode> {
-  Set([("q", 12), ("w", 13)].map { character, physical in
+func closeWindowKeyCodes(layout: KeyboardLayout?) -> CloseWindowKeyCodes {
+  func code(_ character: String, physical: CGKeyCode) -> CGKeyCode {
     layout?.position(of: character, command: true).flatMap { $0.layer == .command ? $0.code : nil } ?? physical
-  })
+  }
+  return CloseWindowKeyCodes(quit: code("q", physical: 12), close: code("w", physical: 13))
 }
 
 /// Each binding offers chords in rank order; sorted by rank, then accelerator, the first free one wins.
