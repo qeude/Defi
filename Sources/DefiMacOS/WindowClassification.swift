@@ -16,7 +16,6 @@ struct WindowClassificationInput: Codable, Equatable, Sendable {
   var fullScreenButton: Bool?
   var resizable = false
   var modal = false
-  var layer = 0
 }
 
 struct WindowClassification: Codable, Equatable, Sendable {
@@ -103,9 +102,6 @@ func classifyWindow(_ window: WindowClassificationInput, rule: RuleWindow?) -> W
     WindowClassification(disposition: disposition, reason: reason)
   }
   let appID = window.appID.lowercased()
-  guard windowLayerIsEligible(window.layer, role: window.role, subrole: window.subrole,
-    allowsConfiguredNonzeroLayer: rule != nil)
-  else { return outcome(.ignored, "window-layer:\(window.layer)") }
   switch rule {
   case .forceTiled: return outcome(.tiled, "rule:force-tiled")
   case .forceFloating: return outcome(.floating, "rule:force-floating")
@@ -147,13 +143,19 @@ extension RuleDecision {
   }
 }
 
-/// One `defi trace` line per outcome. It never holds the title, as the diagnostics logs must not.
-func windowClassificationTrace(_ id: WindowID, _ window: WindowClassificationInput,
+/// One `defi trace` line per outcome. It never holds the title, as the diagnostics logs must not,
+/// and lists title bar controls only where discovery reads them.
+func windowClassificationTrace(_ id: WindowID, _ window: WindowClassificationInput, rule: RuleWindow?,
   _ outcome: WindowClassification) -> String {
   func button(_ state: Bool?) -> String { state.map { $0 ? "enabled" : "disabled" } ?? "none" }
-  return "window-classified id=\(id.rawValue) app=\(window.appID) role=\(window.role ?? "-")"
-    + " subrole=\(window.subrole ?? "-") titled=\(!window.title.isEmpty) close=\(button(window.closeButton))"
-    + " zoom=\(button(window.zoomButton)) fullscreen=\(button(window.fullScreenButton))"
-    + " resizable=\(window.resizable) modal=\(window.modal)"
-    + " class=\(outcome.disposition.rawValue) reason=\(outcome.reason)"
+  var fields = ["window-classified id=\(id.rawValue)", "app=\(window.appID)", "role=\(window.role ?? "-")",
+    "subrole=\(window.subrole ?? "-")", "titled=\(!window.title.isEmpty)"]
+  if rule == nil, window.role == kAXWindowRole, window.subrole == kAXStandardWindowSubrole {
+    fields += ["close=\(button(window.closeButton))", "resizable=\(window.resizable)", "modal=\(window.modal)"]
+    if window.closeButton != nil, window.resizable {
+      fields.append("fullscreen=\(button(window.fullScreenButton))")
+      if window.fullScreenButton != true { fields.append("zoom=\(button(window.zoomButton))") }
+    }
+  }
+  return (fields + ["class=\(outcome.disposition.rawValue)", "reason=\(outcome.reason)"]).joined(separator: " ")
 }

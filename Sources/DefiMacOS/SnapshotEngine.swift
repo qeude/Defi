@@ -1239,11 +1239,12 @@ extension SnapshotEngine {
     )
     // Only a window that would tile needs the extra reads.
     let growable = hasCloseButton && canResize
+    let fullScreenButton = growable ? windowButtonState(element, kAXFullScreenButtonAttribute) : nil
     let capabilities = WindowManagementCapabilities(
       hasCloseButton: hasCloseButton,
       canResize: canResize,
-      zoomButton: growable ? windowButtonState(element, kAXZoomButtonAttribute) : nil,
-      fullScreenButton: growable ? windowButtonState(element, kAXFullScreenButtonAttribute) : nil,
+      zoomButton: growable && fullScreenButton != true ? windowButtonState(element, kAXZoomButtonAttribute) : nil,
+      fullScreenButton: fullScreenButton,
       isModal: isModal
     )
     windowManagementCapabilities[window.id] = capabilities
@@ -1256,7 +1257,7 @@ extension SnapshotEngine {
     _ id: WindowID, _ input: WindowClassificationInput, rule: RuleWindow?
   ) -> WindowClassification {
     let outcome = classifyWindow(input, rule: rule)
-    let line = windowClassificationTrace(id, input, outcome)
+    let line = windowClassificationTrace(id, input, rule: rule, outcome)
     if withLockedStorage({ $0.windowClassificationTraces.updateValue(line, forKey: id) }) != line {
       frameCoordinator.recordTrace(line)
     }

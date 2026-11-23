@@ -285,7 +285,7 @@ struct WindowDiscoveryTests {
     let outcome = classifyWindow(report.window, rule: report.rule)
     #expect(outcome == WindowClassification(disposition: report.disposition, reason: report.reason))
     if !report.window.title.isEmpty {
-      #expect(!windowClassificationTrace(WindowID(rawValue: 1), report.window, outcome).contains(report.window.title))
+      #expect(!windowClassificationTrace(WindowID(rawValue: 1), report.window, rule: report.rule, outcome).contains(report.window.title))
     }
   }
 

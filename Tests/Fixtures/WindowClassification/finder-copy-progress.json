@@ -5,7 +5,6 @@
     "appID" : "com.apple.finder",
     "closeButton" : true,
     "fullScreenButton" : false,
-    "layer" : 0,
     "modal" : false,
     "resizable" : true,
     "role" : "AXWindow",

@@ -3,7 +3,6 @@
   "reason" : "no-close-button",
   "window" : {
     "appID" : "net.imput.helium",
-    "layer" : 0,
     "modal" : false,
     "resizable" : false,
     "role" : "AXWindow",

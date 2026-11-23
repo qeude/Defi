@@ -5,7 +5,6 @@
     "appID" : "com.example.app",
     "closeButton" : true,
     "fullScreenButton" : true,
-    "layer" : 0,
     "modal" : true,
     "resizable" : true,
     "role" : "AXWindow",

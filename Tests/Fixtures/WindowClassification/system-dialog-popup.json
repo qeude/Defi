@@ -3,7 +3,6 @@
   "reason" : "app-drawn-popup",
   "window" : {
     "appID" : "com.example.app",
-    "layer" : 0,
     "modal" : false,
     "resizable" : false,
     "role" : "AXWindow",

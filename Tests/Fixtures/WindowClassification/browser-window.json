@@ -5,7 +5,6 @@
     "appID" : "net.imput.helium",
     "closeButton" : true,
     "fullScreenButton" : true,
-    "layer" : 0,
     "modal" : false,
     "resizable" : true,
     "role" : "AXWindow",

@@ -5,7 +5,6 @@
     "appID" : "com.apple.quicklook.QuickLookUIService",
     "closeButton" : true,
     "fullScreenButton" : true,
-    "layer" : 0,
     "modal" : false,
     "resizable" : true,
     "role" : "AXWindow",

@@ -4,7 +4,6 @@
   "window" : {
     "appID" : "com.example.app",
     "closeButton" : true,
-    "layer" : 0,
     "modal" : false,
     "resizable" : false,
     "role" : "AXWindow",
