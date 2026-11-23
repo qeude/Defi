@@ -345,7 +345,7 @@ struct MonitorMoveFocusTests {
   }
 
   @Test
-  func columnTransferUsesTheTiledSelectionWhenAFloatingWindowIsFocused() throws {
+  func columnTransferMovesTheFocusedFloatingWindow() throws {
     let sourceID = MonitorID(rawValue: 1)
     let targetID = MonitorID(rawValue: 2)
     let tiledID = WindowID(rawValue: 1)
@@ -389,8 +389,9 @@ struct MonitorMoveFocusTests {
       ]
     )
 
-    #expect(state.monitors[0].workspaces[0].floatingWindows == [floatingID])
-    #expect(state.monitors[1].workspaces[0].columns.flatMap(\.windows) == [tiledID])
+    #expect(state.monitors[0].workspaces[0].columns.flatMap(\.windows) == [tiledID])
+    #expect(state.monitors[0].workspaces[0].floatingWindows.isEmpty)
+    #expect(state.monitors[1].workspaces[0].floatingWindows == [floatingID])
   }
 
   @Test
