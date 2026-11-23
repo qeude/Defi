@@ -1,0 +1,15 @@
+{
+  "disposition" : "floating",
+  "reason" : "floating-application",
+  "window" : {
+    "appID" : "COM.APPLE.QUICKLOOK.QUICKLOOKUISERVICE",
+    "closeButton" : true,
+    "fullScreenButton" : true,
+    "modal" : false,
+    "resizable" : true,
+    "role" : "AXWindow",
+    "subrole" : "AXStandardWindow",
+    "title" : "report.pdf",
+    "zoomButton" : true
+  }
+}

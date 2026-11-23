@@ -1,0 +1,12 @@
+{
+  "disposition" : "floating",
+  "reason" : "modal",
+  "window" : {
+    "appID" : "com.example.app",
+    "modal" : true,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXSystemDialog",
+    "title" : "Confirm"
+  }
+}

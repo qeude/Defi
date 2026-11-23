@@ -1,0 +1,15 @@
+{
+  "disposition" : "floating",
+  "reason" : "cannot-grow",
+  "window" : {
+    "appID" : "com.apple.finder",
+    "closeButton" : true,
+    "fullScreenButton" : false,
+    "modal" : false,
+    "resizable" : true,
+    "role" : "AXWindow",
+    "subrole" : "AXStandardWindow",
+    "title" : "Copy",
+    "zoomButton" : false
+  }
+}

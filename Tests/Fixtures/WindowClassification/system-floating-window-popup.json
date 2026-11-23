@@ -1,0 +1,12 @@
+{
+  "disposition" : "ignored",
+  "reason" : "app-drawn-popup",
+  "window" : {
+    "appID" : "com.example.app",
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXSystemFloatingWindow",
+    "title" : "Palette"
+  }
+}

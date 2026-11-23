@@ -1,5 +1,7 @@
+import DefiConfig
 import DefiRuntime
 import ApplicationServices
+import Foundation
 import DefiModel
 import Testing
 
@@ -276,47 +278,15 @@ struct WindowDiscoveryTests {
       ).map(\.id) == expected)
   }
 
-  // role, subrole, app, close button, resizable, modal, configured floating, force tiling -> disposition
-  @Test(arguments: [
-    (kAXWindowRole, kAXStandardWindowSubrole, "net.imput.helium", true, true, false, false, false, .tiled),
-    // a control-less picture in picture window
-    (kAXWindowRole, kAXStandardWindowSubrole, "net.imput.helium", false, false, false, false, false, .floating),
-    // app-drawn popups stay unmanaged unless modal
-    (kAXWindowRole, "AXSystemDialog", "com.example.app", false, false, false, false, false, .ignored),
-    (kAXWindowRole, "AXSystemDialog", "com.example.app", false, false, true, false, false, .floating),
-    (kAXWindowRole, "AXSystemFloatingWindow", "com.example.app", false, false, false, false, false, .ignored),
-    (kAXWindowRole, "AXSystemFloatingWindow", "com.example.app", false, false, true, false, false, .floating),
-    (kAXWindowRole, "AXDialog", "com.example.app", false, false, false, false, false, .floating),
-    (kAXWindowRole, "AXFloatingWindow", "com.example.app", false, false, false, false, false, .floating),
-    (kAXSheetRole, nil, "com.example.app", false, false, false, false, false, .floating),
-    (kAXWindowRole, kAXStandardWindowSubrole, "com.example.app", true, true, true, false, false, .floating),
-    // only Apple's Quick Look service bundle floats, in any case
-    (kAXWindowRole, kAXStandardWindowSubrole, "com.apple.quicklook.QuickLookUIService", true, true, false, false, false,
-      .floating),
-    (kAXWindowRole, kAXStandardWindowSubrole, "COM.APPLE.QUICKLOOK.QUICKLOOKUISERVICE", true, true, false, false, false,
-      .floating),
-    (kAXWindowRole, kAXStandardWindowSubrole, "com.example.quicklook.editor", true, true, false, false, false, .tiled),
-    (kAXWindowRole, kAXUnknownSubrole, "com.example.app", false, false, false, true, false, .floating),
-    (kAXWindowRole, kAXUnknownSubrole, "net.imput.helium", false, false, false, false, true, .tiled),
-  ] as [(String, String?, String, Bool, Bool, Bool, Bool, Bool, WindowDisposition)])
-  func `Window classification follows role, controls, and rules`(role: String, subrole: String?, appID: String,
-    hasCloseButton: Bool, canResize: Bool, isModal: Bool, configuredFloating: Bool, forceTiling: Bool,
-    disposition: WindowDisposition) {
-    #expect(classifyWindow(role: role, subrole: subrole, appID: appID, hasCloseButton: hasCloseButton,
-      canResize: canResize, isModal: isModal, configuredFloating: configuredFloating, forceTiling: forceTiling)
-      == disposition)
-  }
-
-  @Test(arguments: [
-    (false, false, WindowDisposition.floating),
-    (true, false, .tiled),
-    (false, true, .tiled),
-  ])
-  func `A standard window that cannot grow floats unless a rule tiles it`(
-    canGrow: Bool, forceTiling: Bool, disposition: WindowDisposition) {
-    #expect(classifyWindow(role: kAXWindowRole, subrole: kAXStandardWindowSubrole, appID: "com.example.app",
-      hasCloseButton: true, canResize: true, canGrow: canGrow, configuredFloating: false,
-      forceTiling: forceTiling) == disposition)
+  @Test(arguments: windowClassificationFixtureNames)
+  func `Each recorded window replays to its recorded classification`(name: String) throws {
+    let report = try JSONDecoder().decode(WindowClassificationReport.self,
+      from: Data(contentsOf: windowClassificationFixtures.appending(path: name)))
+    let outcome = classifyWindow(report.window, rule: report.rule)
+    #expect(outcome == WindowClassification(disposition: report.disposition, reason: report.reason))
+    if !report.window.title.isEmpty {
+      #expect(!windowClassificationTrace(WindowID(rawValue: 1), report.window, rule: report.rule, outcome).contains(report.window.title))
+    }
   }
 
   @Test
@@ -562,3 +532,16 @@ struct NativeWindowTabDiscoveryTests {
     )
   }
 }
+
+/// One window's inputs, the matching rule, and the expected outcome.
+private struct WindowClassificationReport: Decodable {
+  var rule: RuleWindow?
+  var window: WindowClassificationInput
+  var disposition: WindowDisposition
+  var reason: String
+}
+
+private let windowClassificationFixtures = URL(filePath: #filePath)
+  .deletingLastPathComponent().deletingLastPathComponent().appending(path: "Fixtures/WindowClassification")
+private let windowClassificationFixtureNames = try! FileManager.default
+  .contentsOfDirectory(atPath: windowClassificationFixtures.path).filter { $0.hasSuffix(".json") }.sorted()

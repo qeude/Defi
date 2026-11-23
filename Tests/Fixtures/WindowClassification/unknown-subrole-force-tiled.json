@@ -1,0 +1,13 @@
+{
+  "disposition" : "tiled",
+  "reason" : "rule:force-tiled",
+  "rule" : "force-tiled",
+  "window" : {
+    "appID" : "net.imput.helium",
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXUnknown",
+    "title" : ""
+  }
+}

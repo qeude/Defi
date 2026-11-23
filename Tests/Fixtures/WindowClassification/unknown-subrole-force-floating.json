@@ -1,0 +1,13 @@
+{
+  "disposition" : "floating",
+  "reason" : "rule:force-floating",
+  "rule" : "force-floating",
+  "window" : {
+    "appID" : "com.example.app",
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXUnknown",
+    "title" : ""
+  }
+}

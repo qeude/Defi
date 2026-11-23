@@ -550,6 +550,10 @@ extension SnapshotEngine {
     windowManagementCapabilities = windowManagementCapabilities.filter {
       nextElements[$0.key] != nil
     }
+    if let currentCGWindows {
+      let presentWindowIDs = Set(currentCGWindows.map { WindowID(rawValue: UInt64($0.id)) })
+      forgetWindowClassificationTraces { nextElements[$0] != nil || presentWindowIDs.contains($0) }
+    }
     applications = nextApplications
     applicationIDsByProcess = nextApplicationIDs
     applicationWindowCounts = applicationWindows.mapValues(\.count)

@@ -1,0 +1,13 @@
+{
+  "disposition" : "floating",
+  "reason" : "floating-subrole:AXFloatingWindow",
+  "window" : {
+    "appID" : "com.example.app",
+    "closeButton" : true,
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXFloatingWindow",
+    "title" : "Inspector"
+  }
+}

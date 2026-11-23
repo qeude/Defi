@@ -1250,6 +1250,14 @@ Defi also records a marker on its own (`kind=marker`, `event=auto`, with a
 or an animation frame gap over 50 ms, at most once per 30 seconds and 20 times
 per hour.
 
+When Defi tiles, floats, or ignores a window you expected it to place
+differently, open the window and run `defi trace`. Each time a window's
+classification changes, Defi adds a `window-classified` line with what it read
+from the window (role, subrole and, for standard windows, title bar buttons,
+resizability, and modality) and the resulting `class` with its `reason`. The line says whether
+the window has a title, never the title itself. `diagnostic-mark` saves these
+lines with the rest of the trace.
+
 ## Built-in defaults
 
 These values apply without a config file. Your config should only contain what

@@ -1,0 +1,15 @@
+{
+  "disposition" : "tiled",
+  "reason" : "standard-window",
+  "window" : {
+    "appID" : "net.imput.helium",
+    "closeButton" : true,
+    "fullScreenButton" : true,
+    "modal" : false,
+    "resizable" : true,
+    "role" : "AXWindow",
+    "subrole" : "AXStandardWindow",
+    "title" : "Defi",
+    "zoomButton" : true
+  }
+}

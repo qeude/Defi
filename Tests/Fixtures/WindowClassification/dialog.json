@@ -1,0 +1,13 @@
+{
+  "disposition" : "floating",
+  "reason" : "floating-subrole:AXDialog",
+  "window" : {
+    "appID" : "com.example.app",
+    "closeButton" : true,
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXDialog",
+    "title" : "Export"
+  }
+}

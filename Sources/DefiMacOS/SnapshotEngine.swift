@@ -624,6 +624,10 @@ final class SnapshotEngine: @unchecked Sendable {
     set { withLockedStorage { $0.windowManagementCapabilities = newValue } }
   }
 
+  func forgetWindowClassificationTraces(keeping retained: (WindowID) -> Bool) {
+    withLockedStorage { $0.windowClassificationTraces = $0.windowClassificationTraces.filter { retained($0.key) } }
+  }
+
   var nativeTabHiddenMembersByWindowID: [WindowID: Set<WindowID>] {
     get { withLockedStorage { $0.nativeTabHiddenMembersByWindowID } }
     set { withLockedStorage { $0.nativeTabHiddenMembersByWindowID = newValue } }
@@ -1134,48 +1138,35 @@ extension SnapshotEngine {
   func windowDisposition(
     _ window: Window,
     element: AXUIElement,
-    configuredFloating: Bool,
-    forceTiling: Bool,
+    rule: RuleWindow?,
     previousDisposition: WindowDisposition?,
     reuseCachedCapabilities: Bool,
     preparedModalState: Bool? = nil
-  ) -> WindowDisposition {
-    if forceTiling || configuredFloating
-      || window.role != kAXWindowRole
-      || window.subrole != kAXStandardWindowSubrole
-    {
-      if !forceTiling, !configuredFloating, window.subrole == kAXDialogSubrole, window.title.isEmpty {
+  ) -> WindowClassification {
+    // Discovery already dropped windows whose layer is ineligible.
+    var input = WindowClassificationInput(
+      appID: window.appID, role: window.role, subrole: window.subrole, title: window.title)
+    if rule != nil || window.role != kAXWindowRole || window.subrole != kAXStandardWindowSubrole {
+      if rule == nil, window.subrole == kAXDialogSubrole, window.title.isEmpty {
         var close: CFTypeRef?, modal: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &close)
         AXUIElementCopyAttributeValue(element, kAXModalAttribute as CFString, &modal)
-        if isSystemTextAccessory(title: window.title, hasCloseButton: close != nil, isModal: modal as? Bool ?? false) {
-          return .ignored
-        }
-      }
-      // Only popup subroles hinge on modality: a modal one is a real dialog.
-      let isModal = !forceTiling && !configuredFloating
-        && isAppDrawnPopup(subrole: window.subrole, isModal: false)
-        && (preparedModalState ?? {
+        input.closeButton = close == nil ? nil : true
+        input.modal = modal as? Bool ?? false
+      } else if rule == nil, isAppDrawnPopup(subrole: window.subrole, isModal: false) {
+        // Only popup subroles hinge on modality: a modal one is a real dialog.
+        input.modal = preparedModalState ?? {
           var modal: CFTypeRef?
           AXUIElementCopyAttributeValue(element, kAXModalAttribute as CFString, &modal)
           return modal as? Bool ?? false
-        }())
-      return classifyWindow(
-        role: window.role,
-        subrole: window.subrole,
-        appID: window.appID,
-        hasCloseButton: false,
-        canResize: false,
-        isModal: isModal,
-        configuredFloating: configuredFloating,
-        forceTiling: forceTiling
-      )
+        }()
+      }
+      return tracedClassification(window.id, input, rule: rule)
     }
     if reuseCachedCapabilities,
-      let capabilities = windowManagementCapabilities[window.id]
+      var capabilities = windowManagementCapabilities[window.id]
     {
       windowManagementMetadataReuseCount += 1
-      var modalState = capabilities.isModal
       let refreshedModalState: Bool?
       if let preparedModalState {
         refreshedModalState = preparedModalState
@@ -1193,25 +1184,11 @@ extension SnapshotEngine {
         )
       }
       if let refreshedModalState {
-        modalState = refreshedModalState
-        windowManagementCapabilities[window.id] = WindowManagementCapabilities(
-          hasCloseButton: capabilities.hasCloseButton,
-          canResize: capabilities.canResize,
-          canGrow: capabilities.canGrow,
-          isModal: refreshedModalState
-        )
+        capabilities.isModal = refreshedModalState
+        windowManagementCapabilities[window.id] = capabilities
       }
-      return classifyWindow(
-        role: window.role,
-        subrole: window.subrole,
-        appID: window.appID,
-        hasCloseButton: capabilities.hasCloseButton,
-        canResize: capabilities.canResize,
-        canGrow: capabilities.canGrow,
-        isModal: modalState,
-        configuredFloating: false,
-        forceTiling: false
-      )
+      capabilities.apply(to: &input)
+      return tracedClassification(window.id, input, rule: nil)
     }
     windowManagementMetadataReadCount += 1
     var closeButton: CFTypeRef?
@@ -1239,11 +1216,9 @@ extension SnapshotEngine {
         cachedValue: windowManagementCapabilities[window.id]?.isModal
       )
     else {
-      return previousDisposition ?? .unavailable
+      return WindowClassification(disposition: previousDisposition ?? .unavailable, reason: "AX-modal-unavailable")
     }
-    if !configuredFloating,
-      !forceTiling,
-      let fallbackDisposition = fallbackDispositionForTransientWindowMetadata(
+    if let fallbackDisposition = fallbackDispositionForTransientWindowMetadata(
         role: window.role,
         subrole: window.subrole,
         closeButtonError: closeButtonError,
@@ -1251,7 +1226,7 @@ extension SnapshotEngine {
         previousDisposition: previousDisposition
       )
     {
-      return fallbackDisposition
+      return WindowClassification(disposition: fallbackDisposition, reason: "AX-metadata-unavailable")
     }
     let hasCloseButton = shouldTreatWindowAsClosable(
       error: closeButtonError,
@@ -1262,25 +1237,31 @@ extension SnapshotEngine {
       sizeSettableError: sizeSettableError,
       isSettable: sizeSettable.boolValue
     )
+    // Only a window that would tile needs the extra reads.
+    let growable = hasCloseButton && canResize
+    let fullScreenButton = growable ? windowButtonState(element, kAXFullScreenButtonAttribute) : nil
     let capabilities = WindowManagementCapabilities(
       hasCloseButton: hasCloseButton,
       canResize: canResize,
-      // Only a window that would tile needs the extra read.
-      canGrow: hasCloseButton && canResize ? windowCanGrow(element) : true,
+      zoomButton: growable && fullScreenButton != true ? windowButtonState(element, kAXZoomButtonAttribute) : nil,
+      fullScreenButton: fullScreenButton,
       isModal: isModal
     )
     windowManagementCapabilities[window.id] = capabilities
-    return classifyWindow(
-      role: window.role,
-      subrole: window.subrole,
-      appID: window.appID,
-      hasCloseButton: capabilities.hasCloseButton,
-      canResize: capabilities.canResize,
-      canGrow: capabilities.canGrow,
-      isModal: capabilities.isModal,
-      configuredFloating: configuredFloating,
-      forceTiling: forceTiling
-    )
+    capabilities.apply(to: &input)
+    return tracedClassification(window.id, input, rule: nil)
+  }
+
+  /// Records a trace line only when a window's inputs or outcome change, so repeated refreshes stay quiet.
+  private func tracedClassification(
+    _ id: WindowID, _ input: WindowClassificationInput, rule: RuleWindow?
+  ) -> WindowClassification {
+    let outcome = classifyWindow(input, rule: rule)
+    let line = windowClassificationTrace(id, input, rule: rule, outcome)
+    if withLockedStorage({ $0.windowClassificationTraces.updateValue(line, forKey: id) }) != line {
+      frameCoordinator.recordTrace(line)
+    }
+    return outcome
   }
 
   func focusedWindowID(
@@ -1635,6 +1616,7 @@ private struct Storage {
   var fallbackWindowAttributeReadCount = 0
   var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] =
     [:]
+  var windowClassificationTraces: [WindowID: String] = [:]
   var nativeTabHiddenMembersByWindowID: [WindowID: Set<WindowID>] = [:]
   var nativeTabSettleDeadlines: [pid_t: TimeInterval] = [:]
   var windowManagementMetadataReadCount = 0

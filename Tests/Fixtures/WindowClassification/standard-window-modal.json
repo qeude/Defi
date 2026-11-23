@@ -1,0 +1,15 @@
+{
+  "disposition" : "floating",
+  "reason" : "modal",
+  "window" : {
+    "appID" : "com.example.app",
+    "closeButton" : true,
+    "fullScreenButton" : true,
+    "modal" : true,
+    "resizable" : true,
+    "role" : "AXWindow",
+    "subrole" : "AXStandardWindow",
+    "title" : "Settings",
+    "zoomButton" : true
+  }
+}
