@@ -1664,7 +1664,7 @@ final class RibbonProxyPresenter {
         fade.fromValue = dimFrom
         fade.toValue = target
         fade.duration = windowDimFadeDuration
-        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         dim.add(fade, forKey: "dim")
       }
     }

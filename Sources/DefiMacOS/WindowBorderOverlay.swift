@@ -564,7 +564,7 @@ private final class BorderSegment {
     fade.fromValue = (drawnLayer.presentation() ?? drawnLayer).opacity
     fade.toValue = opacity
     fade.duration = duration
-    fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+    fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     drawnLayer.opacity = opacity
