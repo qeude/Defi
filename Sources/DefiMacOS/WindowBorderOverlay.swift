@@ -34,10 +34,20 @@ final class BorderSurfaceMoveBatch {
 @MainActor
 final class BorderOverlay {
   private let segments: [WindowBorderSegmentKind: BorderSegment]
+  /// One window-sized fill under the ring, made on first use: the inactive dim.
+  private var dimSurface: BorderSegment?
+  private var dimOpacity: Float = 0
+  private var hasRing = true
+  private var targetWindowNumber: Int
+  private let now: () -> TimeInterval
+  private var stacking: WindowBorderStacking?
+  private var surfaces: [BorderSegment] { Array(segments.values) + (dimSurface.map { [$0] } ?? []) }
   private var windowFrame: Rect?
   private var width = -1.0
   private var color: UInt32 = 0
   private var radius = -1.0
+  /// The window's own corner radius, which the dim follows.
+  private var baseRadius = 0.0
   private var captureEnabled = false
   private var placement: WindowBorderPlacement = .inside
   private var visible = false
@@ -48,12 +58,15 @@ final class BorderOverlay {
   var isVisible: Bool { visible }
 
   var estimatedSurfacePixels: Int {
-    segments.values.reduce(0) { $0 + $1.estimatedSurfacePixels }
+    surfaces.reduce(0) { $0 + $1.estimatedSurfacePixels }
   }
 
-  var opacity: Double { Double(opacityValue) }
+  /// The ring's opacity: 0 while the overlay holds only a dim.
+  var opacity: Double { hasRing ? Double(opacityValue) : 0 }
 
-  var orderingCount: Int { segments.values.reduce(0) { $0 + $1.orderingCount } }
+  var orderingCount: Int { surfaces.reduce(0) { $0 + $1.orderingCount } }
+
+  var dim: Double { Double(dimOpacity) }
 
   var windowLevelRawValues: [Int] {
     segments.values.map(\.windowLevelRawValue)
@@ -65,14 +78,14 @@ final class BorderOverlay {
 
   var windowIDs: Set<CGWindowID> {
     Set(
-      segments.values.compactMap { panel in
+      surfaces.compactMap { panel in
         guard panel.windowNumber > 0 else { return nil }
         return CGWindowID(panel.windowNumber)
       })
   }
 
   var ownedSurfaceWindowID: WindowID? {
-    for segment in segments.values {
+    for segment in surfaces {
       guard let frame = segment.frame, frame.width > 0, frame.height > 0,
         segment.windowNumber > 0 else { continue }
       return WindowID(rawValue: UInt64(segment.windowNumber))
@@ -82,6 +95,8 @@ final class BorderOverlay {
 
   init(windowID: WindowID, now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
     let targetWindowNumber = Int(windowID.rawValue)
+    self.targetWindowNumber = targetWindowNumber
+    self.now = now
     segments = Dictionary(
       uniqueKeysWithValues: WindowBorderSegmentKind.allCases.map {
         ($0, BorderSegment(targetWindowNumber: targetWindowNumber, now: now))
@@ -92,13 +107,13 @@ final class BorderOverlay {
   private(set) var isPresentationHidden = false
   func setPresentationHidden(_ hidden: Bool) {
     isPresentationHidden = hidden
-    for segment in segments.values { segment.setPresentationHidden(hidden) }
+    for segment in surfaces { segment.setPresentationHidden(hidden) }
   }
 
   func retarget(to windowID: WindowID, preservingBacking: Bool = false) {
     if preservingBacking {
       // Reuse only during a synchronous selection handoff, never as a hidden cache.
-      for segment in segments.values { segment.makeTransparent() }
+      for segment in surfaces { segment.makeTransparent() }
       opacityValue = 0
       pendingOpacityReveal = nil
       visible = false
@@ -106,20 +121,22 @@ final class BorderOverlay {
     } else {
       compactBacking()
     }
-    let targetWindowNumber = Int(windowID.rawValue)
-    for segment in segments.values {
+    targetWindowNumber = Int(windowID.rawValue)
+    for segment in surfaces {
       segment.retarget(to: targetWindowNumber)
     }
   }
 
+  /// A nil color draws no ring, leaving only the dim.
   func sync(
     frame: Rect,
     width: Double,
-    color: UInt32,
+    color: UInt32?,
     windowRadius: Double,
     captureEnabled: Bool,
     placement: WindowBorderPlacement
   ) {
+    setRing(color != nil)
     _ = syncGeometry(
       frame: frame,
       width: width,
@@ -127,7 +144,56 @@ final class BorderOverlay {
       captureEnabled: captureEnabled,
       placement: placement
     )
-    updateAppearance(to: color)
+    if let color {
+      updateAppearance(to: color)
+    } else {
+      _ = orderInTransparentIfNeeded()
+    }
+  }
+
+  /// Takes the ring away and keeps the overlay, and its dim, on screen.
+  func removeRing() {
+    setRing(false)
+    pendingOpacityReveal = nil
+    opacityValue = 0
+  }
+
+  private func setRing(_ shown: Bool) {
+    guard hasRing != shown else { return }
+    hasRing = shown
+    geometryNeedsRefresh = true
+    guard let windowFrame else { return }
+    _ = syncGeometry(
+      frame: windowFrame, width: max(width, 0), windowRadius: baseRadius,
+      captureEnabled: captureEnabled, placement: placement)
+  }
+
+  /// Fades a dim in when `animated`, and drops one at once, so the focused window brightens at once.
+  func setDim(_ opacity: Float, animated: Bool) {
+    guard opacity != dimOpacity else { return }
+    let fades = animated && opacity > dimOpacity
+    dimOpacity = opacity
+    if opacity > 0, dimSurface == nil {
+      let surface = BorderSegment(targetWindowNumber: targetWindowNumber, now: now, fills: true)
+      surface.setPresentationHidden(isPresentationHidden)
+      if let stacking { surface.setStacking(stacking) }
+      dimSurface = surface
+      syncDimGeometry(drawingChanged: true)
+      if visible, surface.frame != nil { surface.ensureOrderedIn() }
+    }
+    if fades {
+      dimSurface?.fadeOpacity(to: opacity, duration: windowDimFadeDuration)
+    } else {
+      dimSurface?.setOpacityImmediately(opacity)
+    }
+  }
+
+  private func syncDimGeometry(drawingChanged: Bool, moveBatch: BorderSurfaceMoveBatch? = nil) {
+    guard let dimSurface, let windowFrame else { return }
+    dimSurface.syncGeometry(
+      WindowBorderSegmentGeometry(kind: .top, frame: windowFrame, pathOriginFromWindowBottom: .zero),
+      windowFrame: windowFrame, width: 0, radius: baseRadius, captureEnabled: captureEnabled,
+      drawingChanged: drawingChanged, moveBatch: moveBatch)
   }
 
   func syncGeometry(
@@ -161,11 +227,9 @@ final class BorderOverlay {
       width: frame.width + outset * 2,
       height: frame.height + outset * 2
     )
-    let geometries = windowBorderSegmentGeometries(
-      windowFrame: ringFrame,
-      width: width,
-      radius: radius
-    )
+    let geometries =
+      hasRing
+      ? windowBorderSegmentGeometries(windowFrame: ringFrame, width: width, radius: radius) : []
     let geometryByKind = Dictionary(
       uniqueKeysWithValues: geometries.map { ($0.kind, $0) }
     )
@@ -188,13 +252,16 @@ final class BorderOverlay {
     windowFrame = frame
     self.width = width
     self.radius = radius
+    self.baseRadius = baseRadius
     self.captureEnabled = captureEnabled
     self.placement = placement
+    syncDimGeometry(drawingChanged: drawingChanged || geometryNeedsRefresh, moveBatch: moveBatch)
     geometryNeedsRefresh = false
     return true
   }
 
   func updateAppearance(to color: UInt32) {
+    setRing(true)
     let opacity = borderOpacity(color)
     updateColor(color)
     if orderInTransparentIfNeeded() {
@@ -209,6 +276,7 @@ final class BorderOverlay {
   }
 
   func prepareReveal(to color: UInt32) {
+    setRing(true)
     updateColor(color)
     _ = orderInTransparentIfNeeded()
     pendingOpacityReveal = borderOpacity(color)
@@ -226,18 +294,19 @@ final class BorderOverlay {
 
   /// Takes the compacted panels off screen before the overlay is released.
   func close() {
-    for segment in segments.values { segment.close() }
+    for segment in surfaces { segment.close() }
   }
 
   func applyCompositorFallback() {
     guard visible else { return }
-    for segment in segments.values where segment.frame != nil {
+    for segment in surfaces where segment.frame != nil {
       segment.applyCompositorFallback()
     }
   }
 
   func setStacking(_ stacking: WindowBorderStacking) {
-    for segment in segments.values {
+    self.stacking = stacking
+    for segment in surfaces {
       segment.setStacking(stacking)
     }
   }
@@ -271,6 +340,8 @@ final class BorderOverlay {
       segment.setOpacityImmediately(0)
       segment.ensureOrderedIn()
     }
+    // After the ring: each surface orders just above the window, so the dim lies under the ring.
+    if let dimSurface, dimSurface.frame != nil { dimSurface.ensureOrderedIn() }
     return true
   }
 
@@ -282,9 +353,10 @@ final class BorderOverlay {
   }
 
   private func compactBacking() {
-    for segment in segments.values {
+    for segment in surfaces {
       segment.compactBacking()
     }
+    dimOpacity = 0
     windowFrame = nil
     opacityValue = 0
     pendingOpacityReveal = nil
@@ -299,6 +371,9 @@ private final class BorderSegment {
   private let panel: NSPanel
   private let rootView: NSView
   private let shapeLayer = CAShapeLayer()
+  /// The dim's solid fill: a plain layer the compositor draws without a backing bitmap.
+  private let fillLayer: CALayer?
+  private var drawnLayer: CALayer { fillLayer ?? shapeLayer }
   private(set) var frame: Rect?
   private var backingScale = 1.0
   private var orderedIn = false
@@ -317,7 +392,7 @@ private final class BorderSegment {
     return pixelWidth * pixelHeight
   }
 
-  init(targetWindowNumber: Int, now: @escaping () -> TimeInterval) {
+  init(targetWindowNumber: Int, now: @escaping () -> TimeInterval, fills: Bool = false) {
     self.targetWindowNumber = targetWindowNumber
     self.now = now
     panel = NSPanel(
@@ -346,7 +421,17 @@ private final class BorderSegment {
     panel.alphaValue = 0
     rootView.wantsLayer = true
     rootView.layer?.masksToBounds = true
-    rootView.layer?.addSublayer(shapeLayer)
+    if fills {
+      let fill = CALayer()
+      fill.backgroundColor = CGColor(gray: 0, alpha: 1)
+      // A fade starts from the drawn opacity: a fresh fill must start clear, not black.
+      fill.opacity = 0
+      fillLayer = fill
+      rootView.layer?.addSublayer(fill)
+    } else {
+      fillLayer = nil
+      rootView.layer?.addSublayer(shapeLayer)
+    }
     shapeLayer.fillColor = NSColor.clear.cgColor
     shapeLayer.lineCap = .butt
     shapeLayer.lineJoin = .round
@@ -415,6 +500,13 @@ private final class BorderSegment {
         rootView.frame = localBounds
         rootView.layer?.frame = localBounds
         shapeLayer.frame = localBounds
+        fillLayer?.frame = localBounds
+      }
+      if let fillLayer {
+        fillLayer.cornerRadius = radius
+        fillLayer.cornerCurve = .continuous
+        CATransaction.commit()
+        return finishSync(geometry: geometry, captureEnabled: captureEnabled, scale: scale)
       }
       let strokeInset = width / 2
       let pathRect = CGRect(
@@ -433,7 +525,10 @@ private final class BorderSegment {
       shapeLayer.lineWidth = width
       CATransaction.commit()
     }
+    finishSync(geometry: geometry, captureEnabled: captureEnabled, scale: scale)
+  }
 
+  private func finishSync(geometry: WindowBorderSegmentGeometry, captureEnabled: Bool, scale: CGFloat) {
     if panel.sharingType != (captureEnabled ? .readOnly : .none) {
       panel.sharingType = captureEnabled ? .readOnly : .none
     }
@@ -455,10 +550,25 @@ private final class BorderSegment {
   }
 
   func setOpacityImmediately(_ opacity: Float) {
-    guard shapeLayer.opacity != opacity else { return }
+    // An unfinished fade would otherwise keep drawing its old target.
+    drawnLayer.removeAnimation(forKey: "opacity")
+    guard drawnLayer.opacity != opacity else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    shapeLayer.opacity = opacity
+    drawnLayer.opacity = opacity
+    CATransaction.commit()
+  }
+
+  func fadeOpacity(to opacity: Float, duration: CFTimeInterval) {
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = (drawnLayer.presentation() ?? drawnLayer).opacity
+    fade.toValue = opacity
+    fade.duration = duration
+    fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    drawnLayer.opacity = opacity
+    drawnLayer.add(fade, forKey: "opacity")
     CATransaction.commit()
   }
 
@@ -537,10 +647,12 @@ private final class BorderSegment {
     let compactBounds = CGRect(x: 0, y: 0, width: 1, height: 1)
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    shapeLayer.opacity = 0
+    drawnLayer.removeAnimation(forKey: "opacity")
+    drawnLayer.opacity = 0
     rootView.frame = compactBounds
     rootView.layer?.frame = compactBounds
     shapeLayer.frame = compactBounds
+    fillLayer?.frame = compactBounds
     shapeLayer.path = nil
     CATransaction.commit()
     panel.setFrame(compactBounds, display: false)
@@ -582,6 +694,8 @@ private final class BorderSegment {
     }?.backingScaleFactor ?? 1
   }
 }
+
+let windowDimFadeDuration: CFTimeInterval = 0.15
 
 private func appKitFramesMatch(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
   abs(lhs.minX - rhs.minX) < 0.5 && abs(lhs.minY - rhs.minY) < 0.5

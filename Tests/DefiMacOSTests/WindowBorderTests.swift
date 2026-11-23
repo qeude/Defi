@@ -95,6 +95,55 @@ struct WindowBorderTests {
     #expect(plan.tracked.count == tracked)
   }
 
+  @Test(arguments: [false, true])
+  func inactiveDimCoversEveryVisibleWindowButTheSelection(bordersEnabled: Bool) {
+    let frames = (1...3).map {
+      FrameAssignment(windowID: WindowID(rawValue: UInt64($0)), frame: Rect(x: 10, y: 20, width: 500, height: 800))
+    }
+    let plan = planWindowBorders(frames: frames, selectedWindowID: WindowID(rawValue: 2),
+      hiddenWindowIDs: [WindowID(rawValue: 3)], monitorFrames: [monitor],
+      style: WindowBorderStyle(enabled: bordersEnabled, width: 4, activeColor: 0xffff_ffff, inactiveEnabled: false,
+        inactiveColor: 0x66ff_ffff, inactiveDim: 0.3, captureEnabled: false))
+    #expect(plan.dimmed.map(\.windowID.rawValue) == [1])
+    #expect(plan.tracked.map(\.windowID.rawValue) == [1, 2])
+    #expect(plan.active?.windowID.rawValue == (bordersEnabled ? 2 : nil))
+    #expect(plan.inactive.isEmpty)
+  }
+
+  @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
+  func refocusMovesTheDimAndRingWithoutNewPanels() {
+    let manager = WindowBorderManager()
+    defer { manager.hide() }
+    let dimStyle = WindowBorderStyle(enabled: true, width: 4, activeColor: 0xffff_ffff, inactiveEnabled: false,
+      inactiveColor: 0x66ff_ffff, inactiveDim: 0.3, captureEnabled: false)
+    let one = WindowID(rawValue: 1), two = WindowID(rawValue: 2)
+    let frames = [
+      FrameAssignment(windowID: one, frame: Rect(x: 100, y: 100, width: 400, height: 600)),
+      FrameAssignment(windowID: two, frame: Rect(x: 520, y: 100, width: 400, height: 600)),
+    ]
+    let displayed = Dictionary(uniqueKeysWithValues: frames.map { ($0.windowID, $0.frame) })
+    manager.prepareForSelection(one, displayedFrame: displayed[one])
+    manager.sync(
+      planWindowBorders(frames: frames, selectedWindowID: one, hiddenWindowIDs: [], monitorFrames: [monitor],
+        style: dimStyle),
+      displayedFrames: displayed, stacking: frontmostStacking(for: one))
+    #expect(manager.dimmedWindowIDs == [two])
+    #expect(manager.performance.visible == 2)
+    let allocated = manager.performance.allocated
+
+    // The fast path moves the dim and the ring before the next plan arrives.
+    manager.prepareForSelection(two, displayedFrame: displayed[two])
+    manager.revealPendingBorders()
+    #expect(manager.dimmedWindowIDs == [one])
+    #expect(manager.showsActiveRing(for: two))
+    manager.sync(
+      planWindowBorders(frames: frames, selectedWindowID: two, hiddenWindowIDs: [], monitorFrames: [monitor],
+        style: dimStyle),
+      displayedFrames: displayed, stacking: frontmostStacking(for: two))
+    #expect(manager.dimmedWindowIDs == [one])
+    #expect(manager.performance.allocated == allocated)
+  }
+
   @Test
   func overviewReusesConfiguredWindowBorderPolicy() {
     let active = overviewWindowBorderAppearance(isSelected: true, style: style, scale: 0.5)

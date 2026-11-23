@@ -11,6 +11,8 @@ struct WindowBorderStyle: Equatable, Sendable {
   let activeColor: UInt32
   let inactiveEnabled: Bool
   let inactiveColor: UInt32
+  /// Opacity of the black laid over unfocused tiled windows; 0 draws nothing.
+  let inactiveDim: Float
   let captureEnabled: Bool
   let placement: WindowBorderPlacement
 
@@ -20,6 +22,7 @@ struct WindowBorderStyle: Equatable, Sendable {
     activeColor: UInt32,
     inactiveEnabled: Bool,
     inactiveColor: UInt32,
+    inactiveDim: Float = 0,
     captureEnabled: Bool,
     placement: WindowBorderPlacement = .inside
   ) {
@@ -28,6 +31,7 @@ struct WindowBorderStyle: Equatable, Sendable {
     self.activeColor = activeColor
     self.inactiveEnabled = inactiveEnabled
     self.inactiveColor = inactiveColor
+    self.inactiveDim = inactiveDim
     self.captureEnabled = captureEnabled
     self.placement = placement
   }
@@ -39,10 +43,13 @@ struct WindowBorderStyle: Equatable, Sendable {
       activeColor: parseBorderColor(config.color) ?? 0xffc0_99ff,
       inactiveEnabled: config.inactiveEnabled,
       inactiveColor: parseBorderColor(config.inactiveColor) ?? 0x66c0_99ff,
+      inactiveDim: Float(config.inactiveDim),
       captureEnabled: config.captureEnabled,
       placement: WindowBorderPlacement(configValue: config.placement)
     )
   }
+
+  var drawsRings: Bool { enabled && width > 0 }
 }
 
 struct WindowBorderRenderPlan: Equatable, Sendable {
@@ -50,6 +57,8 @@ struct WindowBorderRenderPlan: Equatable, Sendable {
   let inactive: [FrameAssignment]
   let tracked: [FrameAssignment]
   let style: WindowBorderStyle
+  /// Unfocused windows under the inactive dim.
+  var dimmed: [FrameAssignment] = []
 }
 
 public struct WindowBorderPerformance: Equatable, Sendable {
@@ -93,13 +102,8 @@ func planWindowBorders(
   monitorFrames: [Rect],
   style: WindowBorderStyle
 ) -> WindowBorderRenderPlan {
-  guard style.enabled, style.width > 0 else {
-    return WindowBorderRenderPlan(
-      active: nil,
-      inactive: [],
-      tracked: [],
-      style: style
-    )
+  guard style.drawsRings || style.inactiveDim > 0 else {
+    return WindowBorderRenderPlan(active: nil, inactive: [], tracked: [], style: style)
   }
   let isVisible: (FrameAssignment) -> Bool = { assignment in
     (!hiddenWindowIDs.contains(assignment.windowID)
@@ -107,27 +111,16 @@ func planWindowBorders(
       && monitorFrames.contains { targetIntersects(assignment.frame, monitor: $0) }
   }
   let tracked = frames.filter(isVisible).sorted { $0.windowID.rawValue < $1.windowID.rawValue }
-  let active: FrameAssignment?
-  if windowBorderAlpha(of: style.activeColor) > 0 {
-    active = tracked.first { $0.windowID == selectedWindowID }
-  } else {
-    active = nil
-  }
-  guard style.inactiveEnabled, windowBorderAlpha(of: style.inactiveColor) > 0 else {
-    return WindowBorderRenderPlan(
-      active: active,
-      inactive: [],
-      tracked: tracked,
-      style: style
-    )
+  let unfocused = tracked.filter { $0.windowID != selectedWindowID }
+  let dimmed = style.inactiveDim > 0 ? unfocused : []
+  let active =
+    style.drawsRings && windowBorderAlpha(of: style.activeColor) > 0
+    ? tracked.first { $0.windowID == selectedWindowID } : nil
+  guard style.drawsRings, style.inactiveEnabled, windowBorderAlpha(of: style.inactiveColor) > 0 else {
+    return WindowBorderRenderPlan(active: active, inactive: [], tracked: tracked, style: style, dimmed: dimmed)
   }
   let inactive = tracked.filter { $0.windowID != active?.windowID }
-  return WindowBorderRenderPlan(
-    active: active,
-    inactive: inactive,
-    tracked: tracked,
-    style: style
-  )
+  return WindowBorderRenderPlan(active: active, inactive: inactive, tracked: tracked, style: style, dimmed: dimmed)
 }
 
 func overviewWindowBorderAppearance(

@@ -57,6 +57,10 @@ final class WindowBorderManager {
     )
   }
 
+  var dimmedWindowIDs: Set<WindowID> {
+    Set(overlays.compactMap { $0.value.isVisible && $0.value.dim > 0 ? $0.key : nil })
+  }
+
   var liveGeometryWindowIDs: Set<WindowID> {
     Set(
       overlays.compactMap { windowID, overlay in
@@ -120,7 +124,7 @@ final class WindowBorderManager {
       let overlay = overlays[previousActiveWindowID],
       overlay.isVisible
     {
-      if !style.inactiveEnabled, style.enabled, style.width > 0,
+      if !style.inactiveEnabled, style.inactiveDim == 0, style.enabled, style.width > 0,
         windowBorderAlpha(of: style.activeColor) > 0,
         let windowID, displayedFrame != nil, overlays[windowID] == nil
       {
@@ -132,11 +136,15 @@ final class WindowBorderManager {
         overlay.setStacking(.inactive(for: previousActiveWindowID))
         if style.inactiveEnabled {
           overlay.updateAppearance(to: style.inactiveColor)
+        } else if style.inactiveDim > 0 {
+          overlay.removeRing()
         } else {
           overlay.hide()
         }
+        overlay.setDim(style.inactiveDim, animated: true)
       }
     }
+    if let windowID { overlays[windowID]?.setDim(0, animated: false) }
     if style.enabled,
       style.width > 0,
       windowBorderAlpha(of: style.activeColor) > 0,
@@ -227,7 +235,8 @@ final class WindowBorderManager {
       reportedRadii = radii
       NavigationActor.enqueue { RibbonProxyPresenter.cornerRadii.merge(radii) { $1 } }
     }
-    let desiredAssignments = (plan.inactive + [plan.active].compactMap { $0 })
+    // With a dim, the focused window keeps its overlay too: refocusing only changes opacities.
+    let desiredAssignments = (plan.style.inactiveDim > 0 ? plan.tracked : plan.inactive + [plan.active].compactMap { $0 })
       .filter { closingUntil[$0.windowID] == nil }
     let desiredWindowIDs = Set(desiredAssignments.map(\.windowID))
     for assignment in desiredAssignments where overlays[assignment.windowID] == nil {
@@ -237,35 +246,29 @@ final class WindowBorderManager {
       )
     }
 
-    if let assignment = plan.active, closingUntil[assignment.windowID] == nil {
-      if let overlay = overlays[assignment.windowID] {
-        overlay.setStacking(
-          stacking.targetWindowID == assignment.windowID
-            ? stacking
-            : .inactive(for: assignment.windowID)
-        )
-        overlay.sync(
-          frame: displayedFrames[assignment.windowID] ?? assignment.frame,
-          width: plan.style.width,
-          color: plan.style.activeColor,
-          windowRadius: radius(for: assignment.windowID),
-          captureEnabled: plan.style.captureEnabled,
-          placement: plan.style.placement
-        )
-      }
-    }
-
-    for assignment in plan.inactive where closingUntil[assignment.windowID] == nil {
+    let inactiveWindowIDs = Set(plan.inactive.map(\.windowID))
+    let dimmedWindowIDs = Set(plan.dimmed.map(\.windowID))
+    for assignment in desiredAssignments {
       guard let overlay = overlays[assignment.windowID] else { continue }
-      overlay.setStacking(.inactive(for: assignment.windowID))
+      let windowID = assignment.windowID
+      let isActive = windowID == plan.active?.windowID
+      overlay.setStacking(isActive && stacking.targetWindowID == windowID ? stacking : .inactive(for: windowID))
+      let wasShown = overlay.isVisible
+      var ringColor: UInt32?
+      if isActive {
+        ringColor = plan.style.activeColor
+      } else if inactiveWindowIDs.contains(windowID) {
+        ringColor = plan.style.inactiveColor
+      }
       overlay.sync(
-        frame: displayedFrames[assignment.windowID] ?? assignment.frame,
+        frame: displayedFrames[windowID] ?? assignment.frame,
         width: plan.style.width,
-        color: plan.style.inactiveColor,
-        windowRadius: radius(for: assignment.windowID),
+        color: ringColor,
+        windowRadius: radius(for: windowID),
         captureEnabled: plan.style.captureEnabled,
         placement: plan.style.placement
       )
+      overlay.setDim(dimmedWindowIDs.contains(windowID) ? plan.style.inactiveDim : 0, animated: wasShown)
     }
 
     var removedWindowIDs: [WindowID] = []

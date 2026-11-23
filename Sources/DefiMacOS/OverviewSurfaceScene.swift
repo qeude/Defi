@@ -18,10 +18,16 @@ final class OverviewSurfaceScene {
   let projection: OverviewProjection
   private let nativeOwners: [WindowID: Int32]
   private let cornerRadius: CGFloat
+  /// The inactive dim over each card, so the zoom starts and ends as the desktop shows it.
+  private var dims: [WindowID: CALayer] = [:]
+  private let dim: Float
+  /// The window left undimmed; a close takes the Overview's selection.
+  var focusedWindowID: WindowID?
 
   init?(
     projection: OverviewProjection, workspaceID: WorkspaceID, screen: NSScreen,
-    pictures: [WindowID: WindowPicture], windows: [WindowID: Window], cornerRadius: Double = 12
+    pictures: [WindowID: WindowPicture], windows: [WindowID: Window], cornerRadius: Double = 12,
+    dim: Float = 0, focusedWindowID: WindowID? = nil
   ) {
     guard let workspace = projection.workspaces.first(where: { $0.workspaceID == workspaceID }),
       !workspace.windows.isEmpty
@@ -50,6 +56,8 @@ final class OverviewSurfaceScene {
     nativeOwners = owners
     self.projection = projection
     self.cornerRadius = max(cornerRadius, 0)
+    self.dim = dim
+    self.focusedWindowID = focusedWindowID
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     defer { CATransaction.commit() }
@@ -97,6 +105,12 @@ final class OverviewSurfaceScene {
       item.cornerRadius = self.cornerRadius
       item.cornerCurve = .continuous
       item.masksToBounds = true
+      if dim > 0 {
+        let shade = overviewDimLayer(size: source.size)
+        shade.opacity = windowID == focusedWindowID ? 0 : dim
+        item.addSublayer(shade)
+        dims[windowID] = shade
+      }
       layer.addSublayer(item)
       entries.append((windowID, item, source, target))
     }
@@ -147,7 +161,21 @@ final class OverviewSurfaceScene {
       group.preferredFrameRateRange = overviewAnimationFrameRate
       item.add(group, forKey: "overview-surface")
     }
+    fadeDims(toward: 1 - progress, duration: glide, timing: .easeOut)
     CATransaction.commit()
+  }
+
+  /// Sets each card's dim to `share` of the desktop's: 1 at the desktop pose, 0 in the Overview.
+  private func fadeDims(toward share: Double, duration: TimeInterval, timing: CAMediaTimingFunctionName) {
+    for (windowID, shade) in dims {
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = (shade.presentation() ?? shade).opacity
+      shade.opacity = windowID == focusedWindowID ? 0 : dim * Float(min(max(share, 0), 1))
+      fade.duration = duration
+      fade.timingFunction = CAMediaTimingFunction(name: timing)
+      fade.preferredFrameRateRange = overviewAnimationFrameRate
+      shade.add(fade, forKey: "overview-dim")
+    }
   }
 
   func animate(opening: Bool, duration: TimeInterval) {
@@ -191,6 +219,7 @@ final class OverviewSurfaceScene {
       group.preferredFrameRateRange = overviewAnimationFrameRate
       item.add(group, forKey: "overview-surface")
     }
+    fadeDims(toward: opening ? 0 : 1, duration: duration, timing: .easeInEaseOut)
     CATransaction.commit()
   }
 
@@ -232,6 +261,16 @@ func overviewZoomSource(native: CGRect, target: CGRect, screen: CGRect,
   return CGRect(x: anchor.native.minX + (target.minX - anchor.target.minX) * scale,
     y: anchor.native.minY + (target.minY - anchor.target.minY) * scale,
     width: native.width, height: native.height)
+}
+
+/// Black over a zoom card, scaled with it, standing in for the native inactive dim.
+func overviewDimLayer(size: CGSize) -> CALayer {
+  let shade = CALayer()
+  shade.name = "dim"
+  shade.anchorPoint = .zero
+  shade.frame = CGRect(origin: .zero, size: size)
+  shade.backgroundColor = CGColor(gray: 0, alpha: 1)
+  return shade
 }
 
 /// A window-sized stand-in for a zoom transition. Without an image it keeps the

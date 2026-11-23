@@ -1593,9 +1593,12 @@ final class RibbonProxyPresenter {
     icon.name = "icon"; icon.contentsGravity = .resizeAspect
     icon.shadowColor = CGColor(gray: 0, alpha: 1); icon.shadowOpacity = 0.4
     icon.shadowRadius = 10; icon.shadowOffset = CGSize(width: 0, height: -3)
+    // The native inactive dim, drawn on the card while the overlay stands in for the window.
+    let dim = CALayer()
+    dim.name = "dim"; dim.backgroundColor = CGColor(gray: 0, alpha: 1); dim.opacity = 0
     let border = CALayer()
     border.name = "border"
-    for sublayer in [shadow, content, icon, border] { layer.addSublayer(sublayer) }
+    for sublayer in [shadow, content, icon, dim, border] { layer.addSublayer(sublayer) }
     return layer
   }
 
@@ -1613,6 +1616,7 @@ final class RibbonProxyPresenter {
       setContents(sublayers["icon"], nil)
       // Its own picture already draws its selection, and the panel has no shadow.
       sublayers["border"]?.isHidden = true
+      sublayers["dim"]?.opacity = 0
       sublayers["shadow"]?.isHidden = true
       return (true, false)
     }
@@ -1636,6 +1640,7 @@ final class RibbonProxyPresenter {
     } ?? CGColor(gray: 0.16, alpha: 1)
     setContents(sublayers["icon"], badged ? WindowCaptureStore.shared.icon(window.processID) : nil)
     sublayers["icon"]?.opacity = 1
+    sublayers["dim"]?.opacity = selected ? 0 : borderStyle?.inactiveDim ?? 0
     if let border = sublayers["border"] {
       if let borderStyle, let appearance = overviewWindowBorderAppearance(isSelected: selected,
         style: borderStyle, scale: 1) {
@@ -2085,6 +2090,9 @@ func ribbonProxySublayerFrames(_ layer: CALayer, size: CGSize,
   (layer.sublayers ?? []).compactMap { sublayer in
     switch sublayer.name {
     case "content": return (sublayer, CGRect(origin: .zero, size: size))
+    case "dim":
+      sublayer.cornerRadius = layer.value(forKey: ribbonProxyRadiusKey) as? Double ?? 12
+      return (sublayer, CGRect(origin: .zero, size: size))
     // The shadow falls 6 pt below the window, like the system's.
     case "shadow":
       let pad = ribbonProxyShadowPad
