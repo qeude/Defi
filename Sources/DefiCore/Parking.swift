@@ -23,8 +23,10 @@ public func parkedFrame(
   let width = frame.width, height = frame.height
   let y = min(max(frame.y, top), bottom)
   let rightEdge = (right - sliver, y), leftEdge = (left - width + sliver, y)
-  let sides = frame.x + width / 2 < left + display.width / 2
-    ? [leftEdge, rightEdge] : [rightEdge, leftEdge]
+  // macOS pulls a window out from under a side Dock until part of it shows, so the other edge comes first.
+  let leftFirst = visibleFrame.x + visibleFrame.width < right
+    || (visibleFrame.x == left && frame.x + width / 2 < left + display.width / 2)
+  let sides = leftFirst ? [leftEdge, rightEdge] : [rightEdge, leftEdge]
   let candidates = (sides + [
     (right - sliver, bottom), (left - width + sliver, bottom),
     (right - sliver, top), (left - width + sliver, top), (left, bottom),
@@ -35,10 +37,7 @@ public func parkedFrame(
       width: width, height: height + parkingVerticalSlack
     )
     let own = horizontalOverlap(candidate, display)
-    // macOS pulls a window out from under a side Dock until part of it shows, so that edge leaks.
-    let leftDock = candidate.x < left ? visibleFrame.x - left : 0
-    let rightDock = candidate.x + width > right ? right - visibleFrame.x - visibleFrame.width : 0
-    return max(leftDock, rightDock, 0) * height + otherDisplays.reduce(0) { total, other in
+    return otherDisplays.reduce(0) { total, other in
       let shared = horizontalOverlap(candidate, other)
       return total + (shared > own ? shared * height : intersectionArea(probe, other))
     }
