@@ -207,7 +207,7 @@ extension DesktopE2ETests {
     XCTAssertTrue(daemon.settle(windows))
     let flick = try swipe(4, by: -400, every: 0.004)
     XCTAssertLessThanOrEqual(flick.count, 1, "A flick across columns must tap at most once; taps=\(flick)")
-||||||| parent of 2f4055ef (feat: close-window presses the window's close button)
+  }
 
   func testCloseWindowWaitsForTheAppToDestroyIt() throws {
     let lane = try daemonLane()
