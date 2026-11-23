@@ -175,6 +175,14 @@ extension MacOSPlatform {
       if kind == .focus, let processID, let self,
         let activation = userInputTracker.snapshot.applicationActivation, activation.processID == processID {
         let elements = UncheckedSendable(value: self.elements), coordinator = frameCoordinator
+        // WindowServer has already ordered the activated app's key window in front, and answers
+        // without the app, which can spend its whole read timeout activating.
+        // Its front window only: a new window Defi does not know yet must not hand over to an
+        // older one, possibly on another workspace.
+        // On the main thread: off it, SkyLight waits for the main thread's pending commit
+        // while holding the lock that commit needs, stalling both for half a second.
+        let front = ribbonProxyOnScreenWindows().first { $0.processID == processID && $0.layer == 0 }
+          .flatMap { elements.value[$0.id] == nil ? nil : $0.id }
         DispatchQueue.global(qos: .userInteractive).async {
           func known(_ element: AXUIElement?) -> WindowID? {
             element.flatMap { element in elements.value.first(where: { CFEqual($0.value, element) })?.key }
@@ -182,12 +190,6 @@ extension MacOSPlatform {
           // A slow app's focused window lags its activation; one window leaves no
           // ambiguity, as in the snapshot's own fallback, so the ribbon still animates.
           let started = ProcessInfo.processInfo.systemUptime
-          // WindowServer has already ordered the activated app's key window in front, and answers
-          // without the app, which can spend its whole read timeout activating.
-          // Its front window only: a new window Defi does not know yet must not hand over to an
-          // older one, possibly on another workspace.
-          let front = ribbonProxyOnScreenWindows().first { $0.processID == processID && $0.layer == 0 }
-            .flatMap { elements.value[$0.id] == nil ? nil : $0.id }
           let focused = front == nil ? applicationFocusedWindow(processID) : nil
           let focusedID = front ?? known(focused)
           let windowID = focusedID ?? known(applicationSingleWindow(processID))

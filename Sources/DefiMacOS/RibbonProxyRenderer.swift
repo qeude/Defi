@@ -815,8 +815,11 @@ final class RibbonProxyPresenter {
       func cleared(_ id: WindowID) -> Bool {
         native[id].map { windowProxyVisibleOverlap($0, area) <= 2 } ?? true
       }
+      let polled = Set(expected.keys).union(leaving)
       while CACurrentMediaTime() < deadline {
-        native = ribbonProxyNativeFrames(Set(expected.keys).union(leaving))
+        // On the main thread: off it, SkyLight waits for the main thread's pending commit
+        // while holding the lock that commit needs, stalling both for half a second.
+        native = await MainActor.run { ribbonProxyNativeFrames(polled) }
         if ribbonProxyLanded(native: native, targets: expected), leaving.allSatisfy(cleared) {
           landed = true; break
         }
@@ -841,7 +844,7 @@ final class RibbonProxyPresenter {
         while CACurrentMediaTime() < coverDeadline, !late.allSatisfy(arrived) {
           try? await Task.sleep(for: .milliseconds(16))
           guard RibbonProxyStore.shared.currentMotion(display) == token else { return }
-          let frames = ribbonProxyNativeFrames(late)
+          let frames = await MainActor.run { ribbonProxyNativeFrames(late) }
           for id in late { native[id] = frames[id] }
         }
         finished = late.allSatisfy(arrived)
@@ -863,12 +866,12 @@ final class RibbonProxyPresenter {
         ribbonProxyLogger.notice("landing-timeout late=\(detail, privacy: .public)")
       }
       // A closed window macOS still animates out would show when the overlay lifts.
-      var onScreen = ribbonProxyOnScreenWindows()
+      var onScreen = await MainActor.run { ribbonProxyOnScreenWindows() }
       let closingDeadline = CACurrentMediaTime() + 0.3
       while CACurrentMediaTime() < closingDeadline, onScreen.contains(where: { closed.contains($0.id) }) {
         try? await Task.sleep(for: .milliseconds(16))
         guard RibbonProxyStore.shared.currentMotion(display) == token else { return }
-        onScreen = ribbonProxyOnScreenWindows()
+        onScreen = await MainActor.run { ribbonProxyOnScreenWindows() }
       }
       RibbonProxyStore.shared.onScreen = onScreen
       let stray = onScreen.filter {
