@@ -53,6 +53,35 @@ private func openDefiPrivacySettings(_ pane: String) {
   NSWorkspace.shared.open(url)
 }
 
+/// Whether macOS tiles a window dragged to a screen's side edge or to the menu bar, the places
+/// where Defi's title-bar drag scrolls the strip or targets a column's top.
+public func systemWindowTilingByEdgeDrag() -> (sides: Bool, top: Bool) {
+  let domain = "com.apple.WindowManager" as CFString
+  // Drops this process's cached copy, so a change in System Settings shows up.
+  CFPreferencesAppSynchronize(domain)
+  // A key never written keeps macOS's default: on.
+  func enabled(_ key: String) -> Bool { CFPreferencesCopyAppValue(key as CFString, domain) as? Bool ?? true }
+  return (enabled("EnableTilingByEdgeDrag"), enabled("EnableTopTilingByEdgeDrag"))
+}
+
+@MainActor
+public func presentMacOSTilingNotice() {
+  let alert = NSAlert()
+  alert.messageText = "macOS Tiled This Window Too"
+  alert.informativeText = "macOS also tiles a window you drag to a screen edge or the menu bar, so it resized "
+    + "this one before Defi moved it where you dropped it. Turn off its tiling in Desktop & Dock to drag "
+    + "there smoothly. Defi will not show this again; Settings › Input keeps a reminder while it is on."
+  alert.addButton(withTitle: "Open Desktop & Dock")
+  alert.addButton(withTitle: "Not Now")
+  NSApplication.shared.activate(ignoringOtherApps: true)
+  if alert.runModal() == .alertFirstButtonReturn { openDesktopAndDockSettings() }
+}
+
+@MainActor
+public func openDesktopAndDockSettings() {
+  NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Desktop-Settings.extension")!)
+}
+
 /// SwiftUI ignores `showSettingsWindow:` from code, so this triggers the app menu's ⌘, item that the
 /// `Settings` scene installs, which also works while the menu bar item is hidden.
 @MainActor
