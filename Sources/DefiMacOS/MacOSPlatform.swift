@@ -671,6 +671,9 @@ public final class MacOSPlatform {
   @MainActor var pointerHitTestSnapshotTimestamp: TimeInterval?
   @MainActor var borderFrames: [FrameAssignment] = []
   @MainActor var borderSelectedWindowID: WindowID?
+  /// Accessibility was revoked: focus no longer reaches Defi, so no border or dim shows.
+  @MainActor var bordersLackAccessibility = false
+  @MainActor var borderTrustTimer: Timer?
   var desiredSelectedWindowID: WindowID?
   /// Pointer focus waits while an app's own menu or palette has focus: moving
   /// out of it would focus another window and close it.
@@ -684,6 +687,8 @@ public final class MacOSPlatform {
   /// Selecting a fullscreen window stays in the strip; only the next focus of this window switches to its Space.
   public var nativeFullscreenActivationWindowID: WindowID?
   public private(set) var activeNativeFullscreenWindowIDs = Set<WindowID>()
+  /// Full-screen windows already back on the desktop Space, before the snapshots report it.
+  public internal(set) var returnedNativeFullscreenWindowIDs = Set<WindowID>()
   @MainActor var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
   @MainActor var borderStackingRefreshState = WindowBorderStackingRefreshState()
   @MainActor var borderStackingRefreshTask: Task<Void, Never>?
@@ -752,6 +757,7 @@ public final class MacOSPlatform {
     let exited = nativeFullscreenWindowIDs.subtracting(windowIDs)
     nativeFullscreenWindowIDs = windowIDs
     activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
+    returnedNativeFullscreenWindowIDs.formIntersection(activeNativeFullscreenWindowIDs)
     let now = ProcessInfo.processInfo.systemUptime
     if !entered.isEmpty {
       RibbonProxyPresenter.cancelAll()

@@ -159,6 +159,9 @@ final class OverviewSurfaceScene {
       group.duration = glide
       group.timingFunction = CAMediaTimingFunction(name: .easeOut)
       group.preferredFrameRateRange = overviewAnimationFrameRate
+      // A frame composited before the commit lands draws the start, not the end.
+      group.beginTime = item.convertTime(CACurrentMediaTime(), from: nil)
+      group.fillMode = .backwards
       item.add(group, forKey: "overview-surface")
     }
     fadeDims(toward: 1 - progress, duration: glide, timing: .easeOut)
@@ -174,6 +177,8 @@ final class OverviewSurfaceScene {
       fade.duration = duration
       fade.timingFunction = CAMediaTimingFunction(name: timing)
       fade.preferredFrameRateRange = overviewAnimationFrameRate
+      fade.beginTime = shade.convertTime(CACurrentMediaTime(), from: nil)
+      fade.fillMode = .backwards
       shade.add(fade, forKey: "overview-dim")
     }
   }
@@ -217,6 +222,9 @@ final class OverviewSurfaceScene {
       group.duration = duration
       group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       group.preferredFrameRateRange = overviewAnimationFrameRate
+      // A frame composited before the commit lands draws the start, not the end.
+      group.beginTime = item.convertTime(CACurrentMediaTime(), from: nil)
+      group.fillMode = .backwards
       item.add(group, forKey: "overview-surface")
     }
     fadeDims(toward: opening ? 0 : 1, duration: duration, timing: .easeInEaseOut)

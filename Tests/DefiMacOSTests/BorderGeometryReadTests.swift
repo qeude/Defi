@@ -350,4 +350,28 @@ struct BorderGeometryReadTests {
     #expect(coordinator.processWriteQueueReservations.isEmpty)
     #expect(coordinator.processWriteQueues.isEmpty)
   }
+
+  @Test @MainActor func revokedAccessibilityTakesDownBordersAndDimsUntilGrantedAgain() {
+    let platform = NavigationActor.shared.queue.sync {
+      NavigationActor.assumeIsolated { MacOSPlatform(frameCoordinator: AXFrameCoordinator()) }
+    }
+    let style = WindowBorderStyle(enabled: true, width: 1, activeColor: 0,
+      inactiveEnabled: false, inactiveColor: 0, inactiveDim: 0.6, captureEnabled: false)
+    let dimmed = FrameAssignment(windowID: id, frame: Rect(x: -10000, y: -10000, width: 650, height: 700))
+    let show = {
+      platform.borderManager.sync(
+        WindowBorderRenderPlan(active: nil, inactive: [], tracked: [dimmed], style: style, dimmed: [dimmed]),
+        displayedFrames: [id: dimmed.frame], stacking: .inactive(for: id))
+    }
+    show()
+    defer { platform.borderManager.hide() }
+    #expect(platform.borderManager.liveGeometryWindowIDs == [id])
+    platform.applyBorderAccessibility(trusted: false)
+    #expect(platform.borderManager.liveGeometryWindowIDs.isEmpty)
+    // A layout arriving meanwhile draws nothing.
+    platform.presentRefreshWindowBorders()
+    #expect(platform.borderManager.liveGeometryWindowIDs.isEmpty)
+    platform.applyBorderAccessibility(trusted: true)
+    #expect(!platform.bordersLackAccessibility)
+  }
 }

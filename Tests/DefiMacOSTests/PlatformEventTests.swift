@@ -1,6 +1,7 @@
 import DefiRuntime
 import AppKit
 import ApplicationServices
+import DefiCore
 import DefiModel
 import Foundation
 import Testing
@@ -1941,6 +1942,54 @@ struct PlatformEventTests {
     #expect(result.activeWindowIsFrontmost == scenario.frontmost)
     #expect(result.upperBoundWindowID == scenario.upperBound.map(WindowID.init(rawValue:)))
     #expect(result.upperBoundLevel == (scenario.upperBound == nil ? nil : Self.floating))
+  }
+
+  @Test func dimRisesAboveNormalWindowsOnlyWhereNothingOverlapsItsWindow() {
+    // Two tiled windows side by side, a third under another app's window, and Defi's own surface.
+    let entries = [
+      Self.entry(1, 7, Self.normal, Rect(x: 0, y: 0, width: 800, height: 1_000)),
+      Self.entry(2, 7, Self.normal, Rect(x: 800, y: 0, width: 800, height: 1_000)),
+      Self.entry(3, 8, Self.normal, Rect(x: 1_600, y: 0, width: 800, height: 1_000)),
+      Self.entry(4, 9, Self.normal, Rect(x: 2_000, y: 100, width: 300, height: 300)),
+      Self.entry(7, 9, Self.floating, Rect(x: 100, y: 100, width: 300, height: 300)),
+      Self.entry(5, 99, Self.normal, Rect(x: 0, y: 0, width: 1_600, height: 1_000)),
+    ]
+    let elevated = windowDimElevations(
+      dimmed: Set([1, 2, 3, 6].map(WindowID.init(rawValue:))),
+      entries: entries, ownProcessID: 99, knownWindowIDs: [])
+    #expect(elevated == [WindowID(rawValue: 1), WindowID(rawValue: 2)])
+  }
+
+  @Test func departedWindowsShowAgainOnceThePlanDropsOrMovesThem() {
+    let left = Rect(x: 0, y: 0, width: 800, height: 1_000)
+    let other = Rect(x: 1_800, y: 0, width: 800, height: 1_000)
+    let id = { WindowID(rawValue: $0) }
+    let departed: [WindowID: Rect?] = [id(1): left, id(2): left, id(3): left, id(4): nil]
+    let remaining = remainingBorderDepartures(departed, tracked: [
+      FrameAssignment(windowID: id(1), frame: left),  // the plan of its old place, not yet updated
+      FrameAssignment(windowID: id(2), frame: other),  // moved to the other display
+      FrameAssignment(windowID: id(4), frame: other),  // left from no known place
+    ])
+    #expect(remaining == [id(1): left, id(4): nil])
+  }
+
+  @Test(arguments: [
+    // (current, previous, selected, ms since the focus changed, lit)
+    (1, 0, 2, 500, 1),  // the motion leaves the focused window
+    (2, 1, 2, 50, 1),  // the focus moved just before: the old focus is still fading
+    (2, 1, 2, 500, 0),  // long since: nothing else is lit
+    (0, 0, 2, 50, 0),  // no focus shown
+  ])
+  func ribbonCardsStartLitOnlyForTheWindowTheDesktopShowsLit(
+    current: Int, previous: Int, selected: Int, elapsedMS: Int, lit: Int
+  ) {
+    let id = { (raw: Int) in raw == 0 ? nil : WindowID(rawValue: UInt64(raw)) }
+    #expect(ribbonLitWindowID(focus: (id(current), id(previous)), selected: id(selected),
+      sinceFocusChange: Double(elapsedMS) / 1_000) == id(lit))
+    #expect(ribbonCardDimStart(lit: true, onScreen: true, inactiveDim: 0.6) == 0)
+    // Arriving from another workspace, the old focus wears its resting dim.
+    #expect(ribbonCardDimStart(lit: true, onScreen: false, inactiveDim: 0.6) == 0.6)
+    #expect(ribbonCardDimStart(lit: false, onScreen: true, inactiveDim: 0.6) == 0.6)
   }
 
 }

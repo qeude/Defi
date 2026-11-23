@@ -37,11 +37,20 @@ final class BorderOverlay {
   /// One window-sized fill under the ring, made on first use: the inactive dim.
   private var dimSurface: BorderSegment?
   private var dimOpacity: Float = 0
+  /// Above every normal window while no other window overlaps this one; nil until known.
+  private var dimElevated: Bool?
+  var dimElevation: Bool? { dimElevated }
   private var hasRing = true
   private var targetWindowNumber: Int
   private let now: () -> TimeInterval
   private var stacking: WindowBorderStacking?
   private var surfaces: [BorderSegment] { Array(segments.values) + (dimSurface.map { [$0] } ?? []) }
+  private var dimStacking: WindowBorderStacking? {
+    guard dimElevated == true else { return stacking }
+    return WindowBorderStacking(
+      targetWindowID: WindowID(rawValue: UInt64(targetWindowNumber)), activeWindowIsFrontmost: true,
+      upperBoundWindowID: nil, upperBoundLevel: elevatedWindowDimLevel)
+  }
   private var windowFrame: Rect?
   private var width = -1.0
   private var color: UInt32 = 0
@@ -67,6 +76,8 @@ final class BorderOverlay {
   var orderingCount: Int { surfaces.reduce(0) { $0 + $1.orderingCount } }
 
   var dim: Double { Double(dimOpacity) }
+
+  var showsDim: Bool { visible && !isPresentationHidden && dimOpacity > 0 && dimSurface?.isShown == true }
 
   var windowLevelRawValues: [Int] {
     segments.values.map(\.windowLevelRawValue)
@@ -125,6 +136,7 @@ final class BorderOverlay {
     for segment in surfaces {
       segment.retarget(to: targetWindowNumber)
     }
+    setDimElevated(nil)
   }
 
   /// A nil color draws no ring, leaving only the dim.
@@ -176,7 +188,7 @@ final class BorderOverlay {
     if opacity > 0, dimSurface == nil {
       let surface = BorderSegment(targetWindowNumber: targetWindowNumber, now: now, fills: true)
       surface.setPresentationHidden(isPresentationHidden)
-      if let stacking { surface.setStacking(stacking) }
+      if let dimStacking { surface.setStacking(dimStacking) }
       dimSurface = surface
       syncDimGeometry(drawingChanged: true)
       if visible, surface.frame != nil { surface.ensureOrderedIn() }
@@ -186,6 +198,14 @@ final class BorderOverlay {
     } else {
       dimSurface?.setOpacityImmediately(opacity)
     }
+  }
+
+  /// Closes the dim's panel once the dim is off, rather than keeping a clear one.
+  func releaseDim() {
+    guard let dimSurface else { return }
+    dimSurface.close()
+    self.dimSurface = nil
+    dimOpacity = 0
   }
 
   private func syncDimGeometry(drawingChanged: Bool, moveBatch: BorderSurfaceMoveBatch? = nil) {
@@ -306,9 +326,22 @@ final class BorderOverlay {
 
   func setStacking(_ stacking: WindowBorderStacking) {
     self.stacking = stacking
-    for segment in surfaces {
+    for segment in segments.values {
       segment.setStacking(stacking)
     }
+    if let dimStacking { dimSurface?.setStacking(dimStacking) }
+  }
+
+  func setDimElevated(_ elevated: Bool?) {
+    guard dimElevated != elevated else { return }
+    dimElevated = elevated
+    dimSurface?.setStacking(dimStacking ?? .inactive(for: WindowID(rawValue: UInt64(targetWindowNumber))))
+  }
+
+  /// Lowers an elevated dim the moment another window moves over this one.
+  func lowerDim(ifOverlapping frame: Rect) {
+    guard dimElevated == true, let windowFrame, targetIntersects(frame, monitor: windowFrame) else { return }
+    setDimElevated(false)
   }
 
   /// Edge frames this overlay would commit for `windowFrame` with its current style.
@@ -384,6 +417,7 @@ private final class BorderSegment {
 
   var windowNumber: Int { panel.windowNumber }
   var windowLevelRawValue: Int { panel.level.rawValue }
+  var isShown: Bool { orderedIn && frame != nil && panel.alphaValue > 0 && !rootView.isHidden }
 
   var estimatedSurfacePixels: Int {
     guard let frame else { return 0 }
@@ -551,7 +585,7 @@ private final class BorderSegment {
 
   func setOpacityImmediately(_ opacity: Float) {
     // An unfinished fade would otherwise keep drawing its old target.
-    drawnLayer.removeAnimation(forKey: "opacity")
+    stopFade()
     guard drawnLayer.opacity != opacity else { return }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
@@ -559,17 +593,15 @@ private final class BorderSegment {
     CATransaction.commit()
   }
 
+  private var fade: BorderOpacityFade?
   func fadeOpacity(to opacity: Float, duration: CFTimeInterval) {
-    let fade = CABasicAnimation(keyPath: "opacity")
-    fade.fromValue = (drawnLayer.presentation() ?? drawnLayer).opacity
-    fade.toValue = opacity
-    fade.duration = duration
-    fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-    CATransaction.begin()
-    CATransaction.setDisableActions(true)
-    drawnLayer.opacity = opacity
-    drawnLayer.add(fade, forKey: "opacity")
-    CATransaction.commit()
+    stopFade()
+    fade = BorderOpacityFade(layer: drawnLayer, to: opacity, duration: duration, view: rootView)
+  }
+
+  private func stopFade() {
+    fade?.stop()
+    fade = nil
   }
 
   func ensureOrderedIn() {
@@ -635,6 +667,7 @@ private final class BorderSegment {
   }
 
   func close() {
+    stopFade()
     panel.orderOut(nil)
     orderedIn = false
   }
@@ -647,7 +680,7 @@ private final class BorderSegment {
     let compactBounds = CGRect(x: 0, y: 0, width: 1, height: 1)
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    drawnLayer.removeAnimation(forKey: "opacity")
+    stopFade()
     drawnLayer.opacity = 0
     rootView.frame = compactBounds
     rootView.layer?.frame = compactBounds
@@ -696,6 +729,52 @@ private final class BorderSegment {
 }
 
 let windowDimFadeDuration: CFTimeInterval = 0.15
+
+/// Steps an opacity once per refresh: on these panels a Core Animation fade first drew its
+/// end value, a dark flash.
+@MainActor
+private final class BorderOpacityFade: NSObject {
+  private let layer: CALayer
+  private let from: Float
+  private let to: Float
+  private let start = CACurrentMediaTime()
+  private let duration: CFTimeInterval
+  private var link: CADisplayLink?
+
+  init(layer: CALayer, to: Float, duration: CFTimeInterval, view: NSView) {
+    self.layer = layer
+    from = layer.opacity
+    self.to = to
+    self.duration = max(duration, 0.001)
+    super.init()
+    let link = view.displayLink(target: self, selector: #selector(step))
+    link.add(to: .main, forMode: .common)
+    self.link = link
+    // A panel off screen gets no refresh: the fade still ends.
+    DispatchQueue.main.asyncAfter(deadline: .now() + self.duration + 0.1) { [weak self] in
+      guard let self, self.link != nil else { return }
+      self.apply(1)
+    }
+  }
+
+  @objc private func step(_ link: CADisplayLink) {
+    apply(Float(min((CACurrentMediaTime() - start) / duration, 1)))
+  }
+
+  private func apply(_ t: Float) {
+    let eased = t < 0.5 ? 2 * t * t : 1 - (2 - 2 * t) * (2 - 2 * t) / 2
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    layer.opacity = from + (to - from) * eased
+    CATransaction.commit()
+    if t >= 1 { stop() }
+  }
+
+  func stop() {
+    link?.invalidate()
+    link = nil
+  }
+}
 
 private func appKitFramesMatch(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
   abs(lhs.minX - rhs.minX) < 0.5 && abs(lhs.minY - rhs.minY) < 0.5

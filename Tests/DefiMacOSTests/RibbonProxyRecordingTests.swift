@@ -12,7 +12,7 @@ struct RibbonProxyRecordingTests {
     // Recordings and screen sharing show the motion the user sees.
     #expect(panel.sharingType == .readOnly)
     // Above ordinary windows, and never over a full-screen Space.
-    #expect(panel.level.rawValue == NSWindow.Level.normal.rawValue + 1)
+    #expect(panel.level.rawValue == NSWindow.Level.normal.rawValue + 2)
     #expect(
       panel.collectionBehavior == [.canJoinAllSpaces, .stationary, .ignoresCycle])
   }
