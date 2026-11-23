@@ -23,8 +23,10 @@ public func parkedFrame(
   let width = frame.width, height = frame.height
   let y = min(max(frame.y, top), bottom)
   let rightEdge = (right - sliver, y), leftEdge = (left - width + sliver, y)
-  let sides = frame.x + width / 2 < left + display.width / 2
-    ? [leftEdge, rightEdge] : [rightEdge, leftEdge]
+  // macOS pulls a window out from under a side Dock until part of it shows, so the other edge comes first.
+  let leftFirst = visibleFrame.x + visibleFrame.width < right
+    || (visibleFrame.x == left && frame.x + width / 2 < left + display.width / 2)
+  let sides = leftFirst ? [leftEdge, rightEdge] : [rightEdge, leftEdge]
   let candidates = (sides + [
     (right - sliver, bottom), (left - width + sliver, bottom),
     (right - sliver, top), (left - width + sliver, top), (left, bottom),
