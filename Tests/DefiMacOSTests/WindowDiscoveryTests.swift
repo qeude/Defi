@@ -1,3 +1,4 @@
+import DefiConfig
 import DefiRuntime
 import ApplicationServices
 import Foundation
@@ -281,8 +282,11 @@ struct WindowDiscoveryTests {
   func `Each recorded window replays to its recorded classification`(name: String) throws {
     let report = try JSONDecoder().decode(WindowClassificationReport.self,
       from: Data(contentsOf: windowClassificationFixtures.appending(path: name)))
-    #expect(classifyWindow(report.window, rule: report.rule)
-      == WindowClassification(disposition: report.disposition, reason: report.reason))
+    let outcome = classifyWindow(report.window, rule: report.rule)
+    #expect(outcome == WindowClassification(disposition: report.disposition, reason: report.reason))
+    if !report.window.title.isEmpty {
+      #expect(!windowClassificationTrace(WindowID(rawValue: 1), report.window, outcome).contains(report.window.title))
+    }
   }
 
   @Test
@@ -527,6 +531,14 @@ struct NativeWindowTabDiscoveryTests {
       ) == false
     )
   }
+}
+
+/// One window's inputs, the matching rule, and the expected outcome.
+private struct WindowClassificationReport: Decodable {
+  var rule: RuleWindow?
+  var window: WindowClassificationInput
+  var disposition: WindowDisposition
+  var reason: String
 }
 
 private let windowClassificationFixtures = URL(filePath: #filePath)

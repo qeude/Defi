@@ -550,6 +550,9 @@ extension SnapshotEngine {
     windowManagementCapabilities = windowManagementCapabilities.filter {
       nextElements[$0.key] != nil
     }
+    forgetWindowClassificationTraces {
+      nextElements[$0] != nil || discovery.ignoredWindowReasonsByID[$0] != nil
+    }
     applications = nextApplications
     applicationIDsByProcess = nextApplicationIDs
     applicationWindowCounts = applicationWindows.mapValues(\.count)

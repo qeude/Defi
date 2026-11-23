@@ -624,6 +624,10 @@ final class SnapshotEngine: @unchecked Sendable {
     set { withLockedStorage { $0.windowManagementCapabilities = newValue } }
   }
 
+  func forgetWindowClassificationTraces(keeping retained: (WindowID) -> Bool) {
+    withLockedStorage { $0.windowClassificationTraces = $0.windowClassificationTraces.filter { retained($0.key) } }
+  }
+
   var nativeTabHiddenMembersByWindowID: [WindowID: Set<WindowID>] {
     get { withLockedStorage { $0.nativeTabHiddenMembersByWindowID } }
     set { withLockedStorage { $0.nativeTabHiddenMembersByWindowID = newValue } }
@@ -1157,7 +1161,7 @@ extension SnapshotEngine {
           return modal as? Bool ?? false
         }()
       }
-      return classifyWindow(input, rule: rule)
+      return tracedClassification(window.id, input, rule: rule)
     }
     if reuseCachedCapabilities,
       var capabilities = windowManagementCapabilities[window.id]
@@ -1184,7 +1188,7 @@ extension SnapshotEngine {
         windowManagementCapabilities[window.id] = capabilities
       }
       capabilities.apply(to: &input)
-      return classifyWindow(input, rule: nil)
+      return tracedClassification(window.id, input, rule: nil)
     }
     windowManagementMetadataReadCount += 1
     var closeButton: CFTypeRef?
@@ -1244,7 +1248,19 @@ extension SnapshotEngine {
     )
     windowManagementCapabilities[window.id] = capabilities
     capabilities.apply(to: &input)
-    return classifyWindow(input, rule: nil)
+    return tracedClassification(window.id, input, rule: nil)
+  }
+
+  /// Records a trace line only when a window's inputs or outcome change, so repeated refreshes stay quiet.
+  private func tracedClassification(
+    _ id: WindowID, _ input: WindowClassificationInput, rule: RuleWindow?
+  ) -> WindowClassification {
+    let outcome = classifyWindow(input, rule: rule)
+    let line = windowClassificationTrace(id, input, outcome)
+    if withLockedStorage({ $0.windowClassificationTraces.updateValue(line, forKey: id) }) != line {
+      frameCoordinator.recordTrace(line)
+    }
+    return outcome
   }
 
   func focusedWindowID(
@@ -1599,6 +1615,7 @@ private struct Storage {
   var fallbackWindowAttributeReadCount = 0
   var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] =
     [:]
+  var windowClassificationTraces: [WindowID: String] = [:]
   var nativeTabHiddenMembersByWindowID: [WindowID: Set<WindowID>] = [:]
   var nativeTabSettleDeadlines: [pid_t: TimeInterval] = [:]
   var windowManagementMetadataReadCount = 0

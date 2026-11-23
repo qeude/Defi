@@ -1251,18 +1251,12 @@ or an animation frame gap over 50 ms, at most once per 30 seconds and 20 times
 per hour.
 
 When Defi tiles, floats, or ignores a window you expected it to place
-differently, run `defi inspect-window` with that window focused. It prints, as
-JSON, what Defi reads from the window (role, subrole, title bar buttons,
-resizability, modality, window layer), the matching `[[rules]]` `window` value,
-and the resulting `disposition` with its `reason`. Run it from a terminal with a
-delay so you have time to focus the window:
-
-```sh
-sleep 3; defi inspect-window
-```
-
-The output includes the window title; remove it before sharing. Attached to an
-issue, the output becomes a test fixture.
+differently, open the window and run `defi trace`. Each time a window's
+classification changes, Defi adds a `window-classified` line with what it read
+from the window (role, subrole, title bar buttons, resizability, modality) and
+the resulting `class` with its `reason`. The line says whether
+the window has a title, never the title itself. `diagnostic-mark` saves these
+lines with the rest of the trace.
 
 ## Built-in defaults
 

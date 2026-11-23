@@ -1,16 +1,15 @@
-import AppKit
 import ApplicationServices
 import DefiConfig
+import DefiModel
 import Foundation
 
-/// What classification reads from one window. `defi inspect-window` prints it, and the fixtures
-/// in `Tests/Fixtures/WindowClassification` replay it.
+/// What classification reads from one window. The fixtures in `Tests/Fixtures/WindowClassification`
+/// replay it.
 struct WindowClassificationInput: Codable, Equatable, Sendable {
   var appID: String
   var role: String?
   var subrole: String?
   var title = ""
-  var identifier: String?
   /// Each button is nil when the window has none, else whether it is enabled.
   var closeButton: Bool?
   var zoomButton: Bool?
@@ -21,14 +20,6 @@ struct WindowClassificationInput: Codable, Equatable, Sendable {
 }
 
 struct WindowClassification: Codable, Equatable, Sendable {
-  var disposition: WindowDisposition
-  var reason: String
-}
-
-/// One window's inputs and outcome: the output of `defi inspect-window`, and one fixture.
-struct WindowClassificationReport: Codable, Equatable, Sendable {
-  var rule: RuleWindow?
-  var window: WindowClassificationInput
   var disposition: WindowDisposition
   var reason: String
 }
@@ -156,42 +147,13 @@ extension RuleDecision {
   }
 }
 
-@MainActor
-extension MacOSPlatform {
-  /// The focused window's classification inputs and outcome, as fixture JSON.
-  public func inspectFocusedWindow(config: Config) -> String? {
-    guard let application = NSWorkspace.shared.frontmostApplication,
-      let element = applicationFocusedWindow(application.processIdentifier)
-    else { return nil }
-    AXUIElementSetMessagingTimeout(element, Float(accessibilityReadTimeoutSeconds))
-    func read(_ attribute: String) -> CFTypeRef? {
-      var value: CFTypeRef?
-      AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
-      return value
-    }
-    var sizeSettable = DarwinBoolean(false)
-    let sizeSettableError = AXUIElementIsAttributeSettable(element, kAXSizeAttribute as CFString, &sizeSettable)
-    let input = WindowClassificationInput(
-      appID: fallbackApplicationIdentity(bundleIdentifier: application.bundleIdentifier,
-        ownerName: application.localizedName, processID: application.processIdentifier),
-      role: read(kAXRoleAttribute) as? String,
-      subrole: read(kAXSubroleAttribute) as? String,
-      title: read(kAXTitleAttribute) as? String ?? "",
-      identifier: read(kAXIdentifierAttribute) as? String,
-      closeButton: windowButtonState(element, kAXCloseButtonAttribute),
-      zoomButton: windowButtonState(element, kAXZoomButtonAttribute),
-      fullScreenButton: windowButtonState(element, kAXFullScreenButtonAttribute),
-      resizable: windowCanResize(sizeSettableError: sizeSettableError, isSettable: sizeSettable.boolValue),
-      modal: read(kAXModalAttribute) as? Bool ?? false,
-      layer: windowIDProvider.windowID(for: element)
-        .flatMap { ribbonProxyWindowDescriptions([$0]).first?[kCGWindowLayer as String] as? Int } ?? 0
-    )
-    let rule = config.decision(appID: input.appID, title: input.title, role: input.role).window
-    let classification = classifyWindow(input, rule: rule)
-    let report = WindowClassificationReport(
-      rule: rule, window: input, disposition: classification.disposition, reason: classification.reason)
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-    return (try? encoder.encode(report)).map { String(decoding: $0, as: UTF8.self) }
-  }
+/// One `defi trace` line per outcome. It never holds the title, as the diagnostics logs must not.
+func windowClassificationTrace(_ id: WindowID, _ window: WindowClassificationInput,
+  _ outcome: WindowClassification) -> String {
+  func button(_ state: Bool?) -> String { state.map { $0 ? "enabled" : "disabled" } ?? "none" }
+  return "window-classified id=\(id.rawValue) app=\(window.appID) role=\(window.role ?? "-")"
+    + " subrole=\(window.subrole ?? "-") titled=\(!window.title.isEmpty) close=\(button(window.closeButton))"
+    + " zoom=\(button(window.zoomButton)) fullscreen=\(button(window.fullScreenButton))"
+    + " resizable=\(window.resizable) modal=\(window.modal)"
+    + " class=\(outcome.disposition.rawValue) reason=\(outcome.reason)"
 }

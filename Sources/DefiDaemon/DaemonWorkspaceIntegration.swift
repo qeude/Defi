@@ -189,16 +189,6 @@ extension Daemon {
         NavigationActor.enqueue { deferredResponse.perform { .success(report) } }
       }
       return .success("deferred")
-    case .inspectWindow:
-      guard let deferredResponse else { return .failure("inspect-window requires a client") }
-      deferredResponse.deferResponse()
-      DispatchQueue.main.async { [platform, config] in
-        let report = platform.inspectFocusedWindow(config: config)
-        NavigationActor.enqueue {
-          deferredResponse.perform { report.map { .success($0) } ?? .failure("no focused window") }
-        }
-      }
-      return .success("deferred")
     case .diagnosticMark:
       diagnostics.mark(status: status(), trace: platform.frameCoordinatorTrace)
       return .success("marked \(diagnostics.currentFileURL.path)")
