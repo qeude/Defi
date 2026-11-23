@@ -1057,6 +1057,14 @@ final class RibbonProxyPresenter {
         }
         guard generation == fadeToken, let layers = self.layers else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        // The cards fade over the real windows: each dims as the desktop now does, so a card
+        // styled for a superseded selection cannot leave the focused window dark.
+        let focused = Self.dimFocus.current, inactiveDim = self.borderStyle?.inactiveDim ?? 0
+        for (id, layer) in self.windowLayers {
+          guard let dim = layer.sublayers?.first(where: { $0.name == "dim" }) else { continue }
+          dim.removeAllAnimations()
+          dim.opacity = id == focused ? 0 : inactiveDim
+        }
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1; fade.toValue = 0; fade.duration = duration
         fade.timingFunction = CAMediaTimingFunction(name: easing)
