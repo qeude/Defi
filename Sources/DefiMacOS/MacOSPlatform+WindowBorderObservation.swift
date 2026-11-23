@@ -456,6 +456,7 @@ extension MacOSPlatform {
       presentedNativeFullscreenWindowIDs.contains($0) ? nil : $0
     }
     presentedSelectedWindowID = selectedWindowID
+    NavigationActor.enqueue { RibbonProxyPresenter.setDimFocus(selectedWindowID) }
     frameCoordinator.updateLiveBorderWindowID(selectedWindowID)
     let selectedFrame = selectedWindowID.flatMap { windowID in
       resolvedBorderFrame(for: windowID)

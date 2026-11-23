@@ -393,6 +393,13 @@ final class RibbonProxyPresenter {
     }
   }
   static var borderStyle: WindowBorderStyle?
+  /// The window the native dim leaves lit, and the one before it: a motion's cards start
+  /// from what the desktop shows, which may already be the motion's own target.
+  static var dimFocus: (current: WindowID?, previous: WindowID?) = (nil, nil)
+  static func setDimFocus(_ windowID: WindowID?) {
+    guard dimFocus.current != windowID else { return }
+    dimFocus = (windowID, dimFocus.current)
+  }
   /// Native corner radii, so each card and its ring match the real window's.
   static var cornerRadii: [WindowID: Double] = [:]
   /// Hides, on the main thread, the native borders of the windows a display's overlay
@@ -564,6 +571,8 @@ final class RibbonProxyPresenter {
     let releasedPan = panRelease
     panRelease = nil
     generation &+= 1
+    let focus = Self.dimFocus
+    let previousSelectedID = focus.current == selectedWindowID ? focus.previous : focus.current
     selectedID = selectedWindowID
     borderRestore?.cancel(); borderRestore = nil
     CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -637,10 +646,15 @@ final class RibbonProxyPresenter {
       if releasedPan != nil, current != nil, hypot(to.midX - from.midX, to.midY - from.midY) > hypot(rigid.x, rigid.y) {
         rigid = CGPoint(x: to.midX - from.midX, y: to.midY - from.midY)
       }
+      // The dim on screen as the motion takes over: the card's own, or the desktop's.
+      var dimFrom: Float = window.id == previousSelectedID ? 0 : borderStyle?.inactiveDim ?? 0
+      if presenting, !layer.isHidden, let dim = layer.sublayers?.first(where: { $0.name == "dim" }) {
+        dimFrom = (dim.presentation() ?? dim).opacity
+      }
       layer.removeAllAnimations()
       layer.isHidden = false
       for sublayer in layer.sublayers ?? [] { sublayer.removeAllAnimations() }
-      let styled = style(layer, for: window, selected: window.id == selectedWindowID)
+      let styled = style(layer, for: window, selected: window.id == selectedWindowID, dimFrom: dimFrom)
       // A window parked for the whole motion has no border at rest: its sliver gets none here.
       if !ribbonProxyShows(from, in: layers.root.bounds), !ribbonProxyShows(to, in: layers.root.bounds) {
         layer.sublayers?.first { $0.name == "border" }?.isHidden = true
@@ -1605,7 +1619,7 @@ final class RibbonProxyPresenter {
   /// Styles the proxy; returns whether it shows a picture and whether the app
   /// icon is laid over it.
   private func style(_ layer: CALayer, for window: RibbonProxyWindow,
-    selected: Bool) -> (pictured: Bool, badged: Bool) {
+    selected: Bool, dimFrom: Float) -> (pictured: Bool, badged: Bool) {
     let sublayers = Dictionary((layer.sublayers ?? []).compactMap { sublayer in
       sublayer.name.map { ($0, sublayer) } }) { first, _ in first }
     if let own = window.picture {
@@ -1640,7 +1654,20 @@ final class RibbonProxyPresenter {
     } ?? CGColor(gray: 0.16, alpha: 1)
     setContents(sublayers["icon"], badged ? WindowCaptureStore.shared.icon(window.processID) : nil)
     sublayers["icon"]?.opacity = 1
-    sublayers["dim"]?.opacity = selected ? 0 : borderStyle?.inactiveDim ?? 0
+    if let dim = sublayers["dim"] {
+      // Starts as the desktop shows the window, then darkens like the native dim: the card
+      // leaving focus stays lit while the next one slides in.
+      let target = selected ? 0 : borderStyle?.inactiveDim ?? 0
+      dim.opacity = target
+      if target > dimFrom {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = dimFrom
+        fade.toValue = target
+        fade.duration = windowDimFadeDuration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        dim.add(fade, forKey: "dim")
+      }
+    }
     if let border = sublayers["border"] {
       if let borderStyle, let appearance = overviewWindowBorderAppearance(isSelected: selected,
         style: borderStyle, scale: 1) {
