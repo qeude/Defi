@@ -22,7 +22,14 @@ func registerNotificationBatch(
   return .success
 }
 
-let notificationObservationMaxAttempts = 3
+func notificationObservationRetryDelays(for kind: NotificationObservationKind) -> [TimeInterval] {
+  // A launching app refuses its observer for seconds (cannotComplete), so its retries span a launch.
+  kind == .applicationTopology ? [0.25, 0.5, 1, 2, 4] : [0, 0]
+}
+
+func notificationObservationMaxAttempts(for kind: NotificationObservationKind) -> Int {
+  notificationObservationRetryDelays(for: kind).count + 1
+}
 
 enum NotificationObservationKind: String, CaseIterable {
   case applicationTopology = "app"
