@@ -22,6 +22,10 @@ func delayedApplicationActivationIsCurrent(
     && input.latestCapturedCommandTimestamp <= startedAt
 }
 
+/// Bounds each main-thread subscription so a stopped app cannot hold it for the system default.
+/// Looser than reads: a timed-out subscription counts toward the attempts that mark an app unobservable.
+let observerSubscriptionTimeoutSeconds: Float = 0.25
+
 @MainActor
 final class PlatformEventMonitor {
   let handler: (PlatformEventKind, pid_t?) -> Void
@@ -438,7 +442,7 @@ final class PlatformEventMonitor {
         !requiredFrames.contains(where: { CFEqual($0, candidate) })
       }
       for window in obsoleteFrameWindows {
-        messagingTimeoutAccess.withTimeout(accessibilityReadTimeoutSeconds, elements: [window]) {
+        messagingTimeoutAccess.withTimeout(observerSubscriptionTimeoutSeconds, elements: [window]) {
           for notification in [kAXMovedNotification, kAXResizedNotification] {
             _ = removeNotification(observer, window, notification as CFString)
           }
@@ -735,8 +739,7 @@ final class PlatformEventMonitor {
     notifications: [String]
   ) -> Bool {
     let context = Unmanaged.passUnretained(self).toOpaque()
-    // Without a timeout a stopped app holds the main thread for the system default on every attempt.
-    let result = messagingTimeoutAccess.withTimeout(accessibilityReadTimeoutSeconds, elements: [element]) {
+    let result = messagingTimeoutAccess.withTimeout(observerSubscriptionTimeoutSeconds, elements: [element]) {
       registerNotificationBatch(
         notifications: notifications,
         add: { addNotification(observer, element, $0 as CFString, context) },
