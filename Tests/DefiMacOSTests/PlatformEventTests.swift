@@ -1559,6 +1559,30 @@ struct PlatformEventTests {
     #expect(attempts <= notificationObservationMaxAttempts(for: .applicationTopology))
   }
 
+  @Test @MainActor
+  func observationOfAnUnresponsiveApplicationIsBoundedByTheReadTimeout() {
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let window = AXUIElementCreateApplication(-2)
+    let defaultTimeout: TimeInterval = 1.5
+    var timeouts: [CFHashCode: Float] = [:]
+    var time: TimeInterval = 0
+    let monitor = PlatformEventMonitor(
+      handler: { _, _ in }, now: { time },
+      addNotification: { _, element, _, _ in
+        // A stopped app answers nothing: each call waits out the element's messaging timeout.
+        let timeout = timeouts[CFHash(element)] ?? 0
+        time += timeout > 0 ? TimeInterval(timeout) : defaultTimeout
+        return .cannotComplete
+      },
+      removeNotification: { _, _, _ in .success },
+      messagingTimeoutAccess: AXMessagingTimeoutAccess { timeouts[CFHash($0)] = $1 }
+    )
+    defer { monitor.stop() }
+    monitor.refresh(applications: [pid: [window]])
+    // One application, one topology and one frame subscription, each failing at the first call.
+    #expect(time <= 3 * TimeInterval(accessibilityReadTimeoutSeconds) + 0.001)
+  }
+
   @Test
   func applicationObserverIsPreparedBeforeInitialWindowDiscovery() {
     var actions: [String] = []
