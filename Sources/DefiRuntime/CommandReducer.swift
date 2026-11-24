@@ -506,6 +506,53 @@ public func reduce(
   normalizeNativeFullscreenColumns(state: &state)
 }
 
+/// Why a width command left the focused column unchanged.
+public enum ResizeRefusal: String, Equatable, Sendable {
+  case fullWidth = "column already fills the screen"
+  case minimumWidth = "column already at its narrowest"
+  case windowWidth = "window keeps its width"
+}
+
+/// The limit a width command that changed nothing ran into; nil when it asked for no
+/// change. Call it only for a command that left `state` unchanged.
+public func resizeRefusal(
+  _ command: Command,
+  on monitorID: MonitorID?,
+  state: RuntimeState,
+  viewports: [MonitorID: Rect]
+) -> ResizeRefusal? {
+  switch command {
+  case .setColumnWidth, .cycleWidth: break
+  default: return nil
+  }
+  guard let monitor = state.monitors.first(where: { $0.id == monitorID }) ?? state.monitors.first,
+    let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
+    workspace.columns.indices.contains(workspace.focusedColumn),
+    let viewport = viewports[monitor.id]
+  else { return nil }
+  var column = workspace.columns[workspace.focusedColumn]
+  let layout = state.layout(on: monitor.id)
+  let stripWidth = stripViewport(viewport, settings: layout).width
+  var scratch = state
+  let (minimum, maximum) = columnWidthBounds(column, stripWidth: stripWidth, state: &scratch)
+  switch command {
+  case .setColumnWidth(let change):
+    switch setWidth(
+      of: &column, change, stripWidth: stripWidth, gaps: horizontalGaps(settings: layout),
+      minimumFraction: minimum, maximumFraction: maximum)
+    {
+    case .upper: return (maximum ?? 1) < 1 ? .windowWidth : .fullWidth
+    case .lower: return (minimum ?? 0) > 0.05 ? .windowWidth : .minimumWidth
+    case nil: return nil
+    }
+  case .cycleWidth:
+    // Presets only collapse onto one width when the window's own bounds pin it.
+    return minimum != nil || maximum != nil ? .windowWidth : nil
+  default:
+    return nil
+  }
+}
+
 /// The column's verified width bounds in strip widths, gaps included. Bounds a native
 /// fullscreen exit left pending are dropped first, as the next explicit resize retries them.
 private func columnWidthBounds(

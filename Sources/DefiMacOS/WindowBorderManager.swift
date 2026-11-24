@@ -139,6 +139,18 @@ final class WindowBorderManager {
     return windowIDs.allSatisfy { overlays[$0]?.showsDim == true }
   }
 
+  private var pendingPulse: (windowID: WindowID, requestedAt: CFTimeInterval)?
+
+  func pulseActiveRing(for windowID: WindowID, requestedAt: CFTimeInterval = CACurrentMediaTime()) {
+    pendingPulse = nil
+    // A pulse still waiting for its ring after the flash would have ended is dropped.
+    guard !isSuppressed, CACurrentMediaTime() - requestedAt < 0.5, activeWindowID == windowID,
+      let overlay = overlays[windowID], !overlay.isPresentationHidden
+    else { return }
+    if overlay.revealIsPending { return pendingPulse = (windowID, requestedAt) }
+    overlay.pulseSideEdges()
+  }
+
   func revealPendingBorders() {
     guard !isSuppressed else { return }
     compositorCommitPending = true
@@ -426,6 +438,7 @@ final class WindowBorderManager {
     for overlay in overlays {
       overlay.revealPendingOpacity()
     }
+    if let pendingPulse { pulseActiveRing(for: pendingPulse.windowID, requestedAt: pendingPulse.requestedAt) }
   }
 
   private func radius(for windowID: WindowID) -> Double {

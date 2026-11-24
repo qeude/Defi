@@ -103,11 +103,30 @@ struct WindowBorderTests {
     let plan = planWindowBorders(frames: frames, selectedWindowID: WindowID(rawValue: 2),
       hiddenWindowIDs: [WindowID(rawValue: 3)], monitorFrames: [monitor],
       style: WindowBorderStyle(enabled: bordersEnabled, width: 4, activeColor: 0xffff_ffff, inactiveEnabled: false,
-        inactiveColor: 0x66ff_ffff, inactiveDim: 0.3, captureEnabled: false))
+        inactiveColor: 0x66ff_ffff, inactiveDim: 0.3, captureEnabled: false, placement: .outside))
     #expect(plan.dimmed.map(\.windowID.rawValue) == [1])
     #expect(plan.tracked.map(\.windowID.rawValue) == [1, 2])
     #expect(plan.active?.windowID.rawValue == (bordersEnabled ? 2 : nil))
     #expect(plan.inactive.isEmpty)
+
+    // A refused resize rings the selection alone, keeping the dim, whatever the config draws;
+    // a ring the config lacks lies inside the window, where no layout reserved room for it.
+    let ringing = planWindowBorders(frames: frames, selectedWindowID: WindowID(rawValue: 2),
+      hiddenWindowIDs: [WindowID(rawValue: 3)], monitorFrames: [monitor], style: plan.style.ringingFocusedWindow)
+    #expect(ringing.active?.windowID.rawValue == 2)
+    #expect(ringing.inactive.isEmpty)
+    #expect(ringing.dimmed == plan.dimmed)
+    #expect(ringing.style.width == 4)
+    #expect(ringing.style.placement == (bordersEnabled ? .outside : .inside))
+  }
+
+  @Test
+  func temporaryRingKeepsTheReservedPlacementOfConfiguredBorders() {
+    // Borders reserve room outside the window even when their active colour is clear.
+    let style = WindowBorderStyle(enabled: true, width: 4, activeColor: 0x00ff_ffff, inactiveEnabled: true,
+      inactiveColor: 0x66ff_ffff, inactiveDim: 0, captureEnabled: false, placement: .outside)
+    #expect(!style.ringsFocusedWindow)
+    #expect(style.ringingFocusedWindow.placement == .outside)
   }
 
   @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
