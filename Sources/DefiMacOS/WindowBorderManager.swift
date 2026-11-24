@@ -139,6 +139,17 @@ final class WindowBorderManager {
     return windowIDs.allSatisfy { overlays[$0]?.showsDim == true }
   }
 
+  private var pendingPulse: (windowID: WindowID, temporary: Bool)?
+
+  func pulseActiveRing(for windowID: WindowID, temporary: Bool) {
+    pendingPulse = nil
+    guard !isSuppressed, activeWindowID == windowID, let overlay = overlays[windowID],
+      !overlay.isPresentationHidden
+    else { return }
+    if overlay.revealIsPending { return pendingPulse = (windowID, temporary) }
+    overlay.pulseSideEdges(temporary: temporary)
+  }
+
   func revealPendingBorders() {
     guard !isSuppressed else { return }
     compositorCommitPending = true
@@ -426,6 +437,7 @@ final class WindowBorderManager {
     for overlay in overlays {
       overlay.revealPendingOpacity()
     }
+    if let pendingPulse { pulseActiveRing(for: pendingPulse.windowID, temporary: pendingPulse.temporary) }
   }
 
   private func radius(for windowID: WindowID) -> Double {

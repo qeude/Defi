@@ -690,6 +690,12 @@ width when the monitor changes; a point width follows the monitor like a width
 set by a native resize. It ends a maximized state, so `maximize-column` then
 maximizes again.
 
+When `set-column-width` or `cycle-width` changes nothing because the column is
+already at one of those limits, the side edges of the focused border flash red,
+and `defi` prints the reason, such as `window keeps its width`. With borders
+off, the red edges show alone, just inside the window, as wide as `width` or 4
+points when it is `0`.
+
 `expand-column-to-available-width` resizes no other column. The fully visible
 columns stay in view, the ones after it sliding over by its growth, and partly
 visible columns move out of view. It does nothing when the focused column is not

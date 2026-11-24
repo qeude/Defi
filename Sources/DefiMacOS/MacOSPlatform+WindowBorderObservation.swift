@@ -567,6 +567,12 @@ extension MacOSPlatform {
     if trusted { presentRefreshWindowBorders() } else { presentHideWindowBorders() }
   }
 
+  /// The configured style, ringing the focused window while it shows a refused resize.
+  var drawnBorderStyle: WindowBorderStyle {
+    refusalRingWindowID != nil && refusalRingWindowID == borderSelectedWindowID
+      ? borderStyle.ringingFocusedWindow : borderStyle
+  }
+
   public func presentRefreshWindowBorders() {
     guard !bordersLackAccessibility else { return }
     // A selected window that is no longer on screen (minimized, hidden, or
@@ -607,7 +613,7 @@ extension MacOSPlatform {
           )
         }
       )
-      borderManager.updateGeometry(frames: displayedFrames, style: borderStyle)
+      borderManager.updateGeometry(frames: displayedFrames, style: drawnBorderStyle)
       return
     }
     let borderGeometryIsSettling = borderRefreshBlockedBySettling(
@@ -632,7 +638,7 @@ extension MacOSPlatform {
       selectedWindowID: borderSelectedWindowID,
       hiddenWindowIDs: borderHiddenWindowIDs,
       monitorFrames: lastMonitorFrames,
-      style: borderStyle
+      style: drawnBorderStyle
     )
     let planWindowIDs = Set(plan.tracked.map(\.windowID))
     let retainedLiveWindowIDs =
@@ -679,7 +685,7 @@ extension MacOSPlatform {
     )
     borderManager.updateGeometry(
       frames: finalDisplayedFrames,
-      style: borderStyle
+      style: drawnBorderStyle
     )
   }
 
@@ -735,7 +741,7 @@ extension MacOSPlatform {
     }
     let geometryChanged = borderManager.updateGeometry(
       frames: frames,
-      style: borderStyle
+      style: drawnBorderStyle
     )
     if geometryChanged {
       invalidatePointerCacheFromPresentation()

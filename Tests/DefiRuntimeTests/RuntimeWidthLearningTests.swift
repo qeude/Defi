@@ -711,4 +711,24 @@ struct RuntimeWidthLearningTests {
     #expect(state.windows[id]?.maximumTiledWidth == nil)
     #expect(targets(state)[id]?.width == 480)
   }
+
+  @Test(arguments: [
+    (ColumnWidth.fraction(1), nil, nil, Command.setColumnWidth(.adjust(.fraction(0.1))), ResizeRefusal.fullWidth),
+    (.fraction(0.05), nil, nil, .setColumnWidth(.adjust(.fraction(-0.1))), .minimumWidth),
+    (.fraction(0.5), nil, 500, .setColumnWidth(.adjust(.fraction(0.1))), .windowWidth),
+    (.fraction(0.5), 600, nil, .setColumnWidth(.adjust(.pixels(-100))), .windowWidth),
+    (.fraction(0.5), 500, 500, .cycleWidth(.next), .windowWidth),
+    (.fraction(0.5), nil, nil, .setColumnWidth(.set(.fraction(0.5))), nil),
+  ] as [(ColumnWidth, Double?, Double?, Command, ResizeRefusal?)])
+  func `A width command that changes nothing names the limit it hit`(
+    width: ColumnWidth, minimum: Double?, maximum: Double?, command: Command, expected: ResizeRefusal?
+  ) throws {
+    var (state, _) = try singleWindowState(minimum: minimum, maximum: maximum, width: width)
+    let viewports = [monitorID: viewport]
+    // The first press may only settle the stored width onto the bound.
+    try reduce(command, on: monitorID, state: &state, viewports: viewports)
+
+    #expect(try changedState(after: command, on: monitorID, from: state, viewports: viewports) == nil)
+    #expect(resizeRefusal(command, on: monitorID, state: state, viewports: viewports) == expected)
+  }
 }

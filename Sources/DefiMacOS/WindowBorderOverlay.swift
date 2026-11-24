@@ -295,6 +295,19 @@ final class BorderOverlay {
     setOpacityImmediately(opacity)
   }
 
+  var revealIsPending: Bool { pendingOpacityReveal != nil }
+
+  /// Flashes the side edges red: a resize hit a limit. A `temporary` ring, drawn only for
+  /// the cue, shows the flash alone. Opacity only, so Reduce Motion keeps it, and the
+  /// frame stays put.
+  func pulseSideEdges(temporary: Bool) {
+    guard visible, hasRing, pendingOpacityReveal == nil, opacityValue > 0 else { return }
+    for (kind, segment) in segments where segment.frame != nil {
+      if temporary { segment.setOpacityImmediately(0) }
+      if kind == .left || kind == .right { segment.flash(resizeRefusalColor, duration: 0.5) }
+    }
+  }
+
   func prepareReveal(to color: UInt32) {
     setRing(true)
     updateColor(color)
@@ -573,14 +586,53 @@ private final class BorderSegment {
   func setColor(_ value: UInt32) {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
-    shapeLayer.strokeColor =
-      NSColor(
-        srgbRed: CGFloat((value >> 16) & 0xff) / 255,
-        green: CGFloat((value >> 8) & 0xff) / 255,
-        blue: CGFloat(value & 0xff) / 255,
-        alpha: 1
-      ).cgColor
+    shapeLayer.strokeColor = opaqueColor(value)
     CATransaction.commit()
+  }
+
+  private var flashLayer: CAShapeLayer?
+
+  /// Strokes the edge in `value` over the ring for `duration`, fading in, out, and toward
+  /// both ends, so it never stops square against a corner.
+  func flash(_ value: UInt32, duration: CFTimeInterval) {
+    guard fillLayer == nil, let path = shapeLayer.path else { return }
+    let flash = flashLayer ?? makeFlashLayer()
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    flash.frame = shapeLayer.frame
+    flash.contentsScale = shapeLayer.contentsScale
+    flash.path = path
+    flash.lineWidth = shapeLayer.lineWidth
+    flash.strokeColor = opaqueColor(value)
+    flash.mask?.frame = flash.bounds
+    CATransaction.commit()
+    let animation = CAKeyframeAnimation(keyPath: "opacity")
+    animation.values = [0, 1, 0]
+    animation.keyTimes = [0, 0.2, 1]
+    animation.duration = duration
+    flash.add(animation, forKey: "flash")
+  }
+
+  private func makeFlashLayer() -> CAShapeLayer {
+    let flash = CAShapeLayer()
+    flash.fillColor = nil
+    flash.opacity = 0
+    let fade = CAGradientLayer()
+    fade.colors = [0, 1, 1, 0].map { CGColor(gray: 0, alpha: $0) }
+    fade.locations = [0, 0.3, 0.7, 1]
+    flash.mask = fade
+    rootView.layer?.addSublayer(flash)
+    flashLayer = flash
+    return flash
+  }
+
+  private func opaqueColor(_ value: UInt32) -> CGColor {
+    NSColor(
+      srgbRed: CGFloat((value >> 16) & 0xff) / 255,
+      green: CGFloat((value >> 8) & 0xff) / 255,
+      blue: CGFloat(value & 0xff) / 255,
+      alpha: 1
+    ).cgColor
   }
 
   func setOpacityImmediately(_ opacity: Float) {
@@ -775,6 +827,9 @@ private final class BorderOpacityFade: NSObject {
     link = nil
   }
 }
+
+/// The system red.
+private let resizeRefusalColor: UInt32 = 0xffff_3b30
 
 private func appKitFramesMatch(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
   abs(lhs.minX - rhs.minX) < 0.5 && abs(lhs.minY - rhs.minY) < 0.5

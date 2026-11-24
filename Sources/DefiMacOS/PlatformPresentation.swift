@@ -106,6 +106,27 @@ extension MacOSPlatform {
     }
   }
 
+  /// A quiet cue on the focused window's border: its resize hit a limit. Without a ring
+  /// in the config, one is drawn for the cue and removed after it.
+  public nonisolated func showResizeRefusal(on windowID: WindowID) {
+    enqueuePresentation { platform in
+      guard !platform.borderStyle.ringsFocusedWindow else {
+        return platform.borderManager.pulseActiveRing(for: windowID, temporary: false)
+      }
+      platform.refusalRingGeneration &+= 1
+      let generation = platform.refusalRingGeneration
+      platform.refusalRingWindowID = windowID
+      platform.presentRefreshWindowBorders()
+      platform.borderManager.pulseActiveRing(for: windowID, temporary: true)
+      platform.presentRevealWindowBordersIfReady()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        guard platform.refusalRingGeneration == generation else { return }
+        platform.refusalRingWindowID = nil
+        platform.presentRefreshWindowBorders()
+      }
+    }
+  }
+
   @MainActor func publishPresentationStatus() {
     guard !presentationStatusPending else { return }
     presentationStatusPending = true

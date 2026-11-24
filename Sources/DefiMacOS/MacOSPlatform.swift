@@ -683,6 +683,9 @@ public final class MacOSPlatform {
     set { snapshotEngine.lastNativeFocusedWindowID = newValue }
   }
   @MainActor var borderHiddenWindowIDs = Set<WindowID>()
+  /// The window a refused resize rings for a moment while its style draws no ring.
+  @MainActor var refusalRingWindowID: WindowID?
+  @MainActor var refusalRingGeneration = 0
   public private(set) var nativeFullscreenWindowIDs = Set<WindowID>()
   /// Selecting a fullscreen window stays in the strip; only the next focus of this window switches to its Space.
   public var nativeFullscreenActivationWindowID: WindowID?

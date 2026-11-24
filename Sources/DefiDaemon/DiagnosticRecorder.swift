@@ -115,7 +115,8 @@ final class DiagnosticRecorder: @unchecked Sendable {
 
   func recordNoOp(
     _ metadata: CommandDiagnosticMetadata,
-    durationMS: Double
+    durationMS: Double,
+    refusal: String? = nil
   ) {
     queue.async { [self] in
       var record = makeRecord(
@@ -126,6 +127,7 @@ final class DiagnosticRecorder: @unchecked Sendable {
       )
       record.generation = metadata.generation
       record.outcome = "no-op"
+      record.event = refusal
       record.expectedWindowCount = 0
       record.expectsFocus = false
       record.planMS = durationMS

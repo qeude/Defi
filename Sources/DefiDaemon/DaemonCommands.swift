@@ -575,6 +575,13 @@ extension Daemon {
           .map { platform.isWindowNativelyFocused($0) }
       ) {
         preserveFocusIntentAfterNoOp(at: commandInputTimestamp)
+        let refusal = resizeRefusal(
+          command, on: commandMonitorID, state: state, viewports: commandViewports)
+        if refusal != nil,
+          let windowID = commandMonitorID.flatMap({ state.selectedWindowID(on: $0) })
+        {
+          platform.showResizeRefusal(on: windowID)
+        }
         lastCommandDurationMS =
           (ProcessInfo.processInfo.systemUptime - commandStartedAt) * 1_000
         diagnostics.recordNoOp(
@@ -589,13 +596,14 @@ extension Daemon {
             state: state,
             commandStartedAt: commandStartedAt
           ),
-          durationMS: lastCommandDurationMS
+          durationMS: lastCommandDurationMS,
+          refusal: refusal?.rawValue
         )
         platform.recordPerformanceTrace(
           "command-no-op command=\(rawCommand) ms=\(String(format: "%.2f", lastCommandDurationMS))"
         )
         updateOverviewIfOpen()
-        return .success()
+        return .success(refusal?.rawValue ?? "ok")
       }
       let previouslySelectedWindowID = commandMonitorID.flatMap {
         state.selectedWindowID(on: $0)

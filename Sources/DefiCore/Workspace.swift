@@ -289,9 +289,13 @@ public func cycleWidth(
   column.preMaximizedWidth = nil
 }
 
+public enum WidthBound: Equatable, Sendable { case lower, upper }
+
 /// Applies a `set-column-width` request within the usable strip and the windows'
 /// verified bounds, in strip widths. A percentage stays a fraction of the strip and a
-/// point width stays in points. Like a preset, it ends a maximized state.
+/// point width stays in points. Like a preset, it ends a maximized state. Returns the
+/// bound that clamped the request, if any.
+@discardableResult
 public func setWidth(
   of column: inout Column,
   _ change: ColumnWidthChange,
@@ -299,8 +303,8 @@ public func setWidth(
   gaps: Double,
   minimumFraction: Double? = nil,
   maximumFraction: Double? = nil
-) {
-  guard stripWidth > 0 else { return }
+) -> WidthBound? {
+  guard stripWidth > 0 else { return nil }
   let upper = min(maximumFraction ?? 1, 1)
   // The narrowest width configuration accepts; a window's own minimum still wins, as in layout.
   let lower = max(minimumFraction ?? 0, 0.05)
@@ -322,6 +326,9 @@ public func setWidth(
   let fraction = max(min(requested, upper), lower)
   column.width = inPoints ? .pixels(fraction * stripWidth) : .fraction(fraction)
   column.preMaximizedWidth = nil
+  if requested > upper { return .upper }
+  if requested < lower { return .lower }
+  return nil
 }
 
 public func maximizeColumn(_ column: inout Column, defaultWidth: Double) {
