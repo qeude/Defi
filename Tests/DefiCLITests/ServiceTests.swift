@@ -44,4 +44,47 @@ struct ServiceTests {
       .filter { $0.pathExtension == "app" }.map(\.path) == apps)
   }
 
+  @Test
+  func stopWaitsUntilTheStoppingDaemonReleasesItsInstanceLock() throws {
+    let lockURL = FileManager.default.temporaryDirectory.appending(path: "defi-test-\(UUID()).lock")
+    defer { try? FileManager.default.removeItem(at: lockURL) }
+    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+    var sleeps = 0
+    try ServiceManager.waitForDaemonToStop(lockURL: lockURL) { _ in
+      sleeps += 1
+      if sleeps == 3 { close(descriptor) }
+    }
+    #expect(sleeps == 3)
+  }
+
+  @Test
+  func stopFailsWhileTheInstanceLockStaysHeld() throws {
+    let lockURL = FileManager.default.temporaryDirectory.appending(path: "defi-test-\(UUID()).lock")
+    defer { try? FileManager.default.removeItem(at: lockURL) }
+    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    defer { close(descriptor) }
+    #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+    #expect(throws: ServiceError.self) {
+      try ServiceManager.waitForDaemonToStop(lockURL: lockURL, attempts: 2) { _ in }
+    }
+  }
+
+  @Test
+  func startRetriesWhileLaunchServicesStillSeesTheOldDaemon() throws {
+    var statuses: [Int32] = [1, 1, 0]
+    var sleeps = 0
+    try ServiceManager.launch(sleep: { _ in sleeps += 1 }) { _ in statuses.removeFirst() }
+    #expect(statuses.isEmpty)
+    #expect(sleeps == 2)
+  }
+
+  @Test
+  func startFailsAfterItsLaunchAttempts() {
+    var calls = 0
+    #expect(throws: ServiceError.self) {
+      try ServiceManager.launch(attempts: 3, sleep: { _ in }) { _ in calls += 1; return 1 }
+    }
+    #expect(calls == 3)
+  }
 }
