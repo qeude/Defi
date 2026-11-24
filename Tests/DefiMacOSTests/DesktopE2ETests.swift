@@ -475,7 +475,7 @@ final class DesktopE2ETests: XCTestCase {
     NavigationActor.enqueue { entered.signal(); release.wait() }
     XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
     // Created here: the event takes its text from the keyboard layout, which is read on the main thread.
-    let letter = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_A), keyDown: true))
+    nonisolated(unsafe) let letter = try XCTUnwrap(CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(kVK_ANSI_A), keyDown: true))
     letter.flags = []
     DispatchQueue.global(qos: .userInteractive).async {
       letter.post(tap: .cghidEventTap)

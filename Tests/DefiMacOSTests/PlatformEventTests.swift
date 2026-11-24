@@ -534,13 +534,13 @@ struct PlatformEventTests {
     #expect(resetStarted.wait(timeout: .now() + 3) == .success)
     group.enter()
     Thread.detachNewThread {
-      access.withTimeout(0.016, elements: [second.value]) { unrelatedFinished.signal() }
+      _ = access.withTimeout(0.016, elements: [second.value]) { unrelatedFinished.signal() }
       group.leave()
     }
     group.enter()
     Thread.detachNewThread {
       sameElementStarted.signal()
-      access.withTimeout(0.016, elements: [first.value]) { sameElementEntered.signal() }
+      _ = access.withTimeout(0.016, elements: [first.value]) { sameElementEntered.signal() }
       group.leave()
     }
     #expect(unrelatedFinished.wait(timeout: .now() + 3) == .success)

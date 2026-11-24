@@ -566,11 +566,12 @@ extension MacOSPlatform {
         }
       }
       NavigationActor.enqueue {
-        self?.recordPerformanceTrace("close-window window=\(window.windowID.rawValue) result=\(result.rawValue)")
-      }
-      guard result == .cannotComplete, let delay = retries.first else { return }
-      DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) {
-        self?.pressCloseButton(window, retries: retries.dropFirst())
+        guard let self else { return }
+        self.recordPerformanceTrace("close-window window=\(window.windowID.rawValue) result=\(result.rawValue)")
+        guard result == .cannotComplete, let delay = retries.first else { return }
+        NavigationActor.shared.queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+          NavigationActor.assumeIsolated { self?.pressCloseButton(window, retries: retries.dropFirst()) }
+        }
       }
     }
   }

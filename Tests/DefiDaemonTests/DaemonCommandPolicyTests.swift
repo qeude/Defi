@@ -563,13 +563,6 @@ struct DaemonCommandPolicyTests {
     ) == nil)
   }
 
-  @Test(arguments: [nil, 10.0] as [Double?])
-  func staleNativeFocusChangesNeitherSelectionNorMonitorRouting(activationTimestamp: Double?) {
-    let nativeFocusAccepted = nativeFocusMutationIsReady(nativeFocusChanged: true, mouseInteractionEnded: false,
-      leftMouseButtonDown: false, mouseReleaseFocusIntentCurrent: false, keyboardFocusIntentCurrent: false,
-      applicationActivationTimestamp: activationTimestamp, latestCommandInputTimestamp: 11)
-  }
-
   @Test
   func inactiveDesktopNeverArmsRecurringTimer() {
     #expect(desktopTimerFrequency(requested: 240, sessionActive: false) == 0)
