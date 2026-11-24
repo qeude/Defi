@@ -521,6 +521,10 @@ public func resizeRefusal(
   state: RuntimeState,
   viewports: [MonitorID: Rect]
 ) -> ResizeRefusal? {
+  switch command {
+  case .setColumnWidth, .cycleWidth: break
+  default: return nil
+  }
   guard let monitor = state.monitors.first(where: { $0.id == monitorID }) ?? state.monitors.first,
     let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
     workspace.columns.indices.contains(workspace.focusedColumn),
