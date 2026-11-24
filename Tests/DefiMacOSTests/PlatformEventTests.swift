@@ -1441,26 +1441,26 @@ struct PlatformEventTests {
       removeNotification: { _, _, _ in .success }
     )
     defer { monitor.stop() }
-    for _ in 0..<notificationObservationMaxAttempts {
+    for _ in 0..<notificationObservationMaxAttempts(for: .frame) {
       monitor.refresh(applications: [pid: [window]])
     }
-    #expect(frameAttempts == notificationObservationMaxAttempts)
+    #expect(frameAttempts == notificationObservationMaxAttempts(for: .frame))
     #expect(monitor.hasReliableFrameCoverage() == false)
     #expect(monitor.observationCoverage.topologyWindows == 1)
     time = watchdog - 1
     monitor.refresh(applications: [pid: [window]])
-    #expect(frameAttempts == notificationObservationMaxAttempts)
+    #expect(frameAttempts == notificationObservationMaxAttempts(for: .frame))
     time = watchdog
     monitor.refresh(applications: [pid: [window]])
-    #expect(frameAttempts == notificationObservationMaxAttempts + 1)
+    #expect(frameAttempts == notificationObservationMaxAttempts(for: .frame) + 1)
     unavailable = false
     time = watchdog + 1
     for _ in 0..<10 { monitor.refresh(applications: [pid: [window]]) }
-    #expect(frameAttempts == notificationObservationMaxAttempts + 1)
+    #expect(frameAttempts == notificationObservationMaxAttempts(for: .frame) + 1)
     time = 2 * watchdog
     monitor.refresh(applications: [pid: [window]])
     #expect(monitor.hasReliableFrameCoverage())
-    #expect(frameAttempts == notificationObservationMaxAttempts + 2)
+    #expect(frameAttempts == notificationObservationMaxAttempts(for: .frame) + 2)
     #expect(monitor.incompatibleNotificationProcessIDs.isEmpty)
   }
 
@@ -1483,12 +1483,12 @@ struct PlatformEventTests {
       removeNotification: { _, _, _ in .success }
     )
     defer { monitor.stop() }
-    for _ in 0..<notificationObservationMaxAttempts {
+    for _ in 0..<notificationObservationMaxAttempts(for: .frame) {
       monitor.refresh(applications: [pid: [unsupported, sibling]])
     }
     time = 300
     monitor.refresh(applications: [pid: [unsupported, sibling]])
-    #expect(attempts == notificationObservationMaxAttempts)
+    #expect(attempts == 1)
     #expect(monitor.observationCoverage.frameWindows == 1)
     #expect(monitor.observationCoverage.topologyWindows == 2)
     #expect(monitor.notificationObservationErrors(kind: .frame, processID: pid)
@@ -1518,16 +1518,45 @@ struct PlatformEventTests {
       removeNotification: { _, _, _ in .success }
     )
     defer { monitor.stop() }
-    for _ in 0..<10 {
+    for delay in [0] + notificationObservationRetryDelays(for: .applicationTopology) {
+      time += delay
       monitor.prepareForWindowDiscovery(processID: pid, application: application)
       monitor.refresh(applications: [pid: []])
     }
-    #expect(attempts == notificationObservationMaxAttempts)
+    #expect(attempts == notificationObservationMaxAttempts(for: .applicationTopology))
     #expect(monitor.observationCoverage.applicationObservers == 0)
-    time = watchdog
+    time += watchdog
     monitor.refresh(applications: [pid: []])
     #expect(monitor.observationCoverage.applicationObservers == 1)
     #expect(monitor.notificationObservationFailureCountsValue.isEmpty)
+  }
+
+  @Test @MainActor
+  func applicationObservationOutlastsALaunchingAppNotReadyForAccessibility() {
+    // Measured: launched apps refuse the subscription with cannotComplete for a few seconds.
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let application = AXUIElementCreateApplication(pid)
+    var time: TimeInterval = 0
+    var attempts = 0
+    let monitor = PlatformEventMonitor(
+      handler: { _, _ in }, now: { time },
+      addNotification: { _, _, notification, _ in
+        if notification as String == kAXFocusedWindowChangedNotification {
+          attempts += 1
+          if time < 3 { return .cannotComplete }
+        }
+        return .success
+      },
+      removeNotification: { _, _, _ in .success }
+    )
+    defer { monitor.stop() }
+    while time < 5, monitor.observationCoverage.applicationObservers == 0 {
+      monitor.prepareForWindowDiscovery(processID: pid, application: application)
+      time += 0.05
+    }
+    #expect(monitor.observationCoverage.applicationObservers == 1)
+    #expect(time < 4)
+    #expect(attempts <= notificationObservationMaxAttempts(for: .applicationTopology))
   }
 
   @Test

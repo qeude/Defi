@@ -547,7 +547,7 @@ final class PlatformEventMonitor {
     for kind: NotificationObservationKind
   ) -> Set<pid_t> {
     Set((notificationFailures[kind] ?? [:]).values.compactMap {
-      $0.attempts >= notificationObservationMaxAttempts ? $0.processID : nil
+      $0.attempts >= notificationObservationMaxAttempts(for: kind) ? $0.processID : nil
     })
   }
 
@@ -755,14 +755,16 @@ final class PlatformEventMonitor {
     if result == .success {
       notificationFailures[kind]?[element] = nil
     } else {
-      let attempts = min(
-        (notificationFailures[kind]?[element]?.attempts ?? 0) + 1,
-        notificationObservationMaxAttempts
-      )
+      let maxAttempts = notificationObservationMaxAttempts(for: kind)
       let permanentlyUnsupported = result == .notificationUnsupported || result == .notImplemented
+      let attempts = permanentlyUnsupported ? maxAttempts : min(
+        (notificationFailures[kind]?[element]?.attempts ?? 0) + 1,
+        maxAttempts
+      )
       notificationFailures[kind, default: [:]][element] = NotificationObservationFailure(
         processID: processID, attempts: attempts, error: result,
-        retryAfter: attempts < notificationObservationMaxAttempts ? now()
+        retryAfter: attempts < maxAttempts
+          ? now() + notificationObservationRetryDelays(for: kind)[attempts - 1]
           : (permanentlyUnsupported ? .infinity : now() + reliableObservationWatchdogInterval)
       )
     }
