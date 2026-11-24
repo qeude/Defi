@@ -60,7 +60,8 @@ struct WindowBorderStyle: Equatable, Sendable {
     ringsFocusedWindow ? self : WindowBorderStyle(
       enabled: true, width: width > 0 ? width : 4, activeColor: 0x01ff_ffff,
       inactiveEnabled: inactiveEnabled && drawsRings, inactiveColor: inactiveColor,
-      inactiveDim: inactiveDim, captureEnabled: captureEnabled, placement: .inside)
+      inactiveDim: inactiveDim, captureEnabled: captureEnabled,
+      placement: drawsRings ? placement : .inside)
   }
 }
 

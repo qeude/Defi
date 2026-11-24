@@ -120,6 +120,15 @@ struct WindowBorderTests {
     #expect(ringing.style.placement == (bordersEnabled ? .outside : .inside))
   }
 
+  @Test
+  func temporaryRingKeepsTheReservedPlacementOfConfiguredBorders() {
+    // Borders reserve room outside the window even when their active colour is clear.
+    let style = WindowBorderStyle(enabled: true, width: 4, activeColor: 0x00ff_ffff, inactiveEnabled: true,
+      inactiveColor: 0x66ff_ffff, inactiveDim: 0, captureEnabled: false, placement: .outside)
+    #expect(!style.ringsFocusedWindow)
+    #expect(style.ringingFocusedWindow.placement == .outside)
+  }
+
   @Test(.enabled(if: desktopVisibleTestsRun, "Shows real border panels on screen")) @MainActor
   func refocusMovesTheDimAndRingWithoutNewPanels() {
     let manager = WindowBorderManager()
