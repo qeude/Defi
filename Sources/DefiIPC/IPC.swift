@@ -254,6 +254,17 @@ public enum DaemonLockPath {
     URL(filePath: NSTemporaryDirectory())
       .appending(path: "defi-\(getuid()).lock")
   }
+
+  /// A stopping daemon closes its socket before it restores the displays; the kernel
+  /// releases this lock only when the process exits.
+  public static func isHeld(at url: URL = defaultURL) -> Bool {
+    let descriptor = open(url.path, O_RDONLY)
+    guard descriptor >= 0 else { return false }
+    defer { close(descriptor) }
+    guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else { return errno == EWOULDBLOCK }
+    flock(descriptor, LOCK_UN)
+    return false
+  }
 }
 
 public final class UnixSocketServer: @unchecked Sendable {

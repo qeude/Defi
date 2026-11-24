@@ -58,9 +58,9 @@ enum ServiceManager {
   }
 
   static func stop(ignoreFailure: Bool = false, handoff: Bool = false) throws {
-    guard (try? sendCommand("status")) != nil else { return }
+    let running = (try? sendCommand("status")) != nil
     // A restart leaves the windows in place for the next daemon; an older daemon restores them.
-    if !handoff || (try? sendCommand("handoff"))?.ok != true {
+    if running, !handoff || (try? sendCommand("handoff"))?.ok != true {
       _ = try? sendCommand("restore")
       _ = try? sendCommand("quit")
     }
@@ -96,23 +96,42 @@ enum ServiceManager {
     guard FileManager.default.isExecutableFile(atPath: daemonURL.path) else {
       throw ServiceError.daemonMissing(daemonURL.path)
     }
-    let process = Process()
-    process.executableURL = URL(filePath: "/usr/bin/open")
-    process.arguments = [installedAppURL.path]
-    try process.run()
-    process.waitUntilExit()
-    guard process.terminationStatus == 0 else {
-      throw ServiceError.openFailed(process.terminationStatus)
+    try launch { isLastAttempt in
+      let process = Process()
+      process.executableURL = URL(filePath: "/usr/bin/open")
+      process.arguments = [installedAppURL.path]
+      if !isLastAttempt { process.standardError = FileHandle.nullDevice }
+      try process.run()
+      process.waitUntilExit()
+      return process.terminationStatus
     }
   }
 
-  private static func waitForDaemonToStop() throws {
-    let deadline = Date().addingTimeInterval(5)
-    while Date() < deadline {
-      if (try? sendCommand("status")) == nil {
-        return
-      }
-      Thread.sleep(forTimeInterval: 0.1)
+  /// Right after the old daemon exits, LaunchServices can still count it as running and
+  /// fail the launch with error -600.
+  static func launch(
+    attempts: Int = 5,
+    sleep: (TimeInterval) -> Void = Thread.sleep(forTimeInterval:),
+    open: (_ isLastAttempt: Bool) throws -> Int32
+  ) throws {
+    var status: Int32 = 0
+    for attempt in 1...attempts {
+      status = try open(attempt == attempts)
+      if status == 0 { return }
+      if attempt < attempts { sleep(0.2) }
+    }
+    throw ServiceError.openFailed(status)
+  }
+
+  /// A daemon launched while the old one still holds the lock exits at once.
+  static func waitForDaemonToStop(
+    lockURL: URL = DaemonLockPath.defaultURL,
+    attempts: Int = 250,
+    sleep: (TimeInterval) -> Void = Thread.sleep(forTimeInterval:)
+  ) throws {
+    for _ in 0..<attempts {
+      if !DaemonLockPath.isHeld(at: lockURL) { return }
+      sleep(0.02)
     }
     throw ServiceError.daemonDidNotStop
   }
@@ -172,7 +191,7 @@ enum ServiceError: Error, CustomStringConvertible {
     switch self {
     case let .invalidCommand(command): "unknown service command: \(command)"
     case let .daemonMissing(path): "defi-daemon missing beside CLI: \(path)"
-    case .daemonDidNotStop: "defi-daemon did not stop before restart"
+    case .daemonDidNotStop: "defi-daemon did not stop"
     case .approvalRequired:
       "launch at login requires approval in System Settings"
     case let .openFailed(status): "open exited with status \(status)"
