@@ -241,6 +241,10 @@ struct ConfigTests {
 
       [menu_bar]
       enabled = false
+      indicator = "pill"
+      inactive_style = "outlined"
+      equal_width = false
+      show = "current"
 
       [keys]
       "mod-d" = "diagnostic-mark"
@@ -290,6 +294,9 @@ struct ConfigTests {
       "LG": MonitorLayoutConfig(defaultColumnWidth: 0.6),
     ])
     #expect(!config.menuBar.enabled)
+    #expect(config.menuBar.indicator == .pill && config.menuBar.show == .current)
+    #expect(config.menuBar.inactiveStyle == .outlined && !config.menuBar.equalWidth && Config().menuBar.equalWidth)
+    #expect(Config().menuBar.indicator == .dot && Config().menuBar.show == .all)
     #expect(config.keys["mod-d"] == "diagnostic-mark")
   }
 

@@ -226,18 +226,23 @@ extension Daemon {
   }
 
   func updateMenuBar() {
-    let monitor =
-      activeMonitorID
-      .flatMap { id in state.monitors.first(where: { $0.id == id }) }
-      ?? state.monitors.first
-    let workspace = monitor?.activeWorkspace.rawValue ?? ""
-    let workspaces = monitor?.workspaces.enumerated().map { offset, workspace in
-      MenuWorkspace(id: workspace.id.rawValue, label: workspace.name ?? String(offset + 1),
-        icon: workspace.name.map { config.workspaces.icons[$0] ?? "square.grid.2x2" })
-    } ?? []
-    let workspaceStyle = config.menuBar.workspaceStyle
+    let deskFrames = routingMonitorFrames
+    let focusedID = activeMonitorID ?? state.monitors.first?.id
+    let monitors = state.monitors
+      .sorted { (deskFrames[$0.id]?.x ?? 0) < (deskFrames[$1.id]?.x ?? 0) }
+      .map { monitor in
+        MenuMonitor(
+          id: monitor.id.rawValue, isFocused: monitor.id == focusedID,
+          activeWorkspace: monitor.activeWorkspace.rawValue,
+          workspaces: monitor.workspaces.enumerated().map { offset, workspace in
+            MenuWorkspace(id: workspace.id.rawValue, label: workspace.name ?? String(offset + 1),
+              icon: workspace.name.map { config.workspaces.icons[$0] ?? "square.grid.2x2" },
+              position: offset + 1, isEmpty: workspace.isEmpty)
+          })
+      }
+    let menuBarConfig = config.menuBar
     DispatchQueue.main.async { [menuBar] in
-      menuBar.update(activeWorkspace: workspace, workspaces: workspaces, workspaceStyle: workspaceStyle)
+      menuBar.update(monitors: monitors, config: menuBarConfig)
     }
     publishWorkspaceStateIfNeeded()
   }
