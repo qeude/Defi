@@ -111,13 +111,13 @@ extension MacOSPlatform {
   public nonisolated func showResizeRefusal(on windowID: WindowID) {
     enqueuePresentation { platform in
       guard !platform.borderStyle.ringsFocusedWindow else {
-        return platform.borderManager.pulseActiveRing(for: windowID, temporary: false)
+        return platform.borderManager.pulseActiveRing(for: windowID)
       }
       platform.refusalRingGeneration &+= 1
       let generation = platform.refusalRingGeneration
       platform.refusalRingWindowID = windowID
       platform.presentRefreshWindowBorders()
-      platform.borderManager.pulseActiveRing(for: windowID, temporary: true)
+      platform.borderManager.pulseActiveRing(for: windowID)
       platform.presentRevealWindowBordersIfReady()
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
         guard platform.refusalRingGeneration == generation else { return }

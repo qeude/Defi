@@ -297,14 +297,13 @@ final class BorderOverlay {
 
   var revealIsPending: Bool { pendingOpacityReveal != nil }
 
-  /// Flashes the side edges red: a resize hit a limit. A `temporary` ring, drawn only for
-  /// the cue, shows the flash alone. Opacity only, so Reduce Motion keeps it, and the
-  /// frame stays put.
-  func pulseSideEdges(temporary: Bool) {
+  /// Flashes the side edges red: a resize hit a limit. Opacity only, so Reduce Motion
+  /// keeps it, and the frame stays put.
+  func pulseSideEdges() {
     guard visible, hasRing, pendingOpacityReveal == nil, opacityValue > 0 else { return }
-    for (kind, segment) in segments where segment.frame != nil {
-      if temporary { segment.setOpacityImmediately(0) }
-      if kind == .left || kind == .right { segment.flash(resizeRefusalColor, duration: 0.5) }
+    for kind in [WindowBorderSegmentKind.left, .right] {
+      guard let segment = segments[kind], segment.frame != nil else { continue }
+      segment.flash(resizeRefusalColor, duration: 0.5)
     }
   }
 

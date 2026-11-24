@@ -54,11 +54,11 @@ struct WindowBorderStyle: Equatable, Sendable {
   var ringsFocusedWindow: Bool { drawsRings && windowBorderAlpha(of: activeColor) > 0 }
 
   /// This style, with a ring on the focused window even where it draws none. That ring
-  /// lies inside the window: no layout reserved room for it outside.
+  /// lies inside the window, where no layout reserved room for it, and is all but
+  /// transparent: it only carries a flash.
   var ringingFocusedWindow: WindowBorderStyle {
     ringsFocusedWindow ? self : WindowBorderStyle(
-      enabled: true, width: width > 0 ? width : 4,
-      activeColor: windowBorderAlpha(of: activeColor) > 0 ? activeColor : 0xffc0_99ff,
+      enabled: true, width: width > 0 ? width : 4, activeColor: 0x01ff_ffff,
       inactiveEnabled: inactiveEnabled && drawsRings, inactiveColor: inactiveColor,
       inactiveDim: inactiveDim, captureEnabled: captureEnabled, placement: .inside)
   }
