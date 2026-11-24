@@ -16,6 +16,16 @@ RELATIVE = 0.25
 ABSOLUTE_MS = 1.0
 GATED = ('p50', 'p95')  # P99 of ~120 samples is the second-worst sample: reported, never flagged.
 
+# Accessibility work per round. These are counts, not percentiles: the same scenario does the same number
+# of writes, load barely changes position writes, and a shift means the daemon asks the platform for more
+# work. Only position writes are gated: size writes are a handful per round, and attribute reads follow the
+# snapshot estimator, which load and caching move a lot.
+WORK = [('posWrites', 'AX position writes', True), ('sizeWrites', 'AX size writes', False),
+        ('axReads', 'AX attribute reads', False)]
+WORK_PATTERNS = {'posWrites': r'\bposWrites=(\d+)', 'sizeWrites': r'\bsizeWrites=(\d+)',
+                 'axReads': r'\baxReads=(\d+)/(\d+)'}
+WORK_RELATIVE = 0.10
+
 
 def parse_status(text):
     values = {}
@@ -34,6 +44,14 @@ def parse_idle(text):
             'rss_mib': round(int(rss_kb) / 1024, 1)}
 
 
+def parse_work(text):
+    counts = {}
+    for key, _, _ in WORK:
+        if match := re.search(WORK_PATTERNS[key], text):
+            counts[key] = sum(int(value) for value in match.groups())
+    return counts
+
+
 def load_rounds(out, label):
     rounds = []
     # A plain glob would let label v0.8.0 also match v0.8.0-3-gabc-1.status.
@@ -41,6 +59,7 @@ def load_rounds(out, label):
     for status in sorted(matches, key=lambda p: int(p.stem.rsplit('-', 1)[1])):
         text = status.read_text()
         entry = parse_status(text)
+        entry.update(parse_work(text))
         idle = status.with_suffix('.idle')
         if idle.exists():
             entry.update(parse_idle(idle.read_text()))
@@ -72,6 +91,34 @@ def compare(base, candidate):
     return found
 
 
+def compare_work(base, candidate):
+    """Counts whose every candidate round is higher than every base round, by more than WORK_RELATIVE."""
+    found = []
+    for key, label, gated in WORK:
+        if not gated:
+            continue
+        b = [r[key] for r in base if key in r]
+        c = [r[key] for r in candidate if key in r]
+        if not b or not c:
+            continue
+        if (min(c) > max(b)
+                and statistics.median(c) > statistics.median(b) * (1 + WORK_RELATIVE)):
+            found.append((key, label, statistics.median(b), statistics.median(c)))
+    return found
+
+
+def work_rows(builds, base, candidate):
+    rows = []
+    for key, label, _ in WORK:
+        values = [[r[key] for r in builds[build]['rounds'] if key in r] for build in (base, candidate)]
+        if not all(values):
+            continue
+        cells = [f'{statistics.median(v):g}' for v in values]
+        rows.append(f'| {label} | {cells[0]} | {cells[1]} | '
+                    f'{min(values[0]):g}–{max(values[0]):g} → {min(values[1]):g}–{max(values[1]):g} |')
+    return rows
+
+
 def report(meta, builds, base, candidate):
     b_rounds, c_rounds = builds[base]['rounds'], builds[candidate]['rounds']
     regressions = compare(b_rounds, c_rounds)
@@ -101,6 +148,10 @@ def report(meta, builds, base, candidate):
         if rounds:
             lines.append(f'| {label} | {statistics.median(r["idle_cpu_percent"] for r in rounds):.2f} | '
                          f'{statistics.median(r["rss_mib"] for r in rounds):.1f} |')
+    work = work_rows(builds, base, candidate)
+    if work:
+        lines += ['', f'| Accessibility work per round | {base} | {candidate} | Range base → candidate |',
+                  '| --- | ---: | ---: | --- |', *work]
     lines += ['', '## Verdict', '']
     describe = lambda items: [f'- {LABELS[k]} {p.upper()}: {b:.2f} → {c:.2f} ms' for k, p, b, c in items]
     lines += (['**Regression beyond noise** (blocks promotion until explained):', *describe(regressions)]
@@ -109,9 +160,15 @@ def report(meta, builds, base, candidate):
         lines += ['', 'Improvements beyond noise:', *describe(improvements)]
     lines += ['', 'Over budget for the candidate:' if over else 'The candidate meets every P95 budget.',
               *[f'- {item}' for item in over]]
+    work_shift = compare_work(b_rounds, c_rounds)
+    if work_shift:
+        lines += ['', '**More Accessibility work per round than the base** (blocks promotion until explained):',
+                  *[f'- {label}: {b:g} → {c:g}' for _, label, b, c in work_shift]]
     lines += ['', f'Noise rule: a P50 or P95 shift counts only when the median moves by more than '
-              f'{RELATIVE:.0%} and {ABSOLUTE_MS:g} ms and every candidate round is worse than every base round.']
-    return '\n'.join(lines) + '\n', regressions
+              f'{RELATIVE:.0%} and {ABSOLUTE_MS:g} ms and every candidate round is worse than every base round. '
+              f'A position-write count counts only when it moves by more than {WORK_RELATIVE:.0%} '
+              'and every candidate round is above every base round.']
+    return '\n'.join(lines) + '\n', regressions, work_shift
 
 
 def main(run, base, candidate):
@@ -120,11 +177,13 @@ def main(run, base, candidate):
     builds = meta.pop('builds')
     for label in builds:
         builds[label]['rounds'] = load_rounds(run / 'out', label)
-    text, regressions = report(meta, builds, base, candidate)
+    text, regressions, work_shift = report(meta, builds, base, candidate)
     results = {'schema': 1, **meta, 'base': base, 'candidate': candidate, 'builds': builds,
-               'noise': {'relative': RELATIVE, 'absolute_ms': ABSOLUTE_MS, 'gated': list(GATED)},
+               'noise': {'relative': RELATIVE, 'absolute_ms': ABSOLUTE_MS, 'gated': list(GATED),
+                         'work_relative': WORK_RELATIVE},
                'regressions': [{'metric': k, 'percentile': p, 'base_ms': b, 'candidate_ms': c}
-                               for k, p, b, c in regressions]}
+                               for k, p, b, c in regressions],
+               'work_shifts': [{'metric': k, 'base': b, 'candidate': c} for k, _, b, c in work_shift]}
     (run / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
     (run / 'report.md').write_text(text)
     print(text)

@@ -163,6 +163,27 @@ superseded before one arrives, so observed and converged metrics have only
 about 10 to 15 samples per round; their P95 is close to the round's worst
 sample.
 
+The report also counts the Accessibility work of each round: successful
+position and size writes, and attribute reads. The same scenario asks for the
+same work, load barely changes position writes, and one position write is one
+window moved, so the table shows a daemon that does more platform work even
+when no timing percentile moves. Size writes and attribute reads are reported
+for context: a round makes only a handful of size writes, and attribute reads
+follow the snapshot estimator, which load and caching move a lot.
+
+Position writes count only the writes that hold. A park macOS pulls back — from
+under a side Dock, for example — is retried and never counted, so the number
+follows landing work rather than attempted work: a rise can mean parking began
+to land, a drop that writes began to fail. Explain a shift in either direction
+before reading it as cost.
+
+A loaded variant, with every core busy or with a shader loop holding the GPU,
+was measured on 2026-11-24 and rejected for this lane. Load does expose stalls
+the idle run hides — first-write P99 reached 204 ms, convergence P95 doubled,
+and 43 % of commands saw no movement before being superseded — but per-round
+P95 under load spanned three to seven times its value and the two builds'
+verdicts inverted. Loaded rounds say that load hurts, not which build to ship.
+
 ### Noise threshold
 
 A candidate P50 or P95 is a regression only when all three hold:
@@ -173,7 +194,13 @@ A candidate P50 or P95 is a regression only when all three hold:
 
 Rule 3 is a rank test. With five rounds each and no real change, all five
 candidate rounds land above all five base rounds with probability 1/252
-(0.4 %), so ten gated percentiles raise a false alarm in about 4 % of runs.
+(0.4 %), so eleven gated values raise a false alarm in about 4.3 % of runs.
+
+A candidate position-write count is a regression only when its median over
+rounds is more than 10 % above the base and every candidate round is above
+every base round. Counts have no tail, so neither the millisecond floor nor the
+25 % latency threshold fits them.
+
 Single rounds vary too much to judge alone. In the first run (v0.8.0 against
 main, 2026-11-07), each build's planning P95 ranged over about 1.2–3.0 ms
 across rounds and convergence P95 over 280–878 ms. Main's median planning P95

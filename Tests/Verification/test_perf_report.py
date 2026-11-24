@@ -43,7 +43,7 @@ class CompareTests(unittest.TestCase):
     def test_improvements_read_base_to_candidate(self):
         builds = {'a': {'rounds': self.rounds(20, 21, 22)}, 'b': {'rounds': self.rounds(10, 11, 9)}}
         meta = {k: '' for k in ('measured_at', 'vm', 'guest', 'host', 'rounds', 'navigations', 'windows')}
-        text, regressions = perf.report(meta, builds, 'a', 'b')
+        text, regressions, _ = perf.report(meta, builds, 'a', 'b')
         self.assertEqual(regressions, [])
         self.assertIn('input to converged frame P95: 21.00 → 10.00 ms', text)
 
@@ -57,6 +57,23 @@ class CompareTests(unittest.TestCase):
 
     def test_idle_cpu_is_a_percentage_of_ten_seconds(self):
         self.assertEqual(perf.parse_idle('1.50 1.60 20480'), {'idle_cpu_percent': 1.0, 'rss_mib': 20.0})
+
+    def work_rounds(self, *values):
+        return [dict(perf.parse_status(status()), posWrites=v) for v in values]
+
+    def test_parses_accessibility_work_counts(self):
+        self.assertEqual(perf.parse_work('posWrites=343 stalePos=0 sizeWrites=8 axReads=1403/2'),
+                         {'posWrites': 343, 'sizeWrites': 8, 'axReads': 1405})
+
+    def test_counts_flag_a_separated_shift_above_ten_percent(self):
+        self.assertEqual(perf.compare_work(self.work_rounds(292, 294), self.work_rounds(334, 343)),
+                         [('posWrites', 'AX position writes', 293, 338.5)])
+
+    def test_overlapping_counts_are_noise(self):
+        self.assertEqual(perf.compare_work(self.work_rounds(300, 400), self.work_rounds(334, 343)), [])
+
+    def test_small_count_shifts_are_noise_even_when_separated(self):
+        self.assertEqual(perf.compare_work(self.work_rounds(300, 302), self.work_rounds(315, 320)), [])
 
 
 if __name__ == '__main__':
