@@ -200,6 +200,8 @@ extension Daemon {
     let controller = overviewController ?? makeOverviewController()
     overviewController = controller
     controller.handleSwipe(swipe)
+    // A scroll changes nothing the presentation state reports.
+    if case .scrolled = swipe { return }
     publishOverviewState()
   }
 

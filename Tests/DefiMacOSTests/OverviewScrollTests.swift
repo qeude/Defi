@@ -79,6 +79,23 @@ struct OverviewScrollTests {
   }
 
   @Test
+  func `A strip swipe moves the Overview as many columns and workspaces as the strip`() {
+    let size = NSSize(width: 1_512, height: 900)
+    let viewport = overviewViewportAfterScroll(
+      OverviewViewport(),
+      delta: overviewScrollDelta(travelX: -scrollPanWidthTravel, travelY: 0, viewSize: size, zoom: 0.5),
+      hasPreciseScrollingDeltas: true, viewSize: size, zoom: 0.5, activeWorkspaceIndex: 1, workspaceCount: 9,
+      horizontalWorkspaceID: workspaceID, maximumHorizontalOffset: 2)
+    #expect(abs(viewport.horizontalOffsets[workspaceID, default: 0] - 1) < 1e-9)
+    let below = overviewViewportAfterScroll(
+      OverviewViewport(),
+      delta: overviewScrollDelta(travelX: 0, travelY: -scrollPanWorkspaceTravel, viewSize: size, zoom: 0.5),
+      hasPreciseScrollingDeltas: true, viewSize: size, zoom: 0.5, activeWorkspaceIndex: 1, workspaceCount: 9,
+      horizontalWorkspaceID: nil, maximumHorizontalOffset: nil)
+    #expect(abs(below.workspaceOffset - 1) < 1e-9)
+  }
+
+  @Test
   func `Vertical trackpad movement does not leak into the horizontal ribbon`() {
     let viewport = overviewViewportAfterScroll(
       OverviewViewport(),

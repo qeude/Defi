@@ -1166,6 +1166,44 @@ final class DesktopE2ETests: XCTestCase {
     controller.prepare(windowPreviewsEnabled: false)
   }
 
+  func testStripSwipeScrollsTheOverviewUnderThePointer() async throws {
+    _ = try preflight()
+    let screen = try XCTUnwrap(NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) })
+    let monitorID = try XCTUnwrap(self.monitorID(of: screen))
+    let windows = (0..<3).map { index in
+      Window(id: WindowID(rawValue: UInt64(index + 1)), appID: "test", title: "Swiped window \(index)",
+        frame: Rect(x: 0, y: 0, width: 700, height: 700), processID: getpid())
+    }
+    let workspaces = windows.map { window in
+      Workspace(id: WorkspaceID(rawValue: "swiped-\(window.id.rawValue)"),
+        columns: [Column(window: window.id, width: .fraction(0.5))])
+    }
+    let snapshot = OverviewSnapshot(
+      monitors: [Monitor(id: monitorID, workspaces: workspaces, activeWorkspace: workspaces[1].id)],
+      monitorFrames: [monitorID: Rect(x: 0, y: 0, width: screen.frame.width, height: screen.visibleFrame.height)],
+      windows: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) }), activeMonitorID: monitorID)
+    let controller = OverviewController(focusWindow: { _, _, _, _ in }, focusWorkspace: { _, _ in },
+      drop: { _, _, _, _, _ in }, activateMonitor: { _ in }, openStateChanged: { _ in }, commitScrollOffsets: { _ in })
+    controller.open(snapshot: snapshot, layout: LayoutSettings(), windowPreviewsEnabled: false)
+    defer { controller.close() }
+    func findView(_ view: NSView) -> OverviewView? {
+      (view as? OverviewView) ?? view.subviews.lazy.compactMap(findView).first
+    }
+    let view = try XCTUnwrap(NSApp.windows.compactMap { $0.contentView.flatMap(findView) }.first)
+    func minY() -> CGFloat? {
+      (view.accessibilityChildren() as? [NSAccessibilityElement])?
+        .first { $0.accessibilityLabel() == "Swiped window 1" }?.accessibilityFrame().minY
+    }
+    let faded = await waitUntil(timeout: 1) { view.window?.alphaValue == 1 }
+    XCTAssertTrue(faded)
+    let before = try XCTUnwrap(minY())
+    // One workspace of travel upward: the workspace below comes into view.
+    controller.handleSwipe(.scrolled(dx: 0, dy: -scrollPanWorkspaceTravel))
+    let stride = overviewWorkspaceStride(boundsHeight: view.bounds.height, zoom: 0.5)
+    let moved = await waitUntil(timeout: 1) { minY().map { abs($0 - before - stride) <= 1 } == true }
+    XCTAssertTrue(moved, "A workspace of travel must scroll one workspace, from \(before) by \(stride), now \(String(describing: minY()))")
+  }
+
   func testOverviewNavigationResumesFromDisplayedPosition() async throws {
     _ = try preflight()
     let screen = try XCTUnwrap(NSScreen.main)

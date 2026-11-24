@@ -252,6 +252,40 @@ public enum OverviewSwipeEvent: Equatable, Sendable {
   /// How far the fingers took the transition, from 0 to 1.
   case changed(progress: Double)
   case ended(commit: Bool)
+  /// The strip's swipe, while the Overview is open: travel in scroll points, on one axis.
+  case scrolled(dx: Double, dy: Double)
+}
+
+/// Niri moves the view one working-area width per 1,200 touchpad units, and one workspace per
+/// 300. macOS scroll points are larger: one width per 1,500 points follows the fingers about
+/// 1:1 on a 1,512-point laptop display, and the same finger travel crosses the same share of
+/// every display.
+public let scrollPanWidthTravel = 1_500.0
+public let scrollPanWorkspaceTravel = scrollPanWidthTravel / 4
+
+/// The strip's swipe in the Overview: the same axis lock, then travel along that axis only.
+struct OverviewStripSwipe {
+  private var recognizer = ScrollGestureRecognizer()
+  private var vertical = false
+
+  /// The travel since the previous step, or nil. `system` is read as the swipe begins.
+  mutating func update(_ input: ScrollGestureInput,
+    system: @autoclosure () -> (horizontal: Bool, vertical: Bool)) -> (dx: Double, dy: Double)? {
+    var input = input
+    // The Overview is Defi's own: its swipe needs no modifier.
+    input.modifierHeld = true
+    if input.phase == 1 {
+      let system = system()
+      (recognizer.horizontal, recognizer.vertical) = (!system.horizontal, !system.vertical)
+    }
+    let before = recognizer.pan
+    if case .panBegan(_, let vertical, _, _)? = recognizer.handle(input, enabled: true).actions.first {
+      self.vertical = vertical
+    }
+    guard let before, let pan = recognizer.pan, pan.id == before.id, pan.travel != before.travel else { return nil }
+    let delta = pan.travel - before.travel
+    return vertical ? (0, delta) : (delta, 0)
+  }
 }
 
 /// Niri's four-finger vertical swipe: the Overview follows the fingers, and the release
