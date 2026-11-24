@@ -1085,18 +1085,39 @@ border surfaces use `NSWindowSharingNone`.
 
 ## `[menu_bar]`
 
-Defi's menu bar item.
+Defi's menu bar item shows every workspace of every display, in the order of
+the desk. A display with no windows and no focus is left out, because its lone
+mark would read like a workspace of the display before it. Click a workspace
+to switch to it. Click anywhere else, right-click, or Control-click to open the
+menu.
 
 ```toml
 [menu_bar]
 enabled = true
 workspace_style = "name"
+indicator = "dot"
+inactive_style = "filled"
+equal_width = true
+show = "all"
 ```
 
 | Setting | Default | Values | Description |
 | --- | --- | --- | --- |
 | `enabled` | `true` | boolean | Shows the menu bar item. Turn it off when SketchyBar shows your workspaces; `defi open-settings` still opens Settings. |
-| `workspace_style` | `"name"` | `"name"`, `"icon"`, `"icon_and_name"` | How named workspaces appear. Others always show their number. |
+| `workspace_style` | `"name"` | `"name"`, `"icon"`, `"icon_and_name"`, `"number"`, `"none"` | The label of each workspace. `"number"` uses its position and `"none"` draws bare shapes; the other styles use the name, or the number when the workspace has none. |
+| `indicator` | `"dot"` | `"dot"`, `"pill"`, `"box"`, `"circle"` | The shape of each workspace. `"dot"` shows the active workspace as a labelled capsule and the others as dots. `"box"` is a rounded rectangle. `"circle"` shows the workspace number, or its icon. |
+| `inactive_style` | `"filled"` | `"filled"`, `"outlined"` | Inactive workspaces as dimmed shapes with their label cut out, or as outlines. |
+| `equal_width` | `true` | boolean | Gives every `"box"` or `"pill"` the width of the widest one. |
+| `show` | `"all"` | `"all"`, `"current"`, `"active"` | `"current"` shows only the workspaces of the focused display, `"active"` only its active workspace. |
+
+The active workspace is filled. An empty workspace is fainter than one with
+windows, and an empty dot is a ring. Displays without focus appear dimmer. The
+item follows the menu bar's own color, so it is white on a dark menu bar and
+black on a light one.
+
+When the menu bar runs out of room, macOS hides the leftmost items behind a
+chevron. Command-drag Defi's item next to the clock to keep it visible, or set
+`show = "active"` to make it narrow.
 
 Icons come from `[workspaces].icons`. They follow workspace renames and are
 removed when you delete a workspace in Settings. A named workspace without an

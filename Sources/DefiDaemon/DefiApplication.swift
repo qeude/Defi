@@ -7,7 +7,7 @@ import SwiftUI
 @main
 struct DefiDaemonMain: App {
   private let daemon: Daemon
-  @State private var menuBar: MenuBarState
+  private let menuBarController: MenuBarController
 
   init() {
     Self.migrateLegacyPreferences()
@@ -22,7 +22,10 @@ struct DefiDaemonMain: App {
       }
       menuBar.isInserted = menuBarEnabled
       self.daemon = daemon
-      _menuBar = State(initialValue: menuBar)
+      menuBarController = MenuBarController(
+        state: menuBar,
+        commandHandler: { command in NavigationActor.enqueue { daemon.handleMenuCommand(command) } }
+      )
       DefiSettingsRuntimeStatus.shared.updateConfiguration(config)
       NavigationActor.enqueue { daemon.start() }
       MainActor.assumeIsolated {
@@ -47,27 +50,6 @@ struct DefiDaemonMain: App {
   }
 
   var body: some Scene {
-    MenuBarExtra(isInserted: $menuBar.isInserted) {
-      MenuBarContent(
-        state: menuBar,
-        commandHandler: { command in NavigationActor.enqueue { daemon.handleMenuCommand(command) } }
-      )
-    } label: {
-      HStack(spacing: 4) {
-        if menuBar.workspaceStyle != .name, let icon = menuBar.activeIconImage {
-          Image(nsImage: icon).renderingMode(.template)
-        }
-        if menuBar.workspaceStyle != .icon || menuBar.activeIcon == nil {
-          Text(menuBar.activeLabel)
-        }
-      }
-        .font(.system(.body, weight: .semibold))
-        .monospacedDigit()
-        .help("Defi workspace \(menuBar.activeLabel)")
-        .accessibilityLabel("Defi workspace \(menuBar.activeLabel)")
-    }
-    .menuBarExtraStyle(.menu)
-
     Settings {
       DefiSettingsView(configURL: daemon.configURL)
     }

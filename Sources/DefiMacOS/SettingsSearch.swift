@@ -6,6 +6,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Sendable {
   case layout = "Layout"
   case input = "Input"
   case appearance = "Appearance"
+  case menuBar = "Menu Bar"
   case workspaces = "Workspaces"
   case appRules = "App Rules"
   case about = "About"
@@ -20,6 +21,10 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case automaticUpdates
   case menuBar
   case workspaceDisplay
+  case menuBarIndicator
+  case menuBarInactiveStyle
+  case menuBarEqualWidth
+  case menuBarDisplays
   case configurationFile
   case configurationGuide
   case logs
@@ -73,8 +78,12 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .screenRecording: (.general, "Screen Recording", "permissions screen recording capture animations previews")
     case .launchAtLogin: (.general, "Launch Defi at login", "startup launch login")
     case .automaticUpdates: (.general, "Automatically check for updates", "updates automatic check")
-    case .menuBar: (.general, "Show Defi in the menu bar", "menu_bar.enabled")
-    case .workspaceDisplay: (.general, "Named workspace display", "menu_bar.workspace_style icon only icon and name name only")
+    case .menuBar: (.menuBar, "Show Defi in the menu bar", "menu_bar.enabled")
+    case .workspaceDisplay: (.menuBar, "Workspace labels", "menu_bar.workspace_style icon only icon and name name only number none")
+    case .menuBarIndicator: (.menuBar, "Workspace indicator", "menu_bar.indicator dots pills boxes circles rectangles spaces")
+    case .menuBarInactiveStyle: (.menuBar, "Inactive workspaces", "menu_bar.inactive_style filled outlined dimmed bordered")
+    case .menuBarEqualWidth: (.menuBar, "Equal workspace widths", "menu_bar.equal_width same width")
+    case .menuBarDisplays: (.menuBar, "Show", "menu_bar.show all displays focused display monitors active workspace only")
     case .configurationFile: (.general, "Open Configuration File…", "configuration file config toml path")
     case .configurationGuide: (.general, "Configuration Guide…", "documentation configuration guide")
     case .logs: (.general, "Open Logs Folder…", "diagnostics logs troubleshooting triage issue claude codex")

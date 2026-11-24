@@ -195,6 +195,7 @@ private extension SettingsPage {
     case .layout: .teal
     case .input: .blue
     case .appearance: .purple
+    case .menuBar: .cyan
     case .workspaces: .indigo
     case .appRules: .orange
     case .about: .gray
@@ -206,6 +207,7 @@ private extension SettingsPage {
     case .layout: "rectangle.split.2x1"
     case .input: "keyboard"
     case .appearance: "paintpalette"
+    case .menuBar: "menubar.rectangle"
     case .workspaces: "rectangle.3.group"
     case .appRules: "app"
     case .about: "info.circle"
@@ -224,6 +226,7 @@ private struct SettingsPageView: View {
     case .layout: LayoutSettingsView(model: model, request: request)
     case .input: InputSettingsView(model: model, request: request)
     case .appearance: AppearanceSettingsView(model: model, request: request)
+    case .menuBar: MenuBarSettingsView(model: model, request: request)
     case .workspaces: WorkspaceSettingsView(model: model, request: request)
     case .appRules: AppRulesSettingsView(model: model, request: request)
     case .about: AboutSettingsView(request: request)
@@ -310,22 +313,6 @@ private struct GeneralSettingsView: View {
         }
         AutomaticUpdatesToggle()
           .settingsSearchTarget(.automaticUpdates)
-        Toggle(
-          SettingsOption.menuBar.title,
-          isOn: Binding(
-            get: { model.config.menuBar.enabled },
-            set: { model.set(table: "menu_bar", key: "enabled", value: $0 ? "true" : "false") }
-          ))
-          .settingsSearchTarget(.menuBar)
-        Picker(SettingsOption.workspaceDisplay.title, selection: Binding(
-          get: { model.config.menuBar.workspaceStyle },
-          set: { model.set(table: "menu_bar", key: "workspace_style", value: tomlString($0.rawValue)) }
-        )) {
-          Text("Name only").tag(WorkspaceLabelStyle.name)
-          Text("Icon only").tag(WorkspaceLabelStyle.icon)
-          Text("Icon and name").tag(WorkspaceLabelStyle.iconAndName)
-        }
-        .settingsSearchTarget(.workspaceDisplay)
       }
       Section("Configuration") {
         LabeledContent("File", value: model.configurationPath)
@@ -341,6 +328,73 @@ private struct GeneralSettingsView: View {
         Button(SettingsOption.logs.title) { model.openLogs() }
           .settingsSearchTarget(.logs)
         TriageRow()
+      }
+    }
+    .formStyle(.grouped)
+    .modifier(SettingsRevealModifier(request: request))
+  }
+}
+
+@MainActor
+private struct MenuBarSettingsView: View {
+  let model: DefiSettingsModel
+  let request: SettingsRevealRequest
+
+  var body: some View {
+    Form {
+      Section {
+        Toggle(
+          SettingsOption.menuBar.title,
+          isOn: Binding(
+            get: { model.config.menuBar.enabled },
+            set: { model.set(table: "menu_bar", key: "enabled", value: $0 ? "true" : "false") }
+          ))
+          .settingsSearchTarget(.menuBar)
+        Picker(SettingsOption.workspaceDisplay.title, selection: Binding(
+          get: { model.config.menuBar.workspaceStyle },
+          set: { model.set(table: "menu_bar", key: "workspace_style", value: tomlString($0.rawValue)) }
+        )) {
+          Text("Name only").tag(WorkspaceLabelStyle.name)
+          Text("Icon only").tag(WorkspaceLabelStyle.icon)
+          Text("Icon and name").tag(WorkspaceLabelStyle.iconAndName)
+          Text("Number").tag(WorkspaceLabelStyle.number)
+          Text("None").tag(WorkspaceLabelStyle.none)
+        }
+        .settingsSearchTarget(.workspaceDisplay)
+        Picker(SettingsOption.menuBarIndicator.title, selection: Binding(
+          get: { model.config.menuBar.indicator },
+          set: { model.set(table: "menu_bar", key: "indicator", value: tomlString($0.rawValue)) }
+        )) {
+          Text("Dots").tag(MenuBarIndicator.dot)
+          Text("Pills").tag(MenuBarIndicator.pill)
+          Text("Boxes").tag(MenuBarIndicator.box)
+          Text("Circles").tag(MenuBarIndicator.circle)
+        }
+        .settingsSearchTarget(.menuBarIndicator)
+        Picker(SettingsOption.menuBarInactiveStyle.title, selection: Binding(
+          get: { model.config.menuBar.inactiveStyle },
+          set: { model.set(table: "menu_bar", key: "inactive_style", value: tomlString($0.rawValue)) }
+        )) {
+          Text("Filled").tag(MenuBarInactiveStyle.filled)
+          Text("Outlined").tag(MenuBarInactiveStyle.outlined)
+        }
+        .settingsSearchTarget(.menuBarInactiveStyle)
+        Toggle(
+          SettingsOption.menuBarEqualWidth.title,
+          isOn: Binding(
+            get: { model.config.menuBar.equalWidth },
+            set: { model.set(table: "menu_bar", key: "equal_width", value: $0 ? "true" : "false") }
+          ))
+          .settingsSearchTarget(.menuBarEqualWidth)
+        Picker(SettingsOption.menuBarDisplays.title, selection: Binding(
+          get: { model.config.menuBar.show },
+          set: { model.set(table: "menu_bar", key: "show", value: tomlString($0.rawValue)) }
+        )) {
+          Text("All displays").tag(MenuBarDisplays.all)
+          Text("Focused display").tag(MenuBarDisplays.current)
+          Text("Active workspace").tag(MenuBarDisplays.active)
+        }
+        .settingsSearchTarget(.menuBarDisplays)
       }
     }
     .formStyle(.grouped)

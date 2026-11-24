@@ -361,9 +361,6 @@ Preserve user changes. Never revert unrelated work.
 
 ## Style
 
-Take ideas from other window managers, but name only Niri in the repository and
-adapt ideas rather than copying code.
-
 Default to no comment. Write one only for a constraint, a platform quirk, or an
 invariant the code cannot show, in one line where you can. Leave history and
 the fix you just made to the commit message.

@@ -374,21 +374,57 @@ public enum WorkspaceLabelStyle: String, Codable, CaseIterable, Sendable {
   case name
   case icon
   case iconAndName = "icon_and_name"
+  case number
+  case none
+}
+
+public enum MenuBarIndicator: String, Codable, CaseIterable, Sendable {
+  case dot
+  case pill
+  case box
+  case circle
+}
+
+public enum MenuBarInactiveStyle: String, Codable, CaseIterable, Sendable {
+  case filled
+  case outlined
+}
+
+public enum MenuBarDisplays: String, Codable, CaseIterable, Sendable {
+  case all
+  case current
+  case active
 }
 
 public struct MenuBarConfig: Codable, Equatable, Sendable {
   public var enabled: Bool
 
   public var workspaceStyle: WorkspaceLabelStyle
+  public var indicator: MenuBarIndicator
+  public var inactiveStyle: MenuBarInactiveStyle
+  public var equalWidth: Bool
+  public var show: MenuBarDisplays
 
-  public init(enabled: Bool = true, workspaceStyle: WorkspaceLabelStyle = .name) {
+  public init(
+    enabled: Bool = true, workspaceStyle: WorkspaceLabelStyle = .name,
+    indicator: MenuBarIndicator = .dot, inactiveStyle: MenuBarInactiveStyle = .filled,
+    equalWidth: Bool = true, show: MenuBarDisplays = .all
+  ) {
     self.enabled = enabled
     self.workspaceStyle = workspaceStyle
+    self.indicator = indicator
+    self.inactiveStyle = inactiveStyle
+    self.equalWidth = equalWidth
+    self.show = show
   }
 
   enum CodingKeys: String, CodingKey {
     case enabled
     case workspaceStyle = "workspace_style"
+    case indicator
+    case inactiveStyle = "inactive_style"
+    case equalWidth = "equal_width"
+    case show
   }
 
   public init(from decoder: Decoder) throws {
@@ -396,6 +432,10 @@ public struct MenuBarConfig: Codable, Equatable, Sendable {
     let defaults = MenuBarConfig()
     enabled = try values.decodeIfPresent(Bool.self, forKey: .enabled) ?? defaults.enabled
     workspaceStyle = try values.decodeIfPresent(WorkspaceLabelStyle.self, forKey: .workspaceStyle) ?? defaults.workspaceStyle
+    indicator = try values.decodeIfPresent(MenuBarIndicator.self, forKey: .indicator) ?? defaults.indicator
+    inactiveStyle = try values.decodeIfPresent(MenuBarInactiveStyle.self, forKey: .inactiveStyle) ?? defaults.inactiveStyle
+    equalWidth = try values.decodeIfPresent(Bool.self, forKey: .equalWidth) ?? defaults.equalWidth
+    show = try values.decodeIfPresent(MenuBarDisplays.self, forKey: .show) ?? defaults.show
   }
 }
 

@@ -29,9 +29,7 @@ public struct MenuBarContent: View {
           }
         }
       }
-      SettingsLink {
-        Text("Settings…")
-      }
+      Button("Settings…") { openDefiSettings() }
       .keyboardShortcut(",", modifiers: .command)
       if let version = AppUpdater.shared.availableVersion {
         Divider()
