@@ -20,10 +20,34 @@ final class WindowBorderManager {
   /// Windows each display's ribbon overlay draws itself: their native borders hide
   /// without teardown.
   private var presentationHiddenByDisplay: [UInt32: Set<WindowID>] = [:]
+  /// Windows a landed motion left out of view, with the frame they left: hidden until a
+  /// plan drops them or places them elsewhere, such as on another display, since the plan
+  /// of their old place arrives after the overlay lifts.
+  private var departedFrames: [WindowID: Rect?] = [:]
   private var presentationHiddenWindowIDs: Set<WindowID> = []
-  func setPresentationHidden(_ windowIDs: Set<WindowID>, for display: UInt32) {
+  func setPresentationHidden(
+    _ windowIDs: Set<WindowID>, for display: UInt32, departed: Set<WindowID> = [], landed: Set<WindowID> = []
+  ) {
     presentationHiddenByDisplay[display] = windowIDs.isEmpty ? nil : windowIDs
-    let hidden = presentationHiddenByDisplay.values.reduce(into: Set<WindowID>()) { $0.formUnion($1) }
+    // A new motion draws these windows again, and a landing that leaves them on screen
+    // shows them, such as one that arrived from another display's motion.
+    for windowID in windowIDs.union(landed) { departedFrames.removeValue(forKey: windowID) }
+    for windowID in departed {
+      departedFrames.updateValue(lastPlan?.tracked.first { $0.windowID == windowID }?.frame, forKey: windowID)
+    }
+    updatePresentationHidden()
+  }
+
+  /// Windows on a display that shows a full-screen Space.
+  func setFullscreenHidden(_ windowIDs: Set<WindowID>) {
+    presentationHiddenByDisplay[fullscreenHiddenKey] = windowIDs.isEmpty ? nil : windowIDs
+    updatePresentationHidden()
+  }
+  private let fullscreenHiddenKey = UInt32.max
+  var fullscreenHiddenWindowIDs: Set<WindowID> { presentationHiddenByDisplay[fullscreenHiddenKey] ?? [] }
+
+  private func updatePresentationHidden() {
+    let hidden = presentationHiddenByDisplay.values.reduce(into: Set(departedFrames.keys)) { $0.formUnion($1) }
     guard hidden != presentationHiddenWindowIDs else { return }
     presentationHiddenWindowIDs = hidden
     for (windowID, overlay) in overlays { overlay.setPresentationHidden(hidden.contains(windowID)) }
@@ -57,6 +81,28 @@ final class WindowBorderManager {
     )
   }
 
+  var dimmedWindowIDs: Set<WindowID> {
+    Set(overlays.compactMap { $0.value.isVisible && $0.value.dim > 0 ? $0.key : nil })
+  }
+
+  /// Windows whose dim may be elevated: every shown overlay while the dim is on.
+  var dimCandidateWindowIDs: Set<WindowID> {
+    guard (lastPlan?.style.inactiveDim ?? 0) > 0 else { return [] }
+    return liveGeometryWindowIDs
+  }
+
+  func setDimElevations(_ elevated: Set<WindowID>) {
+    for (windowID, overlay) in overlays { overlay.setDimElevated(elevated.contains(windowID)) }
+  }
+
+  var hasElevatedDim: Bool { overlays.values.contains { $0.dimElevation == true } }
+
+  func lowerDims(overlapping frame: Rect, movedWindowID: WindowID) {
+    for (windowID, overlay) in overlays where windowID != movedWindowID {
+      overlay.lowerDim(ifOverlapping: frame)
+    }
+  }
+
   var liveGeometryWindowIDs: Set<WindowID> {
     Set(
       overlays.compactMap { windowID, overlay in
@@ -84,6 +130,13 @@ final class WindowBorderManager {
     guard !isSuppressed else { return true }
     guard activeWindowID == windowID, let overlay = overlays[windowID] else { return false }
     return !overlay.isPresentationHidden && overlay.isVisible && overlay.opacity > 0
+  }
+
+  /// Whether the focused window's ring and the dims of `windowIDs` are on screen.
+  func showsNativeBorders(ring windowID: WindowID?, dimming windowIDs: Set<WindowID>) -> Bool {
+    guard !isSuppressed else { return true }
+    if let windowID, !showsActiveRing(for: windowID) { return false }
+    return windowIDs.allSatisfy { overlays[$0]?.showsDim == true }
   }
 
   func revealPendingBorders() {
@@ -120,7 +173,7 @@ final class WindowBorderManager {
       let overlay = overlays[previousActiveWindowID],
       overlay.isVisible
     {
-      if !style.inactiveEnabled, style.enabled, style.width > 0,
+      if !style.inactiveEnabled, style.inactiveDim == 0, style.enabled, style.width > 0,
         windowBorderAlpha(of: style.activeColor) > 0,
         let windowID, displayedFrame != nil, overlays[windowID] == nil
       {
@@ -132,11 +185,15 @@ final class WindowBorderManager {
         overlay.setStacking(.inactive(for: previousActiveWindowID))
         if style.inactiveEnabled {
           overlay.updateAppearance(to: style.inactiveColor)
+        } else if style.inactiveDim > 0 {
+          overlay.removeRing()
         } else {
           overlay.hide()
         }
+        overlay.setDim(style.inactiveDim, animated: true)
       }
     }
+    if let windowID { overlays[windowID]?.setDim(0, animated: false) }
     if style.enabled,
       style.width > 0,
       windowBorderAlpha(of: style.activeColor) > 0,
@@ -217,6 +274,10 @@ final class WindowBorderManager {
     lastPlan = plan
     lastDisplayedFrames = displayedFrames
     appliedPlans += 1
+    if !departedFrames.isEmpty {
+      departedFrames = remainingBorderDepartures(departedFrames, tracked: plan.tracked)
+      updatePresentationHidden()
+    }
     let now = CACurrentMediaTime()
     closingUntil = closingUntil.filter { $0.value > now && trackedWindowIDs.contains($0.key) }
     radiusProvider.retain(
@@ -227,7 +288,8 @@ final class WindowBorderManager {
       reportedRadii = radii
       NavigationActor.enqueue { RibbonProxyPresenter.cornerRadii.merge(radii) { $1 } }
     }
-    let desiredAssignments = (plan.inactive + [plan.active].compactMap { $0 })
+    // With a dim, the focused window keeps its overlay too: refocusing only changes opacities.
+    let desiredAssignments = (plan.style.inactiveDim > 0 ? plan.tracked : plan.inactive + [plan.active].compactMap { $0 })
       .filter { closingUntil[$0.windowID] == nil }
     let desiredWindowIDs = Set(desiredAssignments.map(\.windowID))
     for assignment in desiredAssignments where overlays[assignment.windowID] == nil {
@@ -237,35 +299,40 @@ final class WindowBorderManager {
       )
     }
 
-    if let assignment = plan.active, closingUntil[assignment.windowID] == nil {
-      if let overlay = overlays[assignment.windowID] {
-        overlay.setStacking(
-          stacking.targetWindowID == assignment.windowID
-            ? stacking
-            : .inactive(for: assignment.windowID)
-        )
-        overlay.sync(
-          frame: displayedFrames[assignment.windowID] ?? assignment.frame,
-          width: plan.style.width,
-          color: plan.style.activeColor,
-          windowRadius: radius(for: assignment.windowID),
-          captureEnabled: plan.style.captureEnabled,
-          placement: plan.style.placement
-        )
-      }
+    if plan.style.inactiveDim == 0 {
+      for overlay in overlays.values + spareOverlays { overlay.releaseDim() }
     }
-
-    for assignment in plan.inactive where closingUntil[assignment.windowID] == nil {
+    let inactiveWindowIDs = Set(plan.inactive.map(\.windowID))
+    let dimmedWindowIDs = Set(plan.dimmed.map(\.windowID))
+    for assignment in desiredAssignments {
       guard let overlay = overlays[assignment.windowID] else { continue }
-      overlay.setStacking(.inactive(for: assignment.windowID))
+      let windowID = assignment.windowID
+      let isActive = windowID == plan.active?.windowID
+      overlay.setStacking(isActive && stacking.targetWindowID == windowID ? stacking : .inactive(for: windowID))
+      let wasShown = overlay.isVisible
+      var ringColor: UInt32?
+      if isActive {
+        ringColor = plan.style.activeColor
+      } else if inactiveWindowIDs.contains(windowID) {
+        ringColor = plan.style.inactiveColor
+      }
+      let frame = displayedFrames[windowID] ?? assignment.frame
       overlay.sync(
-        frame: displayedFrames[assignment.windowID] ?? assignment.frame,
+        frame: frame,
         width: plan.style.width,
-        color: plan.style.inactiveColor,
-        windowRadius: radius(for: assignment.windowID),
+        color: ringColor,
+        windowRadius: radius(for: windowID),
         captureEnabled: plan.style.captureEnabled,
         placement: plan.style.placement
       )
+      // Until the next stacking read, Defi's own windows decide: an arriving window's app
+      // brought forward must not lift the window over a dim just above it.
+      if overlay.dimElevation == nil {
+        overlay.setDimElevated(!plan.tracked.contains {
+          $0.windowID != windowID && targetIntersects($0.frame, monitor: frame)
+        })
+      }
+      overlay.setDim(dimmedWindowIDs.contains(windowID) ? plan.style.inactiveDim : 0, animated: wasShown)
     }
 
     var removedWindowIDs: [WindowID] = []
@@ -288,6 +355,7 @@ final class WindowBorderManager {
 
   /// Windows closing: plans keep them until the next snapshot drops them.
   private var closingUntil: [WindowID: CFTimeInterval] = [:]
+  func isClosing(_ windowID: WindowID) -> Bool { closingUntil[windowID].map { $0 > CACurrentMediaTime() } ?? false }
   /// A closing window's ring goes at once: macOS shrinks the window for ~180 ms first,
   /// which the ring would outline.
   func hideClosing(_ windowID: WindowID) {
@@ -388,4 +456,11 @@ final class WindowBorderManager {
     overlays[windowID] = overlay
     return overlay
   }
+}
+
+/// Departed windows stay hidden while a plan still tracks them where they left; one the
+/// plan drops or places elsewhere, such as on another display, shows again.
+func remainingBorderDepartures(_ departed: [WindowID: Rect?], tracked: [FrameAssignment]) -> [WindowID: Rect?] {
+  let frames = Dictionary(tracked.map { ($0.windowID, $0.frame) }, uniquingKeysWith: { first, _ in first })
+  return departed.filter { windowID, left in frames[windowID].map { left == nil || $0 == left } ?? false }
 }

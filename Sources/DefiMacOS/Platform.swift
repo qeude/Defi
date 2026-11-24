@@ -432,30 +432,8 @@ func frameWindowsRequiringCoverage(
   return required
 }
 
-func copyWindowBorderStacking(
-  targetWindowID: WindowID?,
-  targetProcessID: pid_t?,
-  targetFrame: Rect?,
-  monitorFrames: [Rect],
-  knownWindowIDs: Set<WindowID>
-) -> WindowBorderStacking {
-  let canQueryAboveTarget = targetWindowID != nil
-    && targetProcessID != nil
-    && targetFrame != nil
-  guard
-    let info = CGWindowListCopyWindowInfo(
-      canQueryAboveTarget
-        ? [.optionOnScreenAboveWindow, .excludeDesktopElements]
-        : [.optionOnScreenOnly, .excludeDesktopElements],
-      canQueryAboveTarget
-        ? CGWindowID(targetWindowID!.rawValue)
-        : kCGNullWindowID
-    ) as? [[CFString: Any]]
-  else {
-    return .inactive(for: targetWindowID)
-  }
-  let ownProcessID = ProcessInfo.processInfo.processIdentifier
-  var entries = info.compactMap { item -> WindowStackEntry? in
+func windowStackEntries(_ info: [[CFString: Any]]) -> [WindowStackEntry] {
+  info.compactMap { item -> WindowStackEntry? in
     guard
       let layer = item[kCGWindowLayer] as? NSNumber,
       let processID = item[kCGWindowOwnerPID] as? NSNumber,
@@ -469,14 +447,45 @@ func copyWindowBorderStacking(
       windowID: WindowID(rawValue: number.uint64Value),
       processID: processID.int32Value,
       layer: layer.intValue,
-      frame: Rect(
-        x: cgRect.minX,
-        y: cgRect.minY,
-        width: cgRect.width,
-        height: cgRect.height
-      )
+      frame: Rect(x: cgRect.minX, y: cgRect.minY, width: cgRect.width, height: cgRect.height)
     )
   }
+}
+
+func copyOnScreenWindowStackEntries() -> [WindowStackEntry] {
+  let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+  return windowStackEntries(info as? [[CFString: Any]] ?? [])
+}
+
+func copyWindowBorderStacking(
+  targetWindowID: WindowID?,
+  targetProcessID: pid_t?,
+  targetFrame: Rect?,
+  monitorFrames: [Rect],
+  knownWindowIDs: Set<WindowID>,
+  onScreen: [WindowStackEntry]? = nil
+) -> WindowBorderStacking {
+  let canQueryAboveTarget = targetWindowID != nil
+    && targetProcessID != nil
+    && targetFrame != nil
+  // A list already read front to back holds the windows above the target: no second read.
+  let above = canQueryAboveTarget
+    ? onScreen.flatMap { list in list.firstIndex { $0.windowID == targetWindowID }.map { Array(list[..<$0]) } }
+    : nil
+  guard
+    let info = above != nil ? [] : CGWindowListCopyWindowInfo(
+      canQueryAboveTarget
+        ? [.optionOnScreenAboveWindow, .excludeDesktopElements]
+        : [.optionOnScreenOnly, .excludeDesktopElements],
+      canQueryAboveTarget
+        ? CGWindowID(targetWindowID!.rawValue)
+        : kCGNullWindowID
+    ) as? [[CFString: Any]]
+  else {
+    return .inactive(for: targetWindowID)
+  }
+  let ownProcessID = ProcessInfo.processInfo.processIdentifier
+  var entries = above ?? windowStackEntries(info)
   if let targetWindowID, let targetProcessID, let targetFrame {
     entries.append(WindowStackEntry(
       windowID: targetWindowID,

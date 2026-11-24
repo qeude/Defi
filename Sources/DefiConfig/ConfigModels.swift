@@ -122,6 +122,8 @@ public struct BordersConfig: Codable, Equatable, Sendable {
   public var color: String
   public var inactiveEnabled: Bool
   public var inactiveColor: String
+  /// Black laid over unfocused tiled windows, from 0 (off) to 0.9.
+  public var inactiveDim: Double
   public var captureEnabled: Bool
   public var placement: String
 
@@ -131,6 +133,7 @@ public struct BordersConfig: Codable, Equatable, Sendable {
     color: String = "#FFC099FF",
     inactiveEnabled: Bool = false,
     inactiveColor: String = "#66C099FF",
+    inactiveDim: Double = 0,
     captureEnabled: Bool = false,
     placement: String = "outside"
   ) {
@@ -139,6 +142,7 @@ public struct BordersConfig: Codable, Equatable, Sendable {
     self.color = color
     self.inactiveEnabled = inactiveEnabled
     self.inactiveColor = inactiveColor
+    self.inactiveDim = inactiveDim
     self.captureEnabled = captureEnabled
     self.placement = placement
   }
@@ -149,6 +153,7 @@ public struct BordersConfig: Codable, Equatable, Sendable {
     case color
     case inactiveEnabled = "inactive_enabled"
     case inactiveColor = "inactive_color"
+    case inactiveDim = "inactive_dim"
     case captureEnabled = "capture_enabled"
     case placement
   }
@@ -165,6 +170,9 @@ public struct BordersConfig: Codable, Equatable, Sendable {
     inactiveColor =
       try values.decodeIfPresent(String.self, forKey: .inactiveColor)
       ?? defaults.inactiveColor
+    inactiveDim =
+      try values.decodeIfPresent(Double.self, forKey: .inactiveDim)
+      ?? defaults.inactiveDim
     captureEnabled =
       try values.decodeIfPresent(Bool.self, forKey: .captureEnabled)
       ?? defaults.captureEnabled

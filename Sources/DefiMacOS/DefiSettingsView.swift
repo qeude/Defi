@@ -899,6 +899,14 @@ private struct AppearanceSettingsView: View {
         )
           .settingsSearchTarget(.captureBorders)
       }
+      Section("Unfocused windows") {
+        SettingsNumberRow(
+          title: SettingsOption.unfocusedDim.title, value: model.config.decorations.borders.inactiveDim * 100,
+          range: 0...90, step: 5, unit: "%",
+          onChange: { model.set(table: "decorations.borders", key: "inactive_dim", value: String($0 / 100)) }
+        )
+          .settingsSearchTarget(.unfocusedDim)
+      }
       Section("Animation") {
         settingsToggle(
           model, title: SettingsOption.animations.title, table: "animation", key: "enabled",

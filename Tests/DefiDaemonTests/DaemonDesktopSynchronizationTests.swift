@@ -1,4 +1,5 @@
 import DefiConfig
+import DefiCore
 import DefiModel
 @testable import DefiRuntime
 import Foundation
@@ -359,5 +360,15 @@ struct DaemonDesktopSynchronizationTests {
     if moves { daemon.platform.targetFrames[settings.id] = Rect(x: 1_100, y: 100, width: 400, height: 300) }
     apply([editor, grown], focused: settings.id)
     #expect(daemon.floatingWindowFrames[settings.id] == grown.frame)
+  }
+
+  @Test func displayShowingAFullscreenSpaceGetsNoBorderOrDim() {
+    let id = { WindowID(rawValue: $0) }
+    let monitors: [WindowID: MonitorID] = [id(1): MonitorID(rawValue: 1), id(2): MonitorID(rawValue: 1),
+      id(3): MonitorID(rawValue: 2)]
+    let assignments = [1, 3].map { FrameAssignment(windowID: id($0), frame: Rect(x: 0, y: 0, width: 10, height: 10)) }
+    let shown = borderAssignmentsOutsideFullscreen(
+      assignments, fullscreenWindowIDs: [id(2)], monitorOf: { monitors[$0] })
+    #expect(shown.map(\.windowID) == [id(3)])
   }
 }

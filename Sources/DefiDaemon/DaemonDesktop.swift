@@ -264,7 +264,17 @@ extension Daemon {
     if timerFrequencyHz == 0 { scheduleIdleTick() }
     let liveWindowID = activelyResizedWindowID
     let borderConfig = config.decorations.borders
+    // A display showing a fullscreen Space draws no border or dim over it.
+    let fullscreenHiddenWindowIDs = Set(borderAssignments.map(\.windowID)).subtracting(
+      borderAssignmentsOutsideFullscreen(
+        borderAssignments,
+        fullscreenWindowIDs: platform.activeNativeFullscreenWindowIDs.subtracting(platform.returnedNativeFullscreenWindowIDs),
+        monitorOf: state.monitorID(containing:)
+      ).map(\.windowID))
     platform.enqueuePresentation {
+      // Hidden in place, not dropped: panels ordered in again appear only after macOS's
+      // Space slide back.
+      $0.presentHideBordersOnFullscreenDisplays(fullscreenHiddenWindowIDs)
       $0.presentUpdateWindowBorders(
         frames: borderAssignments,
         selectedWindowID: selectedWindowID,
@@ -337,3 +347,11 @@ func workspaceSwitchShift(from previous: WorkspaceID, to active: WorkspaceID,
   return (to > from ? -1 : 1) * height
 }
 
+/// Leaves out windows on a display that shows a native fullscreen Space.
+func borderAssignmentsOutsideFullscreen(
+  _ assignments: [FrameAssignment], fullscreenWindowIDs: Set<WindowID>, monitorOf: (WindowID) -> MonitorID?
+) -> [FrameAssignment] {
+  let fullscreenMonitorIDs = Set(fullscreenWindowIDs.compactMap(monitorOf))
+  guard !fullscreenMonitorIDs.isEmpty else { return assignments }
+  return assignments.filter { monitorOf($0.windowID).map { !fullscreenMonitorIDs.contains($0) } ?? true }
+}

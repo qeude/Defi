@@ -84,6 +84,10 @@ extension MacOSPlatform {
     var changed = Set<WindowID>()
     let live = borderManager.liveGeometryWindowIDs
     for observation in observations where live.contains(observation.windowID) {
+      // The public read-back of a moved window, for when WindowServer bounds are unavailable.
+      if borderManager.hasElevatedDim {
+        borderManager.lowerDims(overlapping: observation.frame, movedWindowID: observation.windowID)
+      }
       if snapshotEngine.acceptBorderObservation(observation) {
         changed.insert(observation.windowID)
       }

@@ -567,7 +567,8 @@ public final class OverviewController: NSObject {
         let screen = screen(for: monitorID),
         let scene = OverviewSurfaceScene(projection: projection,
           workspaceID: monitor.activeWorkspace, screen: screen, pictures: previews,
-          windows: snapshot.windows, cornerRadius: windowCornerRadius)
+          windows: snapshot.windows, cornerRadius: windowCornerRadius,
+          dim: borderStyle.inactiveDim, focusedWindowID: selection?.windowID)
       {
         let ids = Set(scene.nativeFrames.keys)
         // Zoomed with their own fresh picture: no recapture swaps it mid-zoom.
@@ -933,7 +934,7 @@ public final class OverviewController: NSObject {
     // close commits viewport offsets must not disable a safe visual handoff.
     let canZoomBack = self.canZoomBack
     for panel in closingPanels {
-      if canZoomBack && panel.hideSurfaceSceneIfUnchanged(duration: zoomBackDuration) { continue }
+      if canZoomBack && panel.hideSurfaceSceneIfUnchanged(duration: zoomBackDuration, focusedWindowID: selection?.windowID) { continue }
       let committedOffsets = commitScrollOffsets ? viewports[panel.monitorID]?.horizontalOffsets : nil
       if nativeExitCanZoom, animationsEnabled,
         !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
@@ -950,7 +951,8 @@ public final class OverviewController: NSObject {
             workspace.scrollOffset = committedOffsets?[workspace.id] ?? workspace.scrollOffset
             return workspace
           }(), viewport: viewport,
-            windows: Array(snapshot.windows.values), settings: layout), windows: snapshot.windows)
+            windows: Array(snapshot.windows.values), settings: layout), windows: snapshot.windows,
+          dim: borderStyle.inactiveDim, focusedWindowID: selection?.windowID)
       {
         panel.hidePreviewScene(scene, duration: 0.22)
         previewClosingCount += 1

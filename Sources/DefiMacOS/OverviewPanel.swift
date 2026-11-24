@@ -277,9 +277,10 @@ final class OverviewPanel {
     }
   }
 
-  func hideSurfaceSceneIfUnchanged(duration: TimeInterval) -> Bool {
+  func hideSurfaceSceneIfUnchanged(duration: TimeInterval, focusedWindowID: WindowID?) -> Bool {
     guard let surfaceScene, let screen = window.screen,
       surfaceScene.matchesNativeFrames(screen: screen) else { return false }
+    surfaceScene.focusedWindowID = focusedWindowID
     if openingTransitionInProgress {
       openingTransitionInProgress = false
       openingTransitionChanged?("interrupted(exit)")

@@ -320,9 +320,9 @@ final class RibbonProxyRenderer {
     panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
     panel.ignoresMouseEvents = true; panel.hidesOnDeactivate = false
     panel.isReleasedWhenClosed = false
-    // Just above ordinary windows: floating panels, the Dock and the menu bar
+    // Above ordinary windows and their dims: floating panels, the Dock and the menu bar
     // stay visible above the motion instead of blinking out.
-    panel.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue + 1)
+    panel.level = NSWindow.Level(rawValue: elevatedWindowDimLevel + 1)
     // The default panel fade on orderOut produced the earlier handoff ghosting.
     panel.animationBehavior = .none
     // No .fullScreenAuxiliary: window pictures must never cover a fullscreen Space.
@@ -374,7 +374,7 @@ final class RibbonProxyPresenter {
     for (display, presenter) in presenters where !displays.contains(display) {
       presenter.cancel("display-removed")
       presenter.borderRestore?.cancel()
-      setBordersHidden?(display, [])
+      setBordersHidden?(display, [], [], [])
       RibbonProxyStore.shared.setMoving(false, display)
       presenters[display] = nil
     }
@@ -393,13 +393,24 @@ final class RibbonProxyPresenter {
     }
   }
   static var borderStyle: WindowBorderStyle?
+  /// The window the native dim leaves lit, and the one before it: a motion's cards start
+  /// from what the desktop shows, which may already be the motion's own target.
+  static var dimFocus: (current: WindowID?, previous: WindowID?) = (nil, nil)
+  /// When the desktop's focus last moved: the previous window is still lit only while its dim fades in.
+  static var dimFocusChangedAt: CFTimeInterval = 0
+  static func setDimFocus(_ windowID: WindowID?) {
+    guard dimFocus.current != windowID else { return }
+    dimFocus = (windowID, dimFocus.current)
+    dimFocusChangedAt = CACurrentMediaTime()
+  }
   /// Native corner radii, so each card and its ring match the real window's.
   static var cornerRadii: [WindowID: Double] = [:]
   /// Hides, on the main thread, the native borders of the windows a display's overlay
   /// draws (none: shown again); the overlay draws its own.
-  static var setBordersHidden: (@Sendable (CGDirectDisplayID, Set<WindowID>) -> Void)?
-  /// Whether the native ring of this focused window is on screen.
-  static var nativeRingShown: (@Sendable (WindowID) async -> Bool)?
+  /// Windows the motion left out of view stay hidden until the plan drops them.
+  static var setBordersHidden: (@Sendable (CGDirectDisplayID, Set<WindowID>, Set<WindowID>, Set<WindowID>) -> Void)?
+  /// Whether the native ring of the focused window, and the dims of these windows, are on screen.
+  static var nativeBordersShown: (@Sendable (WindowID?, Set<WindowID>) async -> Bool)?
 
   let display: CGDirectDisplayID
   private init(display: CGDirectDisplayID) { self.display = display }
@@ -408,10 +419,9 @@ final class RibbonProxyPresenter {
     get { Self.cornerRadii }
     set { Self.cornerRadii = newValue }
   }
-  private var nativeRingShown: (@Sendable (WindowID) async -> Bool)? { Self.nativeRingShown }
   private var hiddenBorderIDs: Set<WindowID> = []
   private func setBordersHidden(_ hidden: Bool) {
-    Self.setBordersHidden?(display, hidden ? hiddenBorderIDs : [])
+    Self.setBordersHidden?(display, hidden ? hiddenBorderIDs : [], [], [])
   }
   private var selectedID: WindowID?
   private(set) var lastFallback = "none"
@@ -449,6 +459,10 @@ final class RibbonProxyPresenter {
   /// Outgoing windows of earlier motions not yet seen off screen: a quick next motion
   /// (a focus change right after a switch) must still wait for them before lifting.
   private var unsettledLeaving: Set<WindowID> = []
+  /// Windows this motion takes out of view: their native borders stay hidden past landing.
+  private var departingIDs: Set<WindowID> = []
+  /// Windows whose cards end on screen, moved or drawn still: their native dims come back at landing.
+  private var remainingIDs: Set<WindowID> = []
   /// Windows Defi managed while on screen: one gone from the layout closed, it is never a still.
   private var knownManaged: Set<WindowID> = []
   private var springStopped = true
@@ -564,6 +578,8 @@ final class RibbonProxyPresenter {
     let releasedPan = panRelease
     panRelease = nil
     generation &+= 1
+    let previousSelectedID = ribbonLitWindowID(
+      focus: Self.dimFocus, selected: selectedWindowID, sinceFocusChange: CACurrentMediaTime() - Self.dimFocusChangedAt)
     selectedID = selectedWindowID
     borderRestore?.cancel(); borderRestore = nil
     CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -637,10 +653,18 @@ final class RibbonProxyPresenter {
       if releasedPan != nil, current != nil, hypot(to.midX - from.midX, to.midY - from.midY) > hypot(rigid.x, rigid.y) {
         rigid = CGPoint(x: to.midX - from.midX, y: to.midY - from.midY)
       }
+      // The dim on screen as the motion takes over: the card's own, or the desktop's.
+      var dimFrom = ribbonCardDimStart(
+        lit: window.id == previousSelectedID, onScreen: ribbonProxyShows(from, in: layers.root.bounds),
+        inactiveDim: borderStyle?.inactiveDim ?? 0)
+      if presenting, !layer.isHidden, let dim = layer.sublayers?.first(where: { $0.name == "dim" }) {
+        dimFrom = (dim.presentation() ?? dim).opacity
+      }
       layer.removeAllAnimations()
       layer.isHidden = false
       for sublayer in layer.sublayers ?? [] { sublayer.removeAllAnimations() }
-      let styled = style(layer, for: window, selected: window.id == selectedWindowID)
+      let styled = style(layer, for: window, selected: window.id == selectedWindowID, dimFrom: dimFrom,
+        leaves: !ribbonProxyShows(to, in: layers.root.bounds))
       // A window parked for the whole motion has no border at rest: its sliver gets none here.
       if !ribbonProxyShows(from, in: layers.root.bounds), !ribbonProxyShows(to, in: layers.root.bounds) {
         layer.sublayers?.first { $0.name == "border" }?.isHidden = true
@@ -763,6 +787,8 @@ final class RibbonProxyPresenter {
       $0.id != draggedWindowID && $0.picture == nil && ribbonProxyLeaves(from: $0.from, to: $0.to, area: area)
     }.map(\.id)).union(unsettledLeaving.subtracting(expected.keys).subtracting([draggedWindowID].compactMap { $0 }))
     unsettledLeaving = leaving
+    departingIDs = Set(windows.filter { ribbonProxyLeaves(from: $0.from, to: $0.to, area: area) }.map(\.id))
+    remainingIDs = Set(windows.filter { windowProxyVisibleOverlap($0.to, area) > 2 }.map(\.id))
     let drawn = Set(shown.map(\.id) + [draggedWindowID].compactMap { $0 })
     if holds { stop = 0 }
     // The windows below redraw at their new place first; a long motion or a drag then
@@ -789,8 +815,11 @@ final class RibbonProxyPresenter {
       func cleared(_ id: WindowID) -> Bool {
         native[id].map { windowProxyVisibleOverlap($0, area) <= 2 } ?? true
       }
+      let polled = Set(expected.keys).union(leaving)
       while CACurrentMediaTime() < deadline {
-        native = ribbonProxyNativeFrames(Set(expected.keys).union(leaving))
+        // On the main thread: off it, SkyLight waits for the main thread's pending commit
+        // while holding the lock that commit needs, stalling both for half a second.
+        native = await MainActor.run { ribbonProxyNativeFrames(polled) }
         if ribbonProxyLanded(native: native, targets: expected), leaving.allSatisfy(cleared) {
           landed = true; break
         }
@@ -815,7 +844,7 @@ final class RibbonProxyPresenter {
         while CACurrentMediaTime() < coverDeadline, !late.allSatisfy(arrived) {
           try? await Task.sleep(for: .milliseconds(16))
           guard RibbonProxyStore.shared.currentMotion(display) == token else { return }
-          let frames = ribbonProxyNativeFrames(late)
+          let frames = await MainActor.run { ribbonProxyNativeFrames(late) }
           for id in late { native[id] = frames[id] }
         }
         finished = late.allSatisfy(arrived)
@@ -837,12 +866,12 @@ final class RibbonProxyPresenter {
         ribbonProxyLogger.notice("landing-timeout late=\(detail, privacy: .public)")
       }
       // A closed window macOS still animates out would show when the overlay lifts.
-      var onScreen = ribbonProxyOnScreenWindows()
+      var onScreen = await MainActor.run { ribbonProxyOnScreenWindows() }
       let closingDeadline = CACurrentMediaTime() + 0.3
       while CACurrentMediaTime() < closingDeadline, onScreen.contains(where: { closed.contains($0.id) }) {
         try? await Task.sleep(for: .milliseconds(16))
         guard RibbonProxyStore.shared.currentMotion(display) == token else { return }
-        onScreen = ribbonProxyOnScreenWindows()
+        onScreen = await MainActor.run { ribbonProxyOnScreenWindows() }
       }
       RibbonProxyStore.shared.onScreen = onScreen
       let stray = onScreen.filter {
@@ -1016,25 +1045,31 @@ final class RibbonProxyPresenter {
       }
       ribbonProxyLogger.notice("fade ms=\(Int((CACurrentMediaTime() - self.veiledSince) * 1_000))")
       ribbonProxyCommit(#line)
-      // The real rings come back under the cards. The focused one waits for native
-      // focus, so the cards stay until it shows: fading first left it without a ring.
+      // The real rings and dims come back under the cards. The focused ring waits for native
+      // focus, so the cards stay until it shows: fading first left it without a ring, and an
+      // arriving window without its dim flashed bright.
       borderRestore?.cancel(); borderRestore = nil
-      if bordersHidden { bordersHidden = false; setBordersHidden(false) }
+      if bordersHidden {
+        bordersHidden = false
+        Self.setBordersHidden?(display, [], hiddenBorderIDs.intersection(departingIDs), remainingIDs)
+      }
       // The ribbon is still: border tracking goes back to full rate.
       RibbonProxyStore.shared.setMoving(false, display)
       let ringID = selectedID.flatMap { id in
         windowLayers[id]?.sublayers?.contains { $0.name == "border" && !$0.isHidden } == true ? id : nil
       }
-      let nativeRingShown = nativeRingShown, easing = veiled.isEmpty ? CAMediaTimingFunctionName.easeOut : .easeInEaseOut
+      let nativeBordersShown = Self.nativeBordersShown, easing = veiled.isEmpty ? CAMediaTimingFunctionName.easeOut : .easeInEaseOut
+      let dimmed = (borderStyle?.inactiveDim ?? 0) > 0
+        ? remainingIDs.subtracting([Self.dimFocus.current].compactMap { $0 }) : []
       Task {
-        if let ringID, let nativeRingShown {
+        if ringID != nil || !dimmed.isEmpty, let nativeBordersShown {
           // shortcut: a slow app's focus beyond 300 ms still leaves a short gap.
           let held = CACurrentMediaTime(), deadline = held + 0.3
-          while generation == fadeToken, CACurrentMediaTime() < deadline, await !nativeRingShown(ringID) {
+          while generation == fadeToken, CACurrentMediaTime() < deadline, await !nativeBordersShown(ringID, dimmed) {
             try? await Task.sleep(for: .milliseconds(8))
           }
           ribbonProxyLogger.notice("ring-handoff ms=\(Int((CACurrentMediaTime() - held) * 1_000))")
-          // A few frames: the native ring is set, and can reach the screen a frame or two late.
+          // A few frames: the native borders are set, and can reach the screen a frame or two late.
           try? await Task.sleep(for: .milliseconds(40))
         }
         // A window opening during the handoff: lifting now would show macOS's placement.
@@ -1043,6 +1078,14 @@ final class RibbonProxyPresenter {
         }
         guard generation == fadeToken, let layers = self.layers else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        // The cards fade over the real windows: each dims as the desktop now does, so a card
+        // styled for a superseded selection cannot leave the focused window dark.
+        let focused = Self.dimFocus.current, inactiveDim = self.borderStyle?.inactiveDim ?? 0
+        for (id, layer) in self.windowLayers {
+          guard let dim = layer.sublayers?.first(where: { $0.name == "dim" }) else { continue }
+          dim.removeAllAnimations()
+          dim.opacity = id == focused ? 0 : inactiveDim
+        }
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 1; fade.toValue = 0; fade.duration = duration
         fade.timingFunction = CAMediaTimingFunction(name: easing)
@@ -1593,16 +1636,19 @@ final class RibbonProxyPresenter {
     icon.name = "icon"; icon.contentsGravity = .resizeAspect
     icon.shadowColor = CGColor(gray: 0, alpha: 1); icon.shadowOpacity = 0.4
     icon.shadowRadius = 10; icon.shadowOffset = CGSize(width: 0, height: -3)
+    // The native inactive dim, drawn on the card while the overlay stands in for the window.
+    let dim = CALayer()
+    dim.name = "dim"; dim.backgroundColor = CGColor(gray: 0, alpha: 1); dim.opacity = 0
     let border = CALayer()
     border.name = "border"
-    for sublayer in [shadow, content, icon, border] { layer.addSublayer(sublayer) }
+    for sublayer in [shadow, content, icon, dim, border] { layer.addSublayer(sublayer) }
     return layer
   }
 
   /// Styles the proxy; returns whether it shows a picture and whether the app
   /// icon is laid over it.
   private func style(_ layer: CALayer, for window: RibbonProxyWindow,
-    selected: Bool) -> (pictured: Bool, badged: Bool) {
+    selected: Bool, dimFrom: Float, leaves: Bool) -> (pictured: Bool, badged: Bool) {
     let sublayers = Dictionary((layer.sublayers ?? []).compactMap { sublayer in
       sublayer.name.map { ($0, sublayer) } }) { first, _ in first }
     if let own = window.picture {
@@ -1613,6 +1659,7 @@ final class RibbonProxyPresenter {
       setContents(sublayers["icon"], nil)
       // Its own picture already draws its selection, and the panel has no shadow.
       sublayers["border"]?.isHidden = true
+      sublayers["dim"]?.opacity = 0
       sublayers["shadow"]?.isHidden = true
       return (true, false)
     }
@@ -1636,6 +1683,21 @@ final class RibbonProxyPresenter {
     } ?? CGColor(gray: 0.16, alpha: 1)
     setContents(sublayers["icon"], badged ? WindowCaptureStore.shared.icon(window.processID) : nil)
     sublayers["icon"]?.opacity = 1
+    if let dim = sublayers["dim"] {
+      // Starts as the desktop shows the window, then darkens like the native dim: the card
+      // leaving focus stays lit while the next one slides in. One leaving the screen keeps
+      // its look, as a Space does: darkening it on its way out left a frame with no lit window.
+      let target = leaves ? dimFrom : selected ? 0 : borderStyle?.inactiveDim ?? 0
+      dim.opacity = target
+      if target > dimFrom {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = dimFrom
+        fade.toValue = target
+        fade.duration = windowDimFadeDuration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        ribbonProxyStartNow(fade, on: dim, key: "dim")
+      }
+    }
     if let border = sublayers["border"] {
       if let borderStyle, let appearance = overviewWindowBorderAppearance(isSelected: selected,
         style: borderStyle, scale: 1) {
@@ -1925,6 +1987,20 @@ func ribbonProxyStartNow(_ animation: CAAnimation, on layer: CALayer, key: Strin
   layer.add(animation, forKey: key ?? (animation as? CAPropertyAnimation)?.keyPath)
 }
 
+/// The window the desktop showed lit as a motion starts: the focus the motion leaves, or
+/// one that just lost focus and is still fading.
+func ribbonLitWindowID(
+  focus: (current: WindowID?, previous: WindowID?), selected: WindowID?, sinceFocusChange: CFTimeInterval
+) -> WindowID? {
+  if focus.current != selected { return focus.current }
+  return sinceFocusChange < windowDimFadeDuration ? focus.previous : nil
+}
+
+/// A card starts as the desktop shows its window: lit only if it was lit on screen.
+func ribbonCardDimStart(lit: Bool, onScreen: Bool, inactiveDim: Float) -> Float {
+  lit && onScreen ? 0 : inactiveDim
+}
+
 /// Velocity of the overlay spring `from` → `to`, launched at `velocity`, after `elapsed` seconds.
 func ribbonProxySpringVelocity(from: CGPoint, to: CGPoint, elapsed: TimeInterval,
   velocity: Double = 0) -> CGPoint {
@@ -2085,6 +2161,9 @@ func ribbonProxySublayerFrames(_ layer: CALayer, size: CGSize,
   (layer.sublayers ?? []).compactMap { sublayer in
     switch sublayer.name {
     case "content": return (sublayer, CGRect(origin: .zero, size: size))
+    case "dim":
+      sublayer.cornerRadius = layer.value(forKey: ribbonProxyRadiusKey) as? Double ?? 12
+      return (sublayer, CGRect(origin: .zero, size: size))
     // The shadow falls 6 pt below the window, like the system's.
     case "shadow":
       let pad = ribbonProxyShadowPad
@@ -2291,4 +2370,3 @@ final class RibbonProxyPointerTicker: NSObject {
     RibbonProxyPointerTrack.shared.move(to: CGPoint(x: location.x, y: top - location.y))
   }
 }
-

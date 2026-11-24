@@ -10,6 +10,8 @@ import QuartzCore
 final class OverviewPreviewClosingScene {
   let layer = CALayer()
   private let entries: [(CALayer, CGRect, CGRect)]
+  /// Inactive dims the closing zoom fades in, to the opacity the desktop draws on arrival.
+  private var arrivingDims: [(CALayer, Float)] = []
   private let cornerRadius: CGFloat
   // An empty workspace zooms its wallpaper card to the full, square-cornered screen.
   private let endsSquare: Bool
@@ -19,7 +21,7 @@ final class OverviewPreviewClosingScene {
 
   init?(projection: OverviewProjection, workspaceID: WorkspaceID, screen: NSScreen,
     previews: [WindowID: WindowPicture], wallpaper: NSImage? = nil, cornerRadius: Double = 12,
-    targets: [FrameAssignment], windows: [WindowID: Window]) {
+    targets: [FrameAssignment], windows: [WindowID: Window], dim: Float = 0, focusedWindowID: WindowID? = nil) {
     guard let workspace = projection.workspaces.first(where: { $0.workspaceID == workspaceID })
     else { return nil }
     self.cornerRadius = max(cornerRadius, 0)
@@ -85,6 +87,12 @@ final class OverviewPreviewClosingScene {
         image: previews[card.windowID]?.contents,
         size: source.size)
       Self.place(item, source: source, scale: screen.backingScaleFactor, cornerRadius: self.cornerRadius)
+      if dim > 0, card.windowID != focusedWindowID {
+        let shade = overviewDimLayer(size: source.size)
+        shade.opacity = 0
+        item.addSublayer(shade)
+        arrivingDims.append((shade, dim))
+      }
       layer.addSublayer(item)
       entries.append((item, source, target.offsetBy(dx: -origin.x, dy: -origin.y)))
     }
@@ -134,6 +142,15 @@ final class OverviewPreviewClosingScene {
       fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       fade.preferredFrameRateRange = overviewAnimationFrameRate
       dim.add(fade, forKey: "overview-preview-close")
+    }
+    for (shade, opacity) in arrivingDims {
+      shade.opacity = opacity
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = 0
+      fade.duration = duration
+      fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+      fade.preferredFrameRateRange = overviewAnimationFrameRate
+      shade.add(fade, forKey: "overview-preview-close")
     }
     CATransaction.commit()
   }

@@ -746,21 +746,31 @@ extension MacOSPlatform {
     let requested = Dictionary(native.filter { targets[$0.windowID] != nil }
       .map { ($0.windowID, $0.frame) }) { first, _ in first }
     if RibbonProxyPresenter.setBordersHidden == nil {
-      RibbonProxyPresenter.setBordersHidden = { [weak self] display, windowIDs in
+      RibbonProxyPresenter.setBordersHidden = { [weak self] display, windowIDs, departed, landed in
         DispatchQueue.main.async {
           MainActor.assumeIsolated {
             guard let self else { return }
             // Rings shown again sit on the real frames from their first frame: a ring kept
             // from before the motion (a new window's spawn place) flashed there once.
             if windowIDs.isEmpty { self.refreshWindowBorderGeometry(windowIDs: self.borderManager.liveGeometryWindowIDs) }
-            self.borderManager.setPresentationHidden(windowIDs, for: display)
+            self.borderManager.setPresentationHidden(windowIDs, for: display, departed: departed, landed: landed)
             // A display landing settles every border on real frames, others still moving included.
             if windowIDs.isEmpty { self.settleWindowBordersOnRealFrames() } else { self.borderSettleTask?.cancel() }
           }
         }
       }
-      RibbonProxyPresenter.nativeRingShown = { [weak self] windowID in
-        await MainActor.run { self?.borderManager.showsActiveRing(for: windowID) ?? true }
+      RibbonProxyPresenter.nativeBordersShown = { [weak self] ringWindowID, windowIDs in
+        await MainActor.run {
+          guard let self else { return true }
+          // Windows that get no dim: native fullscreen, hidden, closing, or of a hidden app.
+          let dimming = windowIDs.subtracting(self.presentedNativeFullscreenWindowIDs)
+            .subtracting(self.borderManager.fullscreenHiddenWindowIDs)
+            .subtracting(self.borderHiddenWindowIDs).filter { windowID in
+              !self.borderManager.isClosing(windowID)
+                && self.processIDs[windowID].map { NSRunningApplication(processIdentifier: $0)?.isHidden != true } ?? true
+            }
+          return self.borderManager.showsNativeBorders(ring: ringWindowID, dimming: dimming)
+        }
       }
     }
     return presenter.begin(windows: proxies, viewport: viewport,
@@ -791,12 +801,12 @@ extension MacOSPlatform {
       borderWindowIDs: monitor.windowIDs)
   }
 
-  /// Back from a full-screen Space, macOS draws parked windows on screen and the app puts
-  /// its window back where it likes: the screen keeps Defi's layout until the exit lands.
-  func holdWindowProxiesForFullscreenReturn() {
-    // The Space change lands before the desktop is back on screen.
-    guard !activeNativeFullscreenWindowIDs.isEmpty else { return }
-    // Arriving on a full-screen Space also lands here; the proxies would cover the window.
+  /// Whether every full-screen window has left full screen. The first time, the borders
+  /// hidden on its display show again: the desktop slides back before the Space change
+  /// lands, while the window's own frame events already come in.
+  @discardableResult
+  func noteNativeFullscreenReturn() -> Bool {
+    guard !activeNativeFullscreenWindowIDs.isEmpty else { return false }
     guard !activeNativeFullscreenWindowIDs.contains(where: { id in
       guard let element = elements[id] else { return false }
       var value: CFTypeRef?
@@ -804,7 +814,25 @@ extension MacOSPlatform {
       return AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [element]) {
         AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &value)
       } == .success && value as? Bool == true
-    }) else { return }
+    }) else {
+      // Back in full screen before a snapshot saw it leave: its display hides borders again.
+      returnedNativeFullscreenWindowIDs = []
+      return false
+    }
+    if returnedNativeFullscreenWindowIDs != activeNativeFullscreenWindowIDs {
+      returnedNativeFullscreenWindowIDs = activeNativeFullscreenWindowIDs
+      enqueuePresentation { $0.presentHideBordersOnFullscreenDisplays([]) }
+    }
+    return true
+  }
+
+  /// Back from a full-screen Space, macOS draws parked windows on screen and the app puts
+  /// its window back where it likes: the screen keeps Defi's layout until the exit lands.
+  func holdWindowProxiesForFullscreenReturn() {
+    // The Space change lands before the desktop is back on screen.
+    guard !activeNativeFullscreenWindowIDs.isEmpty else { return }
+    // Arriving on a full-screen Space also lands here; the proxies would cover the window.
+    guard noteNativeFullscreenReturn() else { return }
     // A snapshot on the full-screen Space sees none of the desk, so the windows come from
     // the ribbon, which stayed where the user left it.
     let all = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }

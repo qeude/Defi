@@ -58,6 +58,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case unfocusedBorderColor
   case captureBorders
   case borderPlacement
+  case unfocusedDim
   case overviewScale
   case overviewCornerRadius
   case windowPreviews
@@ -120,6 +121,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .unfocusedBorderColor: (.appearance, "Unfocused border color", "decorations.borders.inactive_color")
     case .captureBorders: (.appearance, "Include borders in screenshots", "decorations.borders.capture_enabled")
     case .borderPlacement: (.appearance, "Border placement", "decorations.borders.placement inside window outside window")
+    case .unfocusedDim: (.appearance, "Dim unfocused windows", "decorations.borders.inactive_dim dim darken inactive unfocused")
     case .overviewScale: (.appearance, "Scale", "overview.zoom scale")
     case .overviewCornerRadius: (.appearance, "Corner radius", "overview.window_corner_radius")
     case .windowPreviews: (.appearance, "Show optional window previews", "overview.window_previews screen recording")

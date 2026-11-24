@@ -1033,7 +1033,7 @@ sharing one app or window normally does not include Defi's overlay.
 
 ## `[decorations.borders]`
 
-Borders around visible tiled windows.
+Borders around visible tiled windows, and the dim over unfocused ones.
 
 ```toml
 [decorations.borders]
@@ -1042,6 +1042,7 @@ width = 4
 color = "#FFC099FF"
 inactive_enabled = false
 inactive_color = "#66C099FF"
+inactive_dim = 0
 capture_enabled = false
 placement = "outside"
 ```
@@ -1053,8 +1054,9 @@ placement = "outside"
 | `color` | `"#FFC099FF"` | `#AARRGGBB` or `0xAARRGGBB` | Focused-window border color. |
 | `inactive_enabled` | `false` | boolean | Also draws borders around the other visible tiled windows. |
 | `inactive_color` | `"#66C099FF"` | `#AARRGGBB` or `0xAARRGGBB` | Color of those borders. |
+| `inactive_dim` | `0` | `0` to `0.9` | Darkens every visible tiled window except the focused one by this much; `0` turns it off. Works with borders off. |
 | `placement` | `"outside"` | `"outside"`, `"inside"` | Draws the border just outside the window, or over its outer pixels. |
-| `capture_enabled` | `false` | boolean | Shows borders in screenshots and screen recordings, for debugging. |
+| `capture_enabled` | `false` | boolean | Shows borders and the dim in screenshots and screen recordings, for debugging. |
 
 Colors take exactly eight hex digits, alpha first, then red, green, and blue, in
 either case.
@@ -1065,8 +1067,8 @@ each side, drawn or not, and gaps start at the border's outer edge. With
 windows sit 8 points apart. Two 50% columns still fill the monitor exactly. With
 `"inside"`, the border covers the window's edge and takes no space.
 
-Parked, inactive-workspace, and floating windows never get borders. Borders
-ignore clicks and, with `capture_enabled = false`, need no Screen Recording
+Parked, inactive-workspace, and floating windows never get borders or the dim.
+Borders and the dim ignore clicks and, with `capture_enabled = false`, need no Screen Recording
 permission.
 
 <details>

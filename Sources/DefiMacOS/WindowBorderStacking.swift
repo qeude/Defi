@@ -153,3 +153,31 @@ func windowBorderStacking(
     upperBoundLevel: upperBound?.layer
   )
 }
+
+/// Just above every normal window: an app brought forward cannot cover a dim there, and
+/// floating windows and the motion overlay stay above it.
+let elevatedWindowDimLevel = NSWindow.Level.normal.rawValue + 1
+
+/// The dimmed windows no other window overlaps, whose dim can sit at `elevatedWindowDimLevel`.
+/// An overlapped one keeps its dim just above its own window.
+func windowDimElevations(
+  dimmed: Set<WindowID>,
+  entries: [WindowStackEntry],
+  ownProcessID: pid_t,
+  knownWindowIDs: Set<WindowID>
+) -> Set<WindowID> {
+  let windows = entries.filter {
+    (NSWindow.Level.normal.rawValue...elevatedWindowDimLevel).contains($0.layer)
+      && ($0.processID != ownProcessID || knownWindowIDs.contains($0.windowID))
+  }
+  return dimmed.filter { windowID in
+    guard let target = windows.first(where: { $0.windowID == windowID }),
+      target.layer == NSWindow.Level.normal.rawValue
+    else { return false }
+    return !windows.contains {
+      $0.windowID != windowID
+        && $0.frame.width * $0.frame.height >= minimumBorderOccludingWindowArea
+        && targetIntersects($0.frame, monitor: target.frame)
+    }
+  }
+}

@@ -146,6 +146,7 @@ struct ConfigTests {
     ("[overview]\nwindow_corner_radius = 65", .invalidValue("overview.window_corner_radius")),
     ("[decorations.borders]\nwidth = 65", .invalidValue("decorations.borders.width")),
     ("[decorations.borders]\ncolor = \"ffffff\"", .invalidValue("decorations.borders.color")),
+    ("[decorations.borders]\ninactive_dim = 0.95", .invalidValue("decorations.borders.inactive_dim")),
     ("[input]\nfocus_follows_mouse_delay_ms = -1", .invalidValue("input.focus_follows_mouse_delay_ms")),
     ("[input]\nfocus_follows_mouse_max_scroll_amount = -0.1",
       .invalidValue("input.focus_follows_mouse_max_scroll_amount")),
@@ -211,6 +212,7 @@ struct ConfigTests {
       color = "#ff33aaff"
       inactive_enabled = true
       inactive_color = "0x4433aaff"
+      inactive_dim = 0.25
       capture_enabled = true
 
       [input]
@@ -267,6 +269,8 @@ struct ConfigTests {
     #expect(config.overview.windowCornerRadius == 18)
     #expect(config.decorations.borders.width == 3.5)
     #expect(config.decorations.borders.inactiveEnabled)
+    #expect(config.decorations.borders.inactiveDim == 0.25)
+    #expect(Config().decorations.borders.inactiveDim == 0)
     #expect(config.decorations.borders.captureEnabled)
     #expect(parseBorderColor(config.decorations.borders.color) == 0xff33_aaff)
     #expect(parseBorderColor(config.decorations.borders.inactiveColor) == 0x4433_aaff)

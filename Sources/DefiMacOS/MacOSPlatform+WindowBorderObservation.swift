@@ -66,6 +66,10 @@ extension MacOSPlatform {
       let previousWindowCount = processID.flatMap {
         self?.applicationWindowCounts[$0]
       }
+      // An app hidden (Command-H) or shown again: its windows' borders and dims follow at once.
+      if kind == .application {
+        self?.enqueuePresentation { $0.presentRefreshWindowBorders() }
+      }
       if kind == .space {
         NavigationActor.enqueue { [weak self] in self?.holdWindowProxiesForFullscreenReturn() }
       }
@@ -171,6 +175,14 @@ extension MacOSPlatform {
       if kind == .focus, let processID, let self,
         let activation = userInputTracker.snapshot.applicationActivation, activation.processID == processID {
         let elements = UncheckedSendable(value: self.elements), coordinator = frameCoordinator
+        // WindowServer has already ordered the activated app's key window in front, and answers
+        // without the app, which can spend its whole read timeout activating.
+        // Its front window only: a new window Defi does not know yet must not hand over to an
+        // older one, possibly on another workspace.
+        // On the main thread: off it, SkyLight waits for the main thread's pending commit
+        // while holding the lock that commit needs, stalling both for half a second.
+        let front = ribbonProxyOnScreenWindows().first { $0.processID == processID && $0.layer == 0 }
+          .flatMap { elements.value[$0.id] == nil ? nil : $0.id }
         DispatchQueue.global(qos: .userInteractive).async {
           func known(_ element: AXUIElement?) -> WindowID? {
             element.flatMap { element in elements.value.first(where: { CFEqual($0.value, element) })?.key }
@@ -178,12 +190,6 @@ extension MacOSPlatform {
           // A slow app's focused window lags its activation; one window leaves no
           // ambiguity, as in the snapshot's own fallback, so the ribbon still animates.
           let started = ProcessInfo.processInfo.systemUptime
-          // WindowServer has already ordered the activated app's key window in front, and answers
-          // without the app, which can spend its whole read timeout activating.
-          // Its front window only: a new window Defi does not know yet must not hand over to an
-          // older one, possibly on another workspace.
-          let front = ribbonProxyOnScreenWindows().first { $0.processID == processID && $0.layer == 0 }
-            .flatMap { elements.value[$0.id] == nil ? nil : $0.id }
           let focused = front == nil ? applicationFocusedWindow(processID) : nil
           let focusedID = front ?? known(focused)
           let windowID = focusedID ?? known(applicationSingleWindow(processID))
@@ -208,6 +214,17 @@ extension MacOSPlatform {
       }
       if kind == .frame {
         if let windowID {
+          NavigationActor.enqueue { [weak self] in
+            guard let self, activeNativeFullscreenWindowIDs.contains(windowID),
+              !returnedNativeFullscreenWindowIDs.contains(windowID) else { return }
+            noteNativeFullscreenReturn()
+          }
+        }
+        if let windowID {
+          if let self, borderManager.hasElevatedDim,
+            let frame = borderBoundsProvider.frame(for: windowID) ?? latestObservedFrames[windowID] {
+            borderManager.lowerDims(overlapping: frame, movedWindowID: windowID)
+          }
           self?.enqueueBorderGeometry([windowID], requiresNativeRead: true)
           self?.frameCoordinator.requestInitialSettlementVerification(windowID: windowID)
         }
@@ -391,19 +408,35 @@ extension MacOSPlatform {
           monitorFrames: monitorFrames, knownWindowIDs: knownWindowIDs
         )
         refreshWindowBorderStacking(request, stacking: stacking)
+        refreshWindowDimElevations(inventory.filter(\.isOnscreen).map {
+          WindowStackEntry(
+            windowID: WindowID(rawValue: UInt64($0.id)), processID: $0.processID, layer: $0.layer, frame: $0.frame)
+        })
         return
       }
       // Off-main window-list reads contend with main-thread AppKit border geometry inside
       // SkyLight's CA transaction sync and stall the main thread and the ribbon ~0.5 s.
+      // With dims, one full read serves both the ring's stacking and the dims' elevation.
+      let onScreen = borderManager.dimCandidateWindowIDs.isEmpty ? nil : copyOnScreenWindowStackEntries()
       let stacking = copyWindowBorderStacking(
         targetWindowID: request.windowID,
         targetProcessID: targetProcessID,
         targetFrame: targetFrame,
         monitorFrames: monitorFrames,
-        knownWindowIDs: knownWindowIDs
+        knownWindowIDs: knownWindowIDs,
+        onScreen: onScreen
       )
       refreshWindowBorderStacking(request, stacking: stacking)
+      refreshWindowDimElevations(onScreen ?? [])
     }
+  }
+
+  private func refreshWindowDimElevations(_ entries: [WindowStackEntry]) {
+    let candidates = borderManager.dimCandidateWindowIDs
+    guard !candidates.isEmpty else { return borderManager.setDimElevations([]) }
+    borderManager.setDimElevations(windowDimElevations(
+      dimmed: candidates, entries: entries, ownProcessID: ProcessInfo.processInfo.processIdentifier,
+      knownWindowIDs: Set(elements.keys)))
   }
 
   private func refreshWindowBorderStacking(
@@ -440,8 +473,13 @@ extension MacOSPlatform {
     }
     borderHiddenWindowIDs = lastHiddenWindowIDs
     borderStyle = WindowBorderStyle(config: config)
-    let style = borderStyle
-    NavigationActor.enqueue { RibbonProxyPresenter.borderStyle = style }
+    let style = borderStyle, shownSelection = borderSelectedWindowID
+    NavigationActor.enqueue {
+      RibbonProxyPresenter.borderStyle = style
+      RibbonProxyPresenter.setDimFocus(shownSelection)
+    }
+    watchBorderAccessibility()
+    guard !bordersLackAccessibility else { return }
     presentRefreshWindowBorders()
     if let ownedWindowID = borderManager.ownedSurfaceWindowID {
       borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
@@ -451,11 +489,18 @@ extension MacOSPlatform {
     presentRevealWindowBordersIfReady()
   }
 
+  public func presentHideBordersOnFullscreenDisplays(_ windowIDs: Set<WindowID>) {
+    borderManager.setFullscreenHidden(windowIDs)
+  }
+
   public func presentStageWindowBorderSelection(_ selectedWindowID: WindowID?) {
     let selectedWindowID = selectedWindowID.flatMap {
       presentedNativeFullscreenWindowIDs.contains($0) ? nil : $0
     }
     presentedSelectedWindowID = selectedWindowID
+    // A refresh before the daemon's update, as on an app activation, plans this selection.
+    borderSelectedWindowID = selectedWindowID
+    NavigationActor.enqueue { RibbonProxyPresenter.setDimFocus(selectedWindowID) }
     frameCoordinator.updateLiveBorderWindowID(selectedWindowID)
     let selectedFrame = selectedWindowID.flatMap { windowID in
       resolvedBorderFrame(for: windowID)
@@ -505,7 +550,25 @@ extension MacOSPlatform {
     return false
   }
 
+  /// Checks once a second that Accessibility is still granted: revoked, focus changes stop
+  /// arriving and the dims would stay on whatever windows they covered.
+  private func watchBorderAccessibility() {
+    guard borderTrustTimer == nil else { return }
+    let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated { self?.applyBorderAccessibility(trusted: AXIsProcessTrusted()) }
+    }
+    borderTrustTimer = timer
+    RunLoop.main.add(timer, forMode: .common)
+  }
+
+  func applyBorderAccessibility(trusted: Bool) {
+    guard trusted == bordersLackAccessibility else { return }
+    bordersLackAccessibility = !trusted
+    if trusted { presentRefreshWindowBorders() } else { presentHideWindowBorders() }
+  }
+
   public func presentRefreshWindowBorders() {
+    guard !bordersLackAccessibility else { return }
     // A selected window that is no longer on screen (minimized, hidden, or
     // parked) must never keep an overlay drawn over whatever is displayed.
     if let active = borderManager.activeWindowID,
@@ -560,8 +623,12 @@ extension MacOSPlatform {
       refreshWindowBorderGeometry(windowIDs: liveGeometryWindowIDs)
       return
     }
+    let hiddenProcessIDs = Set(Set(borderFrames.compactMap { processIDs[$0.windowID] }).filter {
+      NSRunningApplication(processIdentifier: $0)?.isHidden == true
+    })
     let plan = planWindowBorders(
-      frames: borderFrames,
+      frames: hiddenProcessIDs.isEmpty
+        ? borderFrames : borderFrames.filter { processIDs[$0.windowID].map { !hiddenProcessIDs.contains($0) } ?? true },
       selectedWindowID: borderSelectedWindowID,
       hiddenWindowIDs: borderHiddenWindowIDs,
       monitorFrames: lastMonitorFrames,
