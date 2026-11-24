@@ -224,6 +224,42 @@ struct ScrollGestureTests {
     #expect(travel != 0)
   }
 
+  /// In the Overview the strip's swipe scrolls the Overview and never pans the strip behind it.
+  @MainActor
+  @Test(.enabled(if: TrackpadGesture.freeAxis != nil, "needs a trackpad with a three-finger axis left free"))
+  func `Three fingers in the Overview scroll it, not the strip`() throws {
+    let trackpad = try #require(TrackpadGesture()), vertical = try #require(TrackpadGesture.freeAxis as Bool?)
+    let pans = Mutex<[ScrollGestureAction]>([]), scrolls = Mutex<[OverviewSwipeEvent]>([])
+    let monitor = InputMonitor(
+      bindings: [:], userInputTracker: UserInputTracker(), pointerMotionTracker: PointerMotionTracker(),
+      tracksPointerWindowTransitions: false, scrollGestureModifierBits: CGEventFlags.maskControl.rawValue,
+      scrollGestureFingers: 3, scrollGestureSpeed: 2,
+      deliverOverviewSwipe: { swipe in scrolls.withLock { $0.append(swipe) } },
+      deliverScrollGesture: { action in pans.withLock { $0.append(action) } },
+      deliver: { _ in }, deliverOverview: { _ in }, deliverPointerMotion: { _ in }, tapReenabled: { _ in })
+    monitor.setOverviewModeEnabled(true)
+    let type = try #require(CGEventType(rawValue: gestureEventType))
+    nonisolated(unsafe) let events = trackpad.swipe(vertical: vertical)
+    let done = Mutex(false)
+    let tap = Thread {
+      for event in events { _ = monitor.handle(type: type, event: event) }
+      let deadline = Date().addingTimeInterval(1)
+      RunLoop.current.add(Timer(timeInterval: 1, repeats: false) { _ in }, forMode: .common)
+      while Date() < deadline { RunLoop.current.run(until: Date() + 0.01) }
+      done.withLock { $0 = true }
+    }
+    tap.start()
+    while !done.withLock({ $0 }) { RunLoop.main.run(until: Date() + 0.01) }
+    #expect(pans.withLock { $0 }.isEmpty)
+    let travel = scrolls.withLock { $0 }.compactMap { event -> (Double, Double)? in
+      guard case .scrolled(let dx, let dy) = event else { return nil }
+      return (dx, dy)
+    }
+    #expect(!travel.isEmpty)
+    // The modifier is not held, and the axis stays locked.
+    #expect(travel.allSatisfy { vertical ? $0.0 == 0 && $0.1 != 0 : $0.1 == 0 && $0.0 != 0 })
+  }
+
   /// A finger slipping off for a moment keeps one pan; a fourth finger landing after three is
   /// another gesture, such as macOS's, and the strip leaves it alone.
   @MainActor
@@ -296,6 +332,7 @@ struct ScrollGestureTests {
         case .began(let opening): "began(\(opening))"
         case .changed: "changed"
         case .ended(let commit): "ended(\(commit))"
+        case .scrolled: "scrolled"
         }
         seen.withLock { $0.append(name) }
       },
@@ -386,6 +423,19 @@ struct ScrollGestureTests {
     var recognizer = ScrollGestureRecognizer()
     #expect(!recognizer.handle(touch(1, at: 0), enabled: false).consumed)
     #expect(!recognizer.handle(ScrollGestureInput(lineY: -1, modifierHeld: true), enabled: false).consumed)
+  }
+
+  @Test
+  func `In the Overview the strip swipe scrolls on its locked axis, without the modifier, unless macOS owns it`() {
+    var swipe = OverviewStripSwipe()
+    let free = (horizontal: false, vertical: false)
+    #expect(swipe.update(touch(1, held: false, at: 0), system: free) == nil)
+    #expect(swipe.update(touch(2, dx: 3, dy: -20, held: false, at: 0.01), system: free) == nil)
+    #expect(swipe.update(touch(2, dx: 50, dy: -30, held: false, at: 0.02), system: free).map { [$0.dx, $0.dy] } == [0, -30])
+    #expect(swipe.update(touch(4, at: 0.03), system: free) == nil)
+    #expect(swipe.update(touch(1, at: 1), system: (horizontal: true, vertical: false)) == nil)
+    #expect(swipe.update(touch(2, dx: -40, at: 1.01), system: free) == nil)
+    #expect(swipe.update(touch(2, dx: -40, at: 1.02), system: free) == nil)
   }
 
   @Test

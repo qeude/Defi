@@ -56,6 +56,7 @@ public final class HotKeyManager {
   private let scrollGestureHandler: ScrollGestureHandler?
   private let scrollGestureModifierBits: UInt64
   private let scrollGestureFingers: Int
+  private let scrollGestureSpeed: Double
   private let overviewGestureFingers: Int?
   private let userInputTracker: UserInputTracker
   private let displayPointerRouter: DisplayPointerRouter?
@@ -124,6 +125,7 @@ public final class HotKeyManager {
       aliases: config.modifierAliases
     ).modifierBits
     scrollGestureFingers = config.input.scrollGestureFingers
+    scrollGestureSpeed = config.input.scrollGestureSpeed
     overviewGestureFingers = config.input.overviewGestureActive ? config.input.overviewGestureFingers : nil
     let gestureModifierBits = config.scrollGestureModifier == "none" ? 0 : try? Key(
       accelerator: "\(config.scrollGestureModifier)-a",
@@ -210,6 +212,7 @@ public final class HotKeyManager {
       },
       scrollGestureModifierBits: scrollGestureHandler == nil ? nil : scrollGestureModifierBits,
       scrollGestureFingers: scrollGestureFingers,
+      scrollGestureSpeed: scrollGestureSpeed,
       overviewGestureFingers: overviewGestureFingers,
       // Off the navigation queue: the Overview follows the fingers while layout work waits.
       deliverOverviewSwipe: overviewSwipeHandler,
@@ -378,6 +381,8 @@ final class InputMonitor: @unchecked Sendable {
   /// Two for scroll events; three or four for swipes read from the touches.
   private let scrollGestureFingers: Int
   private var fingerSwipe: FingerSwipe
+  private var overviewStripSwipe = OverviewStripSwipe()
+  private let scrollGestureSpeed: Double
   private var overviewSwipe: OverviewSwipe?
   private let deliverOverviewSwipe: @Sendable (OverviewSwipeEvent) -> Void
   private var stripSwipeHeld = false
@@ -397,6 +402,7 @@ final class InputMonitor: @unchecked Sendable {
     deliverCheatsheet: @escaping @Sendable (CheatsheetInput) -> Void = { _ in },
     scrollGestureModifierBits: UInt64? = nil,
     scrollGestureFingers: Int = 2,
+    scrollGestureSpeed: Double = 1,
     overviewGestureFingers: Int? = nil,
     deliverOverviewSwipe: @escaping @Sendable (OverviewSwipeEvent) -> Void = { _ in },
     deliverScrollGesture: @escaping @Sendable (ScrollGestureAction) -> Void = { _ in },
@@ -416,6 +422,7 @@ final class InputMonitor: @unchecked Sendable {
     self.scrollGestureModifierBits = scrollGestureModifierBits
     self.deliverScrollGesture = deliverScrollGesture
     self.scrollGestureFingers = scrollGestureFingers
+    self.scrollGestureSpeed = scrollGestureSpeed
     fingerSwipe = FingerSwipe(fingers: scrollGestureFingers)
     overviewSwipe = overviewGestureFingers.map(OverviewSwipe.init(fingers:))
     self.deliverOverviewSwipe = deliverOverviewSwipe
@@ -801,7 +808,8 @@ final class InputMonitor: @unchecked Sendable {
       let announced = lock.withLock { announcedModifierBits }
       stripSwipeHeld = ScrollGestureInput(event, modifierBits: bits, announcedModifierBits: announced).modifierHeld
     }
-    return (bits == 0 || stripSwipeHeld) && fingerSwipe.takesScroll(scrollPhase: scrollPhase, momentumPhase: momentumPhase)
+    let overview = lock.withLock { overviewModeEnabled }
+    return (bits == 0 || stripSwipeHeld || overview) && fingerSwipe.takesScroll(scrollPhase: scrollPhase, momentumPhase: momentumPhase)
   }
 
   /// Runs on the tap thread for every scroll: it must stay cheap.
@@ -819,12 +827,19 @@ final class InputMonitor: @unchecked Sendable {
     modifierBits: UInt64, announcedModifierBits: UInt64) {
     guard let input = ScrollGestureInput(gesture: event, touches: touches, aspect: aspect, swipe: &fingerSwipe,
       modifierBits: modifierBits, announcedModifierBits: announcedModifierBits) else { return }
+    // The Overview scrolls with the strip's swipe, so one hand moves both.
+    if lock.withLock({ overviewModeEnabled }) {
+      if let travel = overviewStripSwipe.update(input, system: systemTrackpadSwipes(fingers: scrollGestureFingers)) {
+        deliverOverviewSwipe(.scrolled(dx: travel.dx * scrollGestureSpeed, dy: travel.dy * scrollGestureSpeed))
+      }
+    }
     // The Trackpad settings may have changed since the last swipe Defi could take.
     if input.phase == 1, input.modifierHeld {
       let system = systemTrackpadSwipes(fingers: scrollGestureFingers)
       scrollGestures.horizontal = !system.horizontal
       scrollGestures.vertical = !system.vertical
     }
+    // Disabled while the Overview is open: it only ends a strip pan the Overview opened over.
     _ = route(input)
   }
 

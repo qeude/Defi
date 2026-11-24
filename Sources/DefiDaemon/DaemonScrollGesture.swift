@@ -51,12 +51,6 @@ struct ScrollPan {
   }
 }
 
-/// Niri moves the view one working-area width per 1,200 touchpad units, and one workspace per
-/// 300. macOS scroll points are larger: one width per 1,500 points follows the fingers about
-/// 1:1 on a 1,512-point laptop display, and the same finger travel crosses the same share of
-/// every display.
-let scrollPanWidthTravel = 1_500.0
-let scrollPanWorkspaceTravel = scrollPanWidthTravel / 4
 /// How far a released flick carries, as seconds of its speed: Niri's deceleration (0.997/ms).
 let scrollPanProjection = -1 / (1_000 * log(0.997))
 

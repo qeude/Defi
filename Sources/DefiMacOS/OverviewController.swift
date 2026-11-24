@@ -106,12 +106,7 @@ func overviewViewportAfterScroll(
     guard let horizontalWorkspaceID, let maximumHorizontalOffset else {
       return viewport
     }
-    let workspaceHeight = overviewWorkspaceStride(
-      boundsHeight: viewSize.height,
-      zoom: zoom
-    ) - 28
-    let contentScale = workspaceHeight / max(viewSize.height, 1)
-    let projectedPointsPerScrollUnit = viewSize.width * contentScale
+    let projectedPointsPerScrollUnit = overviewProjectedWidth(viewSize: viewSize, zoom: zoom)
     let start = viewport.horizontalOffsets[horizontalWorkspaceID, default: 0]
     viewport.horizontalOffsets[horizontalWorkspaceID] = overviewHorizontalOffset(
       start - delta.x * deltaScale / max(projectedPointsPerScrollUnit, 1),
@@ -122,6 +117,19 @@ func overviewViewportAfterScroll(
     break
   }
   return viewport
+}
+
+/// The width a strip's viewport takes in the Overview.
+func overviewProjectedWidth(viewSize: NSSize, zoom: Double) -> Double {
+  let workspaceHeight = overviewWorkspaceStride(boundsHeight: viewSize.height, zoom: zoom) - 28
+  return viewSize.width * workspaceHeight / max(viewSize.height, 1)
+}
+
+/// Overview scroll points for a strip swipe's travel: as many columns and workspaces as on the strip.
+func overviewScrollDelta(travelX: Double, travelY: Double, viewSize: NSSize, zoom: Double) -> NSPoint {
+  NSPoint(
+    x: travelX * overviewProjectedWidth(viewSize: viewSize, zoom: zoom) / scrollPanWidthTravel,
+    y: travelY * overviewWorkspaceStride(boundsHeight: viewSize.height, zoom: zoom) / scrollPanWorkspaceTravel)
 }
 
 /// Clamps a strip offset to `0...maximum`, except that a strip already outside that
@@ -844,6 +852,14 @@ public final class OverviewController: NSObject {
   /// A trackpad swipe drives the opening or closing zoom while its fingers rest.
   public func handleSwipe(_ event: OverviewSwipeEvent) {
     switch event {
+    case .scrolled(let dx, let dy):
+      let mouse = NSEvent.mouseLocation
+      guard let panel = panels.values.first(where: { $0.window.frame.contains(mouse) }) else { return }
+      let view = panel.view
+      overviewView(view,
+        scrolled: overviewScrollDelta(travelX: dx, travelY: dy, viewSize: view.bounds.size, zoom: overviewZoom),
+        hasPreciseScrollingDeltas: true,
+        at: view.convert(panel.window.convertPoint(fromScreen: mouse), from: nil))
     case .began(let opening):
       for monitorID in panels.keys { recordOpeningTransition("swipe(\(opening ? "open" : "close"))", monitorID: monitorID) }
       swipe = OverviewSwipeState(opening: opening)
