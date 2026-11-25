@@ -15,8 +15,9 @@ struct MenuBarColumnsLayout: Equatable {
   var frame: CGRect
 
   func windowID(atX x: CGFloat) -> UInt64? {
-    bars.min { abs($0.rect.midX - x) < abs($1.rect.midX - x) }
-      .flatMap { abs($0.rect.midX - x) <= $0.rect.width / 2 + menuBarColumnGap ? $0.windowID : nil }
+    bars.first { $0.rect.minX <= x && x <= $0.rect.maxX }?.windowID
+      ?? bars.min { abs($0.rect.midX - x) < abs($1.rect.midX - x) }
+        .flatMap { abs($0.rect.midX - x) <= $0.rect.width / 2 + menuBarColumnGap ? $0.windowID : nil }
   }
 }
 
