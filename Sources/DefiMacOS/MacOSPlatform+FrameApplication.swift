@@ -103,6 +103,7 @@ extension MacOSPlatform {
         || effectiveHiddenWindowIDs.contains($0.windowID) != hiddenWindowIDs.contains($0.windowID))
     }.map(\.windowID))
     let coordinatorWasBusy = frameCoordinator.isBusy
+    let unwrittenWindowIDs = coordinatorWasBusy ? frameCoordinator.pendingWindowIDs : []
     var writeIntents: [WindowID: (position: Bool, size: Bool)] = [:]
     var referenceFrames: [WindowID: Rect] = [:]
     let now = snapshotEngine.discoveryNow
@@ -114,6 +115,9 @@ extension MacOSPlatform {
         ),
         previousTarget: previousTargetFrames[assignment.windowID],
         prefersCompletedPosition: horizontalRibbonNavigation,
+        // Only a kept target: a new target already differs from the previous one.
+        previousTargetUnwritten: unwrittenWindowIDs.contains(assignment.windowID)
+          && previousTargetFrames[assignment.windowID] == assignment.frame,
         nativeReference: latestObservedFrames[assignment.windowID]
           ?? lastSnapshotWindows.first(where: { $0.id == assignment.windowID })?.frame
       )
@@ -389,7 +393,7 @@ extension MacOSPlatform {
     if coordinatorWasBusy {
       // Keep superseded writes as readiness debt until fresh observations
       // confirm their targets; the next layout may omit equal optimistic frames.
-      pendingFrameDebtWindowIDs.formUnion(frameCoordinator.pendingWindowIDs)
+      pendingFrameDebtWindowIDs.formUnion(unwrittenWindowIDs)
     }
     let commandSuccessfulWrite:
       (@Sendable (WindowID, TimeInterval) -> Void)?

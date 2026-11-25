@@ -109,17 +109,23 @@ func frameApplicationReference(
   completedPosition: CGPoint?,
   previousTarget: Rect?,
   prefersCompletedPosition: Bool = false,
+  previousTargetUnwritten: Bool = false,
   nativeReference: @autoclosure () -> Rect?
 ) -> Rect? {
   if let pendingCorrection {
     return pendingCorrection
   }
-  if prefersCompletedPosition, let completedPosition, let previousTarget {
-    return Rect(
-      x: completedPosition.x, y: completedPosition.y,
-      width: previousTarget.width, height: previousTarget.height)
+  guard var reference = previousTarget else { return nativeReference() }
+  // A position write still queued or running can be superseded: its target is not where
+  // the window is. Superseded size writes survive in the coordinator, so the size stays.
+  if prefersCompletedPosition || previousTargetUnwritten, let completedPosition {
+    reference.x = completedPosition.x
+    reference.y = completedPosition.y
+  } else if previousTargetUnwritten, let observed = nativeReference() {
+    reference.x = observed.x
+    reference.y = observed.y
   }
-  return previousTarget ?? nativeReference()
+  return reference
 }
 
 func frameCorrectionsPreservingDebt(

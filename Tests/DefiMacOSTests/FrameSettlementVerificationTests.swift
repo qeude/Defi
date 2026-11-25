@@ -421,6 +421,46 @@ struct FrameSettlementVerificationTests {
     #expect(!engine.pendingFrameDebtWindowIDs.contains(id))
   }
 
+  /// A window entering the strip whose queued write a newer layout superseded keeps
+  /// that target; the newer layout must still move it instead of leaving it parked.
+  @MainActor @Test func supersededWriteIsReissuedWhenTheNextLayoutKeepsItsTarget() async {
+    let (platform, reads, id, _) = await fixture()
+    defer { withExtendedLifetime(platform) {} }
+    let sibling = WindowID(rawValue: 4102)
+    let entered = Rect(x: 760, y: 37, width: 752, height: 902)
+    platform.frameCoordinator.running = true
+    await platform.apply([FrameAssignment(windowID: id, frame: entered),
+      FrameAssignment(windowID: sibling, frame: Rect(x: 1520, y: 37, width: 752, height: 902))],
+      positionsOnly: true, updateVisibility: false)
+    await platform.apply([FrameAssignment(windowID: id, frame: entered),
+      FrameAssignment(windowID: sibling, frame: Rect(x: 1530, y: 37, width: 752, height: 902))],
+      positionsOnly: true, updateVisibility: false)
+    platform.frameCoordinator.drain()
+    #expect(reads.windowsByHash.values.first { $0.id == id }?.frame == entered)
+  }
+
+  /// A layout turning back before the queued write ran must still write the target it returns to.
+  @MainActor @Test func reversalBeforeAQueuedWriteRunsWritesTheReturnTarget() async {
+    let (platform, reads, id, _) = await fixture()
+    defer { withExtendedLifetime(platform) {} }
+    let sibling = Rect(x: 1520, y: 37, width: 752, height: 902)
+    let shown = Rect(x: 760, y: 37, width: 752, height: 902)
+    let away = Rect(x: 8, y: 37, width: 752, height: 902)
+    platform.frameCoordinator.running = true
+    await platform.apply([FrameAssignment(windowID: id, frame: shown),
+      FrameAssignment(windowID: WindowID(rawValue: 4102), frame: sibling)],
+      positionsOnly: true, updateVisibility: false)
+    platform.frameCoordinator.drain()
+    platform.frameCoordinator.running = true
+    for frame in [away, shown] {
+      await platform.apply([FrameAssignment(windowID: id, frame: frame),
+        FrameAssignment(windowID: WindowID(rawValue: 4102), frame: sibling)],
+        positionsOnly: true, updateVisibility: false)
+    }
+    platform.frameCoordinator.drain()
+    #expect(reads.windowsByHash.values.first { $0.id == id }?.frame == shown)
+  }
+
   @MainActor @Test(arguments: ["input", "process-event", "same-target", "new-target"])
   func supersededReadCannotRetireOrCorrectCurrentCommit(cause: String) async throws {
     let (platform, reads, id, start) = await fixture()
