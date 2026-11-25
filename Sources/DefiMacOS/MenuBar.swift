@@ -24,12 +24,37 @@ public struct MenuMonitor: Equatable, Sendable {
   public let isFocused: Bool
   public let activeWorkspace: String
   public let workspaces: [MenuWorkspace]
+  /// Columns of the active workspace at their target scroll, in points from the strip's left edge.
+  public let columns: [MenuColumn]
+  public let focusedColumn: Int?
+  public let stripWidth: Double
 
-  public init(id: UInt64, isFocused: Bool, activeWorkspace: String, workspaces: [MenuWorkspace]) {
+  public init(
+    id: UInt64, isFocused: Bool, activeWorkspace: String, workspaces: [MenuWorkspace],
+    columns: [MenuColumn] = [], focusedColumn: Int? = nil, stripWidth: Double = 0
+  ) {
     self.id = id
     self.isFocused = isFocused
     self.activeWorkspace = activeWorkspace
     self.workspaces = workspaces
+    self.columns = columns
+    self.focusedColumn = focusedColumn
+    self.stripWidth = stripWidth
+  }
+}
+
+public struct MenuColumn: Equatable, Sendable {
+  public let x: Double
+  public let width: Double
+  public let windows: Int
+  /// The window a click on this column focuses.
+  public let windowID: UInt64
+
+  public init(x: Double, width: Double, windows: Int, windowID: UInt64) {
+    self.x = x
+    self.width = width
+    self.windows = windows
+    self.windowID = windowID
   }
 }
 
@@ -53,7 +78,7 @@ public final class MenuBarState {
     needsAccessibilityPermission = !accessibilityTrusted()
   }
 
-  private var focusedMonitor: MenuMonitor? { monitors.first(where: \.isFocused) ?? monitors.first }
+  var focusedMonitor: MenuMonitor? { monitors.first(where: \.isFocused) ?? monitors.first }
   public var workspaces: [MenuWorkspace] { focusedMonitor?.workspaces ?? [] }
   public var activeWorkspace: String { focusedMonitor?.activeWorkspace ?? "" }
   public var activeLabel: String {

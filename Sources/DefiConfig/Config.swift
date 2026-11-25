@@ -124,6 +124,9 @@ public struct Config: Equatable, Sendable {
     guard (0...1_000).contains(input.focusFollowsMouseDelayMS) else {
       throw ConfigError.invalidValue("input.focus_follows_mouse_delay_ms")
     }
+    guard (30...300).contains(menuBar.columnsWidth) else {
+      throw ConfigError.invalidValue("menu_bar.columns_width")
+    }
     guard (2...4).contains(input.scrollGestureFingers) else {
       throw ConfigError.invalidValue("input.scroll_gesture_fingers")
     }

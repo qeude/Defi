@@ -24,6 +24,8 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case menuBarIndicator
   case menuBarInactiveStyle
   case menuBarEqualWidth
+  case menuBarColumns
+  case menuBarColumnsWidth
   case menuBarDisplays
   case configurationFile
   case configurationGuide
@@ -84,6 +86,8 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .menuBarInactiveStyle: (.menuBar, "Inactive workspaces", "menu_bar.inactive_style filled outlined dimmed bordered")
     case .menuBarEqualWidth: (.menuBar, "Equal workspace widths", "menu_bar.equal_width same width")
     case .menuBarDisplays: (.menuBar, "Show", "menu_bar.show all displays focused display monitors active workspace only")
+    case .menuBarColumns: (.menuBar, "Show the columns of the active workspace", "menu_bar.columns minimap overview strip windows map")
+    case .menuBarColumnsWidth: (.menuBar, "Columns width", "menu_bar.columns_width minimap size maximum")
     case .configurationFile: (.general, "Open Configuration File…", "configuration file config toml path")
     case .configurationGuide: (.general, "Configuration Guide…", "documentation configuration guide")
     case .logs: (.general, "Open Logs Folder…", "diagnostics logs troubleshooting triage issue claude codex")
