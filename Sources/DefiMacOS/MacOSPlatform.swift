@@ -275,6 +275,8 @@ public final class MacOSPlatform {
   }
   /// Ribbon moves an animated layout could not write yet; the layout that writes them animates.
   var deferredRibbonMoves: Set<WindowID> = []
+  /// Skipped windows whose new target or parking the latest layout did not write.
+  public internal(set) var heldBackWindowIDs: Set<WindowID> = []
   /// When the latest window opening began holding the screen: only its check releases the hold.
   var latestOpening: TimeInterval = 0
   nonisolated let snapshotEngine: SnapshotEngine

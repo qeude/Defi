@@ -1091,6 +1091,9 @@ extension Daemon {
           : (animatesMouseDrop ? "mouse-drop-animation"
             : (animatesLifecycle ? "window-lifecycle-animation" : "desktop-sync")))
     )
+    // Nothing else may follow the focus that held these back: the next snapshot writes them.
+    // The follow-up timer's back-off paces it while the focus stays pending.
+    if !platform.heldBackWindowIDs.isDisjoint(with: nativeFocusSkippedWindowIDs) { needsDesktopSync = true }
     if let guardedRemovalFocus {
       platform.focus(
         guardedRemovalFocus.windowID,
