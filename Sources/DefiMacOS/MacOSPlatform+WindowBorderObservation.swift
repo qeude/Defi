@@ -465,8 +465,13 @@ extension MacOSPlatform {
     liveWindowID: WindowID?,
     config: BordersConfig
   ) {
+    // A tracked window the window server no longer shows (a hidden app, or one
+    // left tracked across a wake) must not keep an outline over other windows.
+    let offscreenWindowIDs = windowServerOffscreenWindowIDs(
+      in: snapshotEngine.lastCGWindowInventory ?? [])
     borderFrames = frames.filter {
       !presentedNativeFullscreenWindowIDs.contains($0.windowID)
+        && !offscreenWindowIDs.contains($0.windowID)
     }
     borderSelectedWindowID = selectedWindowID.flatMap {
       presentedNativeFullscreenWindowIDs.contains($0) ? nil : $0

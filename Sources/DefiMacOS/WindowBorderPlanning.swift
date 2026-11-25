@@ -136,6 +136,10 @@ func planWindowBorders(
   return WindowBorderRenderPlan(active: active, inactive: inactive, tracked: tracked, style: style, dimmed: dimmed)
 }
 
+func windowServerOffscreenWindowIDs(in inventory: [CGWindowRecord]) -> Set<WindowID> {
+  Set(inventory.lazy.filter { !$0.isOnscreen }.map { WindowID(rawValue: UInt64($0.id)) })
+}
+
 func overviewWindowBorderAppearance(
   isSelected: Bool,
   style: WindowBorderStyle,
