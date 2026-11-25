@@ -30,6 +30,9 @@ struct PinnedColumnTests {
     #expect(pinned[2]!.x == 256)
     // A full-width column fills the room the pinned column leaves.
     #expect(pinned[4]!.width == 992 - 248 - 8)
+    // Without a pin, a column wider than the strip keeps its width.
+    let wide = Column(window: WindowID(rawValue: 5), width: .pixels(1_500))
+    #expect(frames(Workspace(id: WorkspaceID(rawValue: "1"), columns: [wide]))[5]!.width > 1_000)
   }
 
   @Test(arguments: [ColumnPin.left, .right])

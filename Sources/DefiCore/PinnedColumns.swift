@@ -169,6 +169,10 @@ func scrollingColumnWidths(
   settings: LayoutSettings
 ) -> [Double] {
   let pinned = Set(pinnedColumnIndices(columns).values)
+  // Without a pin no column is capped: a wider column scrolls as on main.
+  guard !pinned.isEmpty else {
+    return columnLayoutWidths(columns, viewport: viewport, windowsByID: windowsByID, settings: settings)
+  }
   let room = scrollingStripWidth(columns, viewport: viewport, windowsByID: windowsByID, settings: settings)
   let strip = columns.indices.filter { !pinned.contains($0) }.map { columns[$0] }
   return zip(strip, columnLayoutWidths(strip, viewport: viewport, windowsByID: windowsByID, settings: settings))
