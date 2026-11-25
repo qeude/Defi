@@ -310,6 +310,36 @@ public final class DefiSettingsModel {
     set(table: table, key: key, value: nil)
   }
 
+  func setScrollGesturesEnabled(_ enabled: Bool) {
+    let input = config.input
+    guard !enabled || !input.overviewGesture || input.scrollGestureFingers != input.overviewGestureFingers else { return }
+    set(table: "input", key: "scroll_gestures", value: enabled ? "true" : "false")
+  }
+
+  func setScrollGestureFingers(_ fingers: Int) {
+    let input = config.input
+    guard !input.overviewGesture || fingers != input.overviewGestureFingers else { return }
+    var operations: [SettingsTOMLOperation] = [
+      .set(table: "input", key: "scroll_gesture_fingers", value: String(fingers)),
+    ]
+    if fingers == 2, config.scrollGestureModifier == "none" {
+      operations.append(.set(table: "input", key: "scroll_gesture_modifier", value: nil))
+    }
+    save(operations)
+  }
+
+  func setOverviewGestureFingers(_ fingers: Int?) {
+    let input = config.input
+    guard !input.scrollGestures || fingers != input.scrollGestureFingers else { return }
+    var operations: [SettingsTOMLOperation] = [
+      .set(table: "input", key: "overview_gesture", value: fingers == nil ? "false" : "true"),
+    ]
+    if let fingers {
+      operations.append(.set(table: "input", key: "overview_gesture_fingers", value: String(fingers)))
+    }
+    save(operations)
+  }
+
   /// An explicit link choice for the spacing editor; `nil` links edges whose values match.
   /// Kept here so leaving the Layout page does not forget an unlink.
   public var linksHorizontalEdges: Bool?
