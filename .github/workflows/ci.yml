@@ -48,6 +48,17 @@ jobs:
       - name: Build
         run: swift build
 
+      - name: Linked SDK
+        # macOS picks window chrome from LC_BUILD_VERSION; the daemon must record the SDK it linked.
+        run: |
+          expected="$(xcrun --sdk macosx --show-sdk-version)"
+          recorded="$(xcrun vtool -show-build "$(swift build --show-bin-path)/defi-daemon" \
+            | awk '$1 == "sdk" { print $2 }')"
+          [[ "$recorded" == "$expected" ]] || {
+            echo "::error::defi-daemon records SDK $recorded, expected $expected"
+            exit 1
+          }
+
       - name: Deterministic tests
         # DesktopE2ETests require a real interactive session and Accessibility permission.
         run: swift test --skip DesktopE2ETests

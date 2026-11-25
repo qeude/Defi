@@ -117,6 +117,10 @@ private struct DefiSettingsPane: View {
       SettingsPageView(request: selection, model: model)
         .navigationTitle(selection.destination.page.rawValue)
     }
+    // System Settings floats the traffic lights over a sidebar that runs to the
+    // window's top edge, with no title bar of its own.
+    .toolbar(removing: .title)
+    .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
     .onChange(of: query) { _, query in
       if query.isEmpty {
         selection = SettingsRevealRequest(destination: .page(selection.destination.page))
