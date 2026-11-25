@@ -12,8 +12,9 @@ public func applyOverviewScrollOffsets(
     guard let workspaceOffsets = offsets[monitorID] else { continue }
     for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
       let workspaceID = state.monitors[monitorIndex].workspaces[workspaceIndex].id
-      guard let offset = workspaceOffsets[workspaceID], offset.isFinite else { continue }
       let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+      guard let scrolled = workspaceOffsets[workspaceID], scrolled.isFinite else { continue }
+      let offset = clearingPinnedEdge(scrolled, in: workspace, settings: state.layout)
       guard workspace.scrollOffset != offset || workspace.targetScrollOffset != offset else {
         continue
       }
@@ -121,12 +122,15 @@ public func learnTiledWindowWidth(
     .columns[learned.columnIndex].width = .pixels(learned.width)
   // A dragged left edge keeps the window where it was released: the ribbon before it
   // scrolls by the same amount, as the overlay showed during the drag.
+  // A pinned column stays at its edge, so its resize moves no strip.
   let leftEdgeShift = learned.targetX - actualFrame.x
-  if abs(leftEdgeShift) >= 1,
+  let workspace = state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex]
+  if abs(leftEdgeShift) >= 1, workspace.columns[learned.columnIndex].pin == nil,
     let viewport = viewports[state.monitors[learned.monitorIndex].id]
   {
     state.monitors[learned.monitorIndex].workspaces[learned.workspaceIndex].scrollOffset +=
-      leftEdgeShift / stripViewport(viewport, settings: state.layout).width
+      leftEdgeShift / scrollingStripWidth(
+        workspace.columns, viewport: viewport, windowsByID: state.windows, settings: state.layout)
   }
   synchronizeScrollOffsets(state: &state, viewports: viewports)
   return true

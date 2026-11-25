@@ -331,6 +331,9 @@ public struct Config: Equatable, Sendable {
       if let width = rule.initialColumnWidth {
         result.initialColumnWidth = width
       }
+      if let pin = rule.pin {
+        result.pin = pin
+      }
       result.followFocus = result.followFocus || rule.followFocus
       if let window = rule.window {
         result.floating = window == .forceFloating
@@ -394,6 +397,8 @@ public struct Config: Equatable, Sendable {
       "\(modifier)-equal": "cycle-width next",
       "\(modifier)-f": "maximize-column",
       "\(modifier)-c": "center-column",
+      "\(modifier)-p": "pin-column left",
+      "\(modifier)-shift-p": "pin-column right",
       "\(modifier)-v": "toggle-floating",
       "\(modifier)-shift-v": "activate-floating",
       "\(modifier)-return": "activate-window",

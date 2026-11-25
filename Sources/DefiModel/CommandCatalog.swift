@@ -283,6 +283,13 @@ public let commandSpecs: [CommandSpec] = [
   layout("reset-window-height", .size) { _, _ in .resetWindowHeight },
   layout("center-column", .column) { _, _ in .centerColumn },
   layout("center-visible-columns", .column) { _, _ in .centerVisibleColumns },
+  layout("pin-column", .column, .keywords(["left", "right"])) { arguments, _ in
+    let value = try argument(arguments, label: "edge")
+    guard arguments.count == 1, let edge = ColumnPin(rawValue: value) else {
+      throw CommandParseError.invalidDirection(value)
+    }
+    return .pinColumn(edge)
+  },
   layout("toggle-floating", .floating) { _, _ in .toggleFloating },
   layout("activate-floating", .floating) { _, _ in .activateFloating },
   layout("activate-window", .workspace) { _, _ in .activateWindow },

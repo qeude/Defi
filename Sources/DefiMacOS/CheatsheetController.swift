@@ -203,6 +203,7 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("cycle-width previous", "Narrower"), ("cycle-width next", "Wider"),
   ("maximize-column", "Maximize column"), ("set-column-width", "Set width"),
   ("expand-column-to-available-width", "Fill free width"),
+  ("pin-column left", "Pin column left"), ("pin-column right", "Pin column right"),
   ("set-window-height", "Window height"), ("switch-preset-window-height", "Next window height"),
   ("reset-window-height", "Even window heights"),
   ("toggle-floating", "Float or tile window"),

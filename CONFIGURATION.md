@@ -179,6 +179,34 @@ changes new columns only. Gaps and other `[layout]` keys stay global.
 
 </details>
 
+### Pinned columns
+
+`pin-column left` keeps the focused column at the left edge of the screen, at
+full height, on every workspace of that screen, while the other columns scroll
+beside it; `pin-column right` does the same at the right edge. Pressing the same
+shortcut again returns the column to the strip of the workspace you are on.
+
+- Each screen has at most one pinned column. Pinning another column, at either
+  edge, returns the pinned one to the strip in the place the newly pinned column
+  leaves; pinning the pinned column to the other edge moves it there.
+- The pinned column stays still when you switch workspaces, by key, swipe, or
+  menu bar. It cannot move to another workspace; `move-workspace-to-monitor`
+  leaves it on its screen, and `move-column-to-monitor` pins it on the other
+  screen unless that screen already has a pinned column.
+- A pinned column takes at most half the usable width, so it cannot be
+  maximized. The other columns keep their widths: fractions count in the whole
+  usable width, as without a pin, so pinning and unpinning move windows without
+  resizing them. A column wider than the room the pinned column leaves, such as
+  a maximized one, fills that room.
+- The strip never rests with a column across the pinned column's edge: when one
+  would, the view moves just enough to leave it out. macOS cannot clip a window,
+  so such a column would otherwise cover the pinned column.
+- `focus-column` reaches the pinned column from the end of the strip beside it,
+  and leaves it for the column showing next to it, not for the far end of the
+  strip.
+- `move-column` refuses the pinned column. Dragging it into the strip with the
+  mouse unpins it.
+
 ## `[workspaces]`
 
 Persistent named workspaces. Other workspaces come and go on their own.
@@ -272,12 +300,13 @@ intrinsic_size = true
 | `initial_column_width` | `layout.default_column_width` | `0.05` to `1.0` | Starting width of the window's column. Floating windows and `intrinsic_size` are unaffected. |
 | `include_initial_width_in_cycle` | `false` | boolean | Adds `initial_column_width` to `cycle-width` for this app. |
 | `intrinsic_size` | `false` | boolean | Keeps the window's own width and height inside its tile. |
+| `pin` | unset | `"left"`, `"right"` | Pins the window's new column to that edge of its screen, unless a column is already pinned there. See [Pinned columns](#pinned-columns). |
 
 A rule needs at least one of `app_id`, `title`, `title_regex`, or `role`, and
 all the ones it sets must match. When several rules match, they combine in file
 order: the last `workspace` or `monitor` wins, replacing an earlier one of the
-other kind; the last `window`, `initial_column_width`, and set `open_focused`
-win; and booleans combine with OR, so a later `false` cannot clear an earlier
+other kind; the last `window`, `initial_column_width`, `pin`, and set
+`open_focused` win; and booleans combine with OR, so a later `false` cannot clear an earlier
 `true`.
 
 **Examples**
@@ -612,6 +641,7 @@ that window alone.
 | `reset-window-height` | Split the focused stack evenly again. | unset |
 | `center-column` | Center the focused column until you select another one. | `mod-c` |
 | `center-visible-columns` | Center the columns fully in view as one group, while the selected column stays in view. | unset |
+| `pin-column left\|right` | Pin the focused column to that edge of the screen on every workspace, or return it to the strip when it is already pinned there. See [Pinned columns](#pinned-columns). | `mod-p` / `mod-shift-p` |
 | `join-window left\|right` | Add the focused window to the stack on the left or right. | `mod-semicolon` / `mod-quote` |
 | `unjoin-windows` | Split the focused window out of its stack into a new column. | `mod-period` |
 | `consume-or-expel-window left\|right` | Alone in its column, the focused window joins the stack on that side, like `join-window`. In a stack, it leaves as a new column on that side. | `mod-leftbracket` / `mod-rightbracket` |
@@ -897,7 +927,8 @@ everything once to put it there.
   changes nothing.
 
 Without the overlay, the outline and preview are missing but the drop behaves
-the same. Resizing a window changes its width, never the order. When you press
+the same. Resizing a window changes its width, never the order. Dragging a
+[pinned column](#pinned-columns) into the strip unpins it. When you press
 on a neighboring column, the strip waits for the release before scrolling, so
 it stays still while Defi tells a click from a drag.
 
@@ -1417,6 +1448,8 @@ names = []
 "mod-equal" = "cycle-width next"
 "mod-f" = "maximize-column"
 "mod-c" = "center-column"
+"mod-p" = "pin-column left"
+"mod-shift-p" = "pin-column right"
 "mod-v" = "toggle-floating"
 "mod-shift-v" = "activate-floating"
 "mod-return" = "activate-window"

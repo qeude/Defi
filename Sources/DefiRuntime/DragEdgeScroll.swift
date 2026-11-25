@@ -93,7 +93,11 @@ public struct DragEdgeScroll: Equatable, Sendable {
     case (.scrolling(let direction, let lastTick), let edge?) where edge == direction:
       let elapsed = min(max(now - lastTick, 0), 2 / max(refreshRate, 30))
       let bounds = scrollBounds(state)
-      let strip = stripViewport(viewport, settings: state.layout).width
+      let strip = state.monitors.first { $0.id == anchor.monitorID }?.workspaces
+        .first { $0.id == anchor.workspaceID }
+        .map { scrollingStripWidth($0.columns, viewport: viewport, windowsByID: state.windows,
+          settings: state.layout) }
+        ?? stripViewport(viewport, settings: state.layout).width
       let step = speed(pointer, direction) * viewport.width * elapsed / strip
       let clamped = min(max(offset, bounds.lowerBound), bounds.upperBound)
       offset = direction == .right

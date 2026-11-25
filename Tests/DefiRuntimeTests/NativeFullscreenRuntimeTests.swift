@@ -39,6 +39,21 @@ struct NativeFullscreenRuntimeTests {
   }
 
   @Test
+  func `A pinned window pins again after native fullscreen`() throws {
+    var state = try makeState()
+    let fullscreenID = WindowID(rawValue: 2)
+    state.monitors[0].workspaces[0].columns[1].pin = .left
+    state.maintainWorkspaceLifecycle()
+    for fullscreen in [[fullscreenID], []] as [Set<WindowID>] {
+      reconcileWindows(
+        orderedWindows(in: state), config: Config(), nativeFullscreenWindowIDs: fullscreen,
+        state: &state)
+    }
+    #expect(columnWindowIDs(in: state).first == [2])
+    #expect(state.monitors[0].workspaces[0].columns.map(\.pin) == [.left, nil, nil])
+  }
+
+  @Test
   func `Late fullscreen observation preserves windows hidden by its space`() throws {
     var state = try makeState()
     let fullscreenID = WindowID(rawValue: 2)

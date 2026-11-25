@@ -63,6 +63,11 @@ func moveFocusedSelectionToWorkspace(
     sourceMonitorIndex != destination.monitorIndex
       || sourceWorkspaceIndex != destination.workspaceIndex
   else { return }
+  // The pinned column shows on every workspace, so it has none to move to.
+  let source = state.monitors[sourceMonitorIndex].workspaces[sourceWorkspaceIndex]
+  if source.focusedLayer == .tiled,
+    pinnedColumnIndices(source.columns).values.contains(source.focusedColumn)
+  { throw ReducerError.pinnedColumnStays }
   moveFocusedSelection(
     movesWholeColumn: movesWholeColumn,
     follow: follow,
@@ -188,6 +193,12 @@ func moveFocusedSelection(
   var transferredColumnIndex: Int?
   if var column = transferredColumn {
     scalePixelWidths(in: &column, by: widthScale)
+    // The target monitor's own pinned column keeps its place.
+    if column.pin != nil, !pinnedColumnIndices(
+      state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex].columns).isEmpty
+    {
+      column.pin = nil
+    }
     let insertionIndex = min(
       state.monitors[targetMonitorIndex].workspaces[targetWorkspaceIndex]
         .focusedColumn + 1,
@@ -364,6 +375,8 @@ func moveActiveWorkspaceToMonitor(
   var workspace = state.monitors[sourceMonitorIndex].workspaces.remove(
     at: sourceWorkspaceIndex
   )
+  // The pinned column belongs to the monitor, so it stays behind.
+  let pinned = removePinnedColumn(from: &workspace)
   let sourceViewport = viewports[sourceMonitorID] ?? monitorFrames[sourceMonitorID]
   let targetViewport = viewports[targetMonitorID] ?? monitorFrames[targetMonitorID]
   let scale =
@@ -382,10 +395,14 @@ func moveActiveWorkspaceToMonitor(
   state.monitors[targetMonitorIndex].workspaces.insert(workspace, at: targetWorkspaceIndex)
   state.monitors[targetMonitorIndex].activeWorkspace = workspace.id
   if !state.monitors[sourceMonitorIndex].workspaces.isEmpty {
+    let activeIndex = min(sourceWorkspaceIndex, state.monitors[sourceMonitorIndex].workspaces.count - 1)
     state.monitors[sourceMonitorIndex].activeWorkspace =
-      state.monitors[sourceMonitorIndex].workspaces[
-        min(sourceWorkspaceIndex, state.monitors[sourceMonitorIndex].workspaces.count - 1)
-      ].id
+      state.monitors[sourceMonitorIndex].workspaces[activeIndex].id
+    if let pinned {
+      insertPinnedColumn(
+        pinned, into: &state.monitors[sourceMonitorIndex].workspaces[activeIndex],
+        settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs)
+    }
   }
   let movedWindowIDs = workspace.columns.flatMap(\.windows) + workspace.floatingWindows
   for windowID in movedWindowIDs {

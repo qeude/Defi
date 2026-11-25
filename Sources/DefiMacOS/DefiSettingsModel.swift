@@ -816,6 +816,7 @@ public final class DefiSettingsModel {
   private func hasActions(_ rule: Rule) -> Bool {
     rule.workspace != nil || rule.monitor != nil || rule.followFocus || rule.openFocused != nil
       || rule.window != nil || rule.intrinsicSize || rule.initialColumnWidth != nil || rule.includeInitialWidthInCycle
+      || rule.pin != nil
   }
 
   private func ruleOperations(_ rule: Rule, at index: Int) -> [SettingsTOMLOperation] {
@@ -833,6 +834,7 @@ public final class DefiSettingsModel {
     add("workspace", original.workspace, rule.workspace)
     add("monitor", original.monitor, rule.monitor)
     add("window", original.window?.rawValue, rule.window?.rawValue)
+    add("pin", original.pin?.rawValue, rule.pin?.rawValue)
     func addBool(_ key: String, _ old: Bool, _ new: Bool) {
       guard old != new else { return }
       changes.append(.set(table: "rules", key: key, value: new ? "true" : "false", occurrence: index))
@@ -857,6 +859,7 @@ public final class DefiSettingsModel {
     for (key, value) in [
       ("app_id", rule.appID), ("title", rule.title), ("title_regex", rule.titleRegex), ("role", rule.role),
       ("workspace", rule.workspace), ("monitor", rule.monitor), ("window", rule.window?.rawValue),
+      ("pin", rule.pin?.rawValue),
     ] {
       if let value { values.append((key, tomlString(value))) }
     }

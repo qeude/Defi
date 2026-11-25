@@ -105,6 +105,8 @@ public struct WorkspaceWindowSnapshot: Codable, Equatable, Sendable {
   public let column: Int?
   public let row: Int?
   public let floating: Bool
+  /// In the monitor's pinned column, shown on every workspace; listed under the active one.
+  public let pinned: Bool
   public let selected: Bool
   public let nativeFullscreen: Bool
 }
@@ -130,11 +132,13 @@ public func makeWorkspaceStateSnapshot(
           let selectedWindow =
             active ? workspace.selectedWindowID.flatMap { windows[$0] } : nil
           var workspaceWindows: [WorkspaceWindowSnapshot] = []
+          let pinned = Set(workspace.columns.filter { $0.pin != nil }.flatMap(\.windows))
           forEachWorkspaceWindow(in: workspace) { windowID, column, row in
             guard let window = windows[windowID] else { return }
             workspaceWindows.append(WorkspaceWindowSnapshot(
               id: windowID.rawValue, appID: window.appID, column: column, row: row,
-              floating: column == nil, selected: windowID == selectedWindow?.id,
+              floating: column == nil, pinned: pinned.contains(windowID),
+              selected: windowID == selectedWindow?.id,
               nativeFullscreen: nativeFullscreenWindowIDs.contains(windowID)
             ))
           }
@@ -144,8 +148,9 @@ public func makeWorkspaceStateSnapshot(
             name: workspace.name,
             kind: workspace.kind,
             active: active,
-            windowCount: workspaceWindows.count,
-            applications: Array(Set(workspaceWindows.map(\.appID))).sorted(),
+            // The pinned column rides every workspace, so it occupies none.
+            windowCount: workspaceWindows.count(where: { !$0.pinned }),
+            applications: Array(Set(workspaceWindows.filter { !$0.pinned }.map(\.appID))).sorted(),
             focusedApplication: selectedWindow?.appID,
             icon: workspace.name.flatMap { workspaceIcons[$0] },
             selectedWindowID: selectedWindow?.id.rawValue,

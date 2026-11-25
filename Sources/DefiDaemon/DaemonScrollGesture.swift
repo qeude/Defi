@@ -104,9 +104,11 @@ extension Daemon {
       let index = monitor.workspaces.firstIndex(where: { $0.id == monitor.activeWorkspace })
     else { return }
     let workspace = monitor.workspaces[index]
-    let stripWidth = stripViewport(viewport, settings: state.layout).width
+    let stripWidth = scrollingStripWidth(
+      workspace.columns, viewport: viewport, windowsByID: state.windows, settings: state.layout)
     let tiled = workspace.columns.flatMap(\.windows)
-    var moving = Set(tiled)
+    // The pinned column holds its edge while the strip scrolls and stays for every workspace.
+    var moving = Set(tiled).subtracting(pinnedWindowIDs(workspace.columns))
     var neighbors: [WindowID: Rect] = [:]
     let resting: ClosedRange<Double>, scale: Double, dimension: Double, stiffness: Double
     var steps = 0...0
@@ -120,14 +122,21 @@ extension Daemon {
       dimension = 0.05 * height
       stiffness = 0.5
       moving.formUnion(workspace.floatingWindows)
+      let pinned = pinnedColumnIndices(workspace.columns).values.first.map { workspace.columns[$0] }
       for neighbor in [lowest, highest] where neighbor != index {
-        let other = monitor.workspaces[neighbor]
+        var other = monitor.workspaces[neighbor]
+        // Laid out as it will show, beside the pinned column that stays put.
+        if let pinned {
+          insertPinnedColumn(
+            pinned, into: &other, settings: state.layout,
+            excludingWindowIDs: state.nativeFullscreenWindowIDs)
+        }
         let shift = Double(neighbor - index) * height
         let frames = computeLayout(workspace: other, viewport: viewport,
           windows: other.columns.flatMap(\.windows).compactMap { state.windows[$0] },
           settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs)
           + floatingAssignments(in: other)
-        for assignment in frames {
+        for assignment in frames where !(pinned?.windows.contains(assignment.windowID) ?? false) {
           var frame = assignment.frame
           frame.y += shift
           neighbors[assignment.windowID] = frame

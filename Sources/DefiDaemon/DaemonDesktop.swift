@@ -109,7 +109,10 @@ extension Daemon {
           ribbonFrames.append(contentsOf: sizedFrames)
           let strip = continuousStripFramesForActiveWorkspace(
             sizedFrames,
-            viewport: viewport, park: park
+            viewport: scrollingViewport(
+              workspace.columns, viewport: viewport, windowsByID: state.windows,
+              settings: state.layout),
+            pinned: pinnedWindowIDs(workspace.columns), park: park
           )
           monitorAssignments.append(contentsOf: strip.frames)
           monitorBorderAssignments.append(contentsOf: strip.frames)
@@ -229,6 +232,9 @@ extension Daemon {
           appID: window.appID, title: window.title, frame: assignment.frame))
       }
     ) { first, _ in first }
+    platform.pinnedWindowIDs = Set(state.monitors.flatMap { monitor in
+      monitor.workspaces.filter { $0.id == monitor.activeWorkspace }.flatMap { pinnedWindowIDs($0.columns) }
+    })
     platform.apply(
       platformAssignments,
       ribbonFrames: ribbonFrames,

@@ -728,7 +728,7 @@ extension MacOSPlatform {
       let appears = opened.contains(plan.id) && spawnedFrames[plan.id] == nil
       let from = plan.id == dropped?.0 ? dropped?.1 ?? plan.from : spawnedFrames[plan.id] ?? plan.from
       return RibbonProxyWindow(id: plan.id, appID: window.appID, processID: processID,
-        from: from, to: plan.to, appears: appears)
+        from: from, to: plan.to, appears: appears, pinned: pinnedWindowIDs.contains(plan.id))
     }
     proxies += nativeFullscreenProxies(monitor, from: previousPlaceholderFrames)
     // Visible managed windows without a planned motion (skipped writes, floating
@@ -738,7 +738,7 @@ extension MacOSPlatform {
       guard let processID = window.processID, let frame = observed[id],
         windowProxyVisibleOverlap(frame, viewport) > 1.01 else { continue }
       proxies.append(RibbonProxyWindow(id: id, appID: window.appID, processID: processID,
-        from: frame, to: frame))
+        from: frame, to: frame, pinned: pinnedWindowIDs.contains(id)))
     }
     let plannedTargets = Dictionary(planned.map { ($0.id, $0.to) }) { first, _ in first }
     let targets = Dictionary(native.compactMap { assignment -> (WindowID, Rect)? in

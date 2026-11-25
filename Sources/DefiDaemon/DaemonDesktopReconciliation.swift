@@ -259,8 +259,10 @@ extension Daemon {
       settings: state.layout,
       excludingWindowIDs: state.nativeFullscreenWindowIDs
     ).map(preserveIntrinsicSize)
+    let pinned = pinnedWindowIDs(workspace.columns)
     let deltas = assignments.compactMap { assignment -> Double? in
-      guard horizontalIntersection(assignment.frame, viewport) > 0.5,
+      guard !pinned.contains(assignment.windowID),
+        horizontalIntersection(assignment.frame, viewport) > 0.5,
         let completed = platform.completedPosition(for: assignment.windowID)
       else {
         return nil
@@ -272,7 +274,8 @@ extension Daemon {
         logicalValue: workspace.scrollOffset,
         expectedMinusDisplayedDeltas: deltas,
         maximumAbsoluteDelta: viewport.width,
-        logicalScale: stripViewport(viewport, settings: state.layout).width
+        logicalScale: scrollingStripWidth(
+          workspace.columns, viewport: viewport, windowsByID: state.windows, settings: state.layout)
       )
     else {
       return

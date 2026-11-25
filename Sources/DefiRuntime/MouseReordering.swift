@@ -405,6 +405,8 @@ public func reorderTiledWindowAfterMouseDrag(
     if let focusedWindow = column.windows.firstIndex(of: windowID) {
       column.focusedWindow = focusedWindow
     }
+    // Dragged into the strip, a pinned column scrolls with it again.
+    column.pin = nil
     workspace.columns.insert(column, at: horizontalTargetIndex)
     workspace.focusedColumn = horizontalTargetIndex
     workspace.focusedLayer = .tiled
@@ -867,10 +869,12 @@ public func applyMouseDrop(
     var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
     guard let sourceColumnIndex = workspace.columns.firstIndex(where: { $0.windows.contains(windowID) })
     else { return false }
-    let column: Column
+    var column: Column
     if workspace.columns[sourceColumnIndex].windows.count == 1 {
       guard index != sourceColumnIndex else { return false }
       column = workspace.columns.remove(at: sourceColumnIndex)
+      // Dropped into the strip, a pinned column scrolls with it again.
+      column.pin = nil
     } else {
       removeStackedWindow(windowID, from: &workspace.columns[sourceColumnIndex])
       column = Column(window: windowID, width: workspace.columns[sourceColumnIndex].width)

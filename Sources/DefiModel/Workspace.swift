@@ -8,6 +8,8 @@ public struct Column: Equatable, Codable, Sendable {
   /// Relative height of each stacked window, from a height command or a native resize.
   /// `nil` splits the column evenly; a window missing here takes the mean of the others.
   public var windowHeights: [WindowID: Double]?
+  /// The screen edge the column stays at while the rest of the strip scrolls.
+  public var pin: ColumnPin?
 
   public init(
     window: WindowID,
@@ -32,6 +34,11 @@ public struct Column: Equatable, Codable, Sendable {
     self.width = width
     self.preMaximizedWidth = preMaximizedWidth
   }
+}
+
+public enum ColumnPin: String, Equatable, Codable, Sendable, CaseIterable {
+  case left
+  case right
 }
 
 /// The selected window a scroll target was last resolved for, and whether it

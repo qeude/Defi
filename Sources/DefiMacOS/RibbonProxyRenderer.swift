@@ -23,6 +23,8 @@ struct RibbonProxyWindow {
   var appears = false
   /// Drawn by Defi (a native fullscreen placeholder): never captured, no native window to land.
   var picture: CGImage? = nil
+  /// In a pinned column: drawn above the strip scrolling beneath it.
+  var pinned = false
 }
 
 /// Pictures stay valid only for the native size they were captured at.
@@ -677,7 +679,7 @@ final class RibbonProxyPresenter {
         standIns.remove(window.id)
       }
       // The active window travels above the windows it crosses, as in Niri.
-      layer.zPosition = window.id == selectedWindowID ? 100_000 : depth[window.id] ?? 0
+      layer.zPosition = window.pinned ? 150_000 : window.id == selectedWindowID ? 100_000 : depth[window.id] ?? 0
       // Mid-flight windows retarget at once: holding them still would stall their motion.
       let start = current == nil ? motionStart : now
       let launched = ribbonProxyMove(layer, from: from, to: to, velocity: velocity, at: start)

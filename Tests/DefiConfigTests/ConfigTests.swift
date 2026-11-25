@@ -182,6 +182,7 @@ struct ConfigTests {
     ("[[rules]]\napp_id = \"a\"\ntitle_regex = \"(unclosed\"", .invalidValue("rules.title_regex")),
     ("[[rules]]\napp_id = \"a\"\nmonitor = 2", .invalidValue("rules.monitor takes a display name")),
     ("[[rules]]\napp_id = \"a\"\nmonitor = \"\"", .invalidValue("rules.monitor")),
+    ("[[rules]]\napp_id = \"a\"\npin = \"up\"", .invalidValue("rules.pin takes \"left\" or \"right\"")),
     ("[workspaces]\nnames = [\"dev\"]\n[[rules]]\napp_id = \"a\"\nworkspace = \"dev\"\nmonitor = \"DELL\"",
       .invalidValue("rules.monitor cannot be combined with rules.workspace")),
   ] as [(String, ConfigError)])
@@ -356,6 +357,8 @@ struct ConfigTests {
     #expect(config.keys["mod-equal"] == "cycle-width next")
     #expect(config.keys["mod-f"] == "maximize-column")
     #expect(config.keys["mod-c"] == "center-column")
+    #expect(config.keys["mod-p"] == "pin-column left")
+    #expect(config.keys["mod-shift-p"] == "pin-column right")
     #expect(config.keys["mod-v"] == "toggle-floating")
     #expect(config.keys["mod-shift-v"] == "activate-floating")
     #expect(config.keys["mod-return"] == "activate-window")
@@ -437,8 +440,15 @@ struct ConfigTests {
       [[rules]]
       title = "Picture-in-Picture"
       window = "force-floating"
+      [[rules]]
+      app_id = "com.apple.Notes"
+      pin = "left"
+      [[rules]]
+      app_id = "notes"
+      pin = "right"
       """.utf8))
-    #expect(config.rules.map(\.window) == [.forceTiled, .forceFloating])
+    #expect(config.rules.map(\.window) == [.forceTiled, .forceFloating, nil, nil])
+    #expect(config.decision(appID: "com.apple.Notes", title: "", role: nil) == RuleDecision(pin: .right))
     #expect(config.decision(appID: "net.kovidgoyal.kitty", title: "zsh", role: nil) == RuleDecision(forceTiling: true))
     #expect(config.decision(appID: "net.kovidgoyal.kitty", title: "Picture-in-Picture", role: nil) == RuleDecision(floating: true))
     #expect(throws: (any Error).self) { try Config.decode(Data("[[rules]]\napp_id = \"a\"\nwindow = \"stacked\"".utf8)) }

@@ -182,7 +182,7 @@ extension Daemon {
       }
       let column = workspace.columns[workspace.focusedColumn]
       return
-        "\(columnWidthStatus(column.width))/pre-max:\(column.preMaximizedWidth.map(columnWidthStatus) ?? "none")"
+        "\(columnWidthStatus(column.width))/pre-max:\(column.preMaximizedWidth.map(columnWidthStatus) ?? "none")/pin:\(column.pin?.rawValue ?? "none")"
     }()
     let bundle = DiagnosticRecorder.bundleVersion
     let displaySizes = displaySizeDescription(latestMonitors)
@@ -238,7 +238,7 @@ extension Daemon {
           workspaces: monitor.workspaces.enumerated().map { offset, workspace in
             MenuWorkspace(id: workspace.id.rawValue, label: workspace.name ?? String(offset + 1),
               icon: workspace.name.map { config.workspaces.icons[$0] ?? "square.grid.2x2" },
-              position: offset + 1, isEmpty: workspace.isEmpty)
+              position: offset + 1, isEmpty: holdsOnlyPinnedColumn(workspace))
           },
           columns: strip?.columns ?? [], focusedColumn: strip?.focused, stripWidth: strip?.width ?? 0)
       }
@@ -254,22 +254,21 @@ extension Daemon {
     guard let viewport = viewportsByMonitor[monitor.id],
       let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
     else { return nil }
-    let width = stripViewport(viewport, settings: state.layout).width
-    let widths = columnLayoutWidths(
-      workspace.columns, viewport: viewport,
-      windowsByID: state.windows, settings: state.layout)
-    var x = -workspace.targetScrollOffset * width
+    let strip = stripViewport(viewport, settings: state.layout)
+    var heading = workspace
+    heading.scrollOffset = workspace.targetScrollOffset
+    let slots = columnSlots(heading, viewport: viewport, windowsByID: state.windows, settings: state.layout)
     var columns: [MenuColumn] = []
     var focused: Int?
-    for (index, (column, columnWidth)) in zip(workspace.columns, widths).enumerated() {
-      defer { x += columnWidth }
+    for (index, (column, slot)) in zip(workspace.columns, slots).enumerated() {
+      let (x, columnWidth) = (slot.x - strip.x, slot.width)
       guard let windowID = column.windows.indices.contains(column.focusedWindow)
         ? column.windows[column.focusedWindow] : column.windows.first
       else { continue }
       if index == workspace.focusedColumn, workspace.focusedLayer == .tiled { focused = columns.count }
       columns.append(MenuColumn(x: x, width: columnWidth, windows: column.windows.count, windowID: windowID.rawValue))
     }
-    return (columns, focused, width)
+    return (columns, focused, strip.width)
   }
 
   var activeDisplayRefreshRate: Double {

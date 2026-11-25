@@ -15,6 +15,7 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
   case unknownWindow(WindowID)
   case layout(LayoutError)
   case stackConstraint(StackRejection)
+  case pinnedColumnStays
 
   public var description: String {
     switch self {
@@ -25,6 +26,7 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
     case .unknownWindow(let id): "unknown window: \(id.rawValue)"
     case .layout(let error): "layout error: \(error)"
     case .stackConstraint(let rejection): "cannot join: \(rejection)"
+    case .pinnedColumnStays: "the pinned column shows on every workspace; unpin it to move it"
     }
   }
 }
@@ -158,9 +160,27 @@ public func reduce(
       let index = try workspaceIndex(state.monitors[monitorIndex])
       if !state.monitors[monitorIndex].workspaces[index].columns.isEmpty {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
+        let workspace = state.monitors[monitorIndex].workspaces[index]
         try focusColumn(
           direction,
           in: &state.monitors[monitorIndex].workspaces[index],
+          viewport: viewports[state.monitors[monitorIndex].id]
+            ?? Rect(x: 0, y: 0, width: 1_000, height: 1),
+          windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
+          settings: layout
+        )
+      }
+    case .pinColumn(let edge):
+      let index = try workspaceIndex(state.monitors[monitorIndex])
+      let workspace = state.monitors[monitorIndex].workspaces[index]
+      if workspace.columns.indices.contains(workspace.focusedColumn) {
+        state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
+        try togglePinnedColumn(
+          edge,
+          in: &state.monitors[monitorIndex].workspaces[index],
+          viewport: viewports[state.monitors[monitorIndex].id]
+            ?? Rect(x: 0, y: 0, width: 1_000, height: 1),
+          windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
           settings: layout
         )
       }
@@ -239,7 +259,10 @@ public func reduce(
     case .maximizeColumn:
       let index = try workspaceIndex(state.monitors[monitorIndex])
       let columnIndex = state.monitors[monitorIndex].workspaces[index].focusedColumn
-      if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex) {
+      // A pinned column never fills the screen: the strip keeps its side.
+      if state.monitors[monitorIndex].workspaces[index].columns.indices.contains(columnIndex),
+        state.monitors[monitorIndex].workspaces[index].columns[columnIndex].pin == nil
+      {
         state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
         maximizeColumn(
           &state.monitors[monitorIndex].workspaces[index].columns[columnIndex],
@@ -284,16 +307,21 @@ public func reduce(
         let (_, maximumFraction) = columnWidthBounds(
           column, stripWidth: stripViewport(viewport, settings: layout).width, state: &state)
         let workspace = state.monitors[monitorIndex].workspaces[index]
+        // The available width counts in the room a pinned column leaves; fractions count
+        // in the whole strip.
+        let room = scrollingStripWidth(
+          workspace.columns, viewport: viewport, windowsByID: state.windows, settings: layout)
+          / stripViewport(viewport, settings: layout).width
         if column.windows.indices.contains(column.focusedWindow),
           let available = focusedColumnAvailableWidth(
             workspace: workspace, viewport: viewport,
             windows: workspace.columns.flatMap(\.windows).compactMap { state.windows[$0] },
             settings: layout, excludingWindowIDs: state.nativeFullscreenWindowIDs,
-            maximumWidth: maximumFraction)
+            maximumWidth: maximumFraction.map { $0 / room })
         {
           state.monitors[monitorIndex].workspaces[index].focusedLayer = .tiled
           state.monitors[monitorIndex].workspaces[index].columns[columnIndex].width =
-            .fraction(available.width)
+            .fraction(available.width * room)
           state.monitors[monitorIndex].workspaces[index].columns[columnIndex].preMaximizedWidth = nil
           // The visible columns stay in view: a free scroll focus keeps the strip there
           // while the column remains in view, whatever the centring policy.
@@ -511,6 +539,7 @@ public enum ResizeRefusal: String, Equatable, Sendable {
   case fullWidth = "column already fills the screen"
   case minimumWidth = "column already at its narrowest"
   case windowWidth = "window keeps its width"
+  case pinnedWidth = "a pinned column takes half the screen at most"
 }
 
 /// The limit a width command that changed nothing ran into; nil when it asked for no
@@ -541,7 +570,9 @@ public func resizeRefusal(
       of: &column, change, stripWidth: stripWidth, gaps: horizontalGaps(settings: layout),
       minimumFraction: minimum, maximumFraction: maximum)
     {
-    case .upper: return (maximum ?? 1) < 1 ? .windowWidth : .fullWidth
+    case .upper:
+      if column.pin != nil, maximum == maximumPinnedColumnFraction { return .pinnedWidth }
+      return (maximum ?? 1) < 1 ? .windowWidth : .fullWidth
     case .lower: return (minimum ?? 0) > 0.05 ? .windowWidth : .minimumWidth
     case nil: return nil
     }
@@ -571,7 +602,10 @@ private func columnWidthBounds(
   let maximumWidths = column.windows.compactMap { state.windows[$0]?.maximumTiledWidth }
   // One unbounded window leaves the column unbounded.
   let maximum = maximumWidths.count == column.windows.count ? maximumWidths.max() : nil
-  return (minimum.map { ($0 + gaps) / stripWidth }, maximum.map { ($0 + gaps) / stripWidth })
+  let fraction = maximum.map { ($0 + gaps) / stripWidth }
+  return (
+    minimum.map { ($0 + gaps) / stripWidth },
+    column.pin == nil ? fraction : min(fraction ?? 1, maximumPinnedColumnFraction))
 }
 
 /// Height commands act on the focused tiled window of a stack; a single window keeps
@@ -665,6 +699,7 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .moveColumnToWorkspace, .moveWindowToWorkspaceTarget,
     .reorderWorkspace, .moveWorkspaceToMonitor,
     .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn, .centerVisibleColumns,
+    .pinColumn,
     .toggleFloating, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
     .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
     true

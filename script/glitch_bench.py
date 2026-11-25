@@ -410,6 +410,37 @@ def workspaces(bench, rng, rounds):
         bench.check('lost_command', bench.active()['id'] == bench.home, action='workspace-burst')
 
 
+def pinned(bench, rng, rounds):
+    """A column pinned to the screen edge stays put on every workspace while the strip scrolls beside it."""
+    number, fixture = bench.main[0], bench.fixture('a')
+
+    def frame():
+        return next(w['frame'] for w in fixture.ask()['windows'] if w['windowNumber'] == number)
+
+    bench.command('focus-window-id', str(number))
+    bench.wait_settled()
+    bench.act('pin', ['pin-column', 'left'], number)
+    pinned_at = frame()
+
+    def still(action):
+        bench.check('pinned_moved', frame() == pinned_at, action=action, frame=frame(), expected=pinned_at)
+
+    for _ in range(rounds):
+        for _ in range(8):
+            direction = rng.choice(['left', 'right'])
+            bench.act('pinned-column', ['focus-column', direction], None, direction, pause=rng.uniform(0.1, 0.5))
+            still('pinned-column')
+        for target in [bench.other_workspace, bench.home] * 3:
+            bench.act('pinned-workspace', ['workspace', target], None, 'vertical', pause=rng.uniform(0.1, 0.4))
+            bench.check('lost_command', bench.active()['id'] == target, action='pinned-workspace', target=target)
+            bench.check('pinned_left_behind', number in {w['id'] for w in bench.active()['windows']},
+                        action='pinned-workspace', active=bench.active()['id'])
+            still('pinned-workspace')
+    bench.command('focus-window-id', str(number))
+    bench.wait_settled()
+    bench.act('unpin', ['pin-column', 'left'], number)
+
+
 def windows(bench, rng, rounds):
     for r in range(rounds):
         added = []
@@ -685,7 +716,7 @@ def settings(bench, rng, rounds):
 
 SCENARIOS = {'columns': columns, 'workspaces': workspaces, 'windows': windows, 'activation': activation,
              'overview': overview, 'fullscreen': fullscreen, 'restart': restart, 'slow': slow,
-             'displays': displays, 'settings': settings, 'hidden-close': hidden_close}
+             'displays': displays, 'settings': settings, 'hidden-close': hidden_close, 'pinned': pinned}
 
 
 # -- analysis ----------------------------------------------------------------------------------------
