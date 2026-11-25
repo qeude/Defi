@@ -4,6 +4,7 @@ import DefiModel
 @discardableResult
 public func applyOverviewScrollOffsets(
   _ offsets: [MonitorID: [WorkspaceID: Double]],
+  viewports: [MonitorID: Rect] = [:],
   state: inout RuntimeState
 ) -> Set<MonitorID> {
   var changedMonitorIDs = Set<MonitorID>()
@@ -14,7 +15,9 @@ public func applyOverviewScrollOffsets(
       let workspaceID = state.monitors[monitorIndex].workspaces[workspaceIndex].id
       let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
       guard let scrolled = workspaceOffsets[workspaceID], scrolled.isFinite else { continue }
-      let offset = clearingPinnedEdge(scrolled, in: workspace, settings: state.layout)
+      let offset = viewports[monitorID].map {
+        clearingPinnedEdge(scrolled, in: workspace, viewport: $0, windowsByID: state.windows, settings: state.layout)
+      } ?? scrolled
       guard workspace.scrollOffset != offset || workspace.targetScrollOffset != offset else {
         continue
       }

@@ -34,7 +34,10 @@ public func insertNewWindow(
   let index = workspace.columns.indices.contains(focused) && workspace.columns[focused].pin == .right
     ? focused : min(focused + 1, workspace.columns.count)
   workspace.columns.insert(column, at: index)
-  guard focusInsertedWindow else { return }
+  guard focusInsertedWindow else {
+    if index <= focused { workspace.focusedColumn += 1 }
+    return
+  }
   workspace.focusedColumn = index
   repairWorkspaceScroll(&workspace, settings: settings)
 }

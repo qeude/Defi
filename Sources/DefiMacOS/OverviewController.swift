@@ -2033,7 +2033,8 @@ public final class OverviewController: NSObject {
       let monitorFrame = snapshot.monitorFrames[monitor.id],
       var workspace = monitor.workspaces.first(where: { $0.id == workspaceID })
     else { return nil }
-    workspace.focusedColumn = max(workspace.columns.count - 1, 0)
+    // The strip's end: a column pinned to the right is not in the strip.
+    workspace.focusedColumn = workspace.columns.indices.last { workspace.columns[$0].pin == nil } ?? 0
     return focusedColumnLeftScrollOffset(
       workspace: workspace,
       viewport: Rect(x: 0, y: 0, width: monitorFrame.width, height: monitorFrame.height),

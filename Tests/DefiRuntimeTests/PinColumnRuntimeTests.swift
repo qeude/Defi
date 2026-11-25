@@ -121,6 +121,15 @@ struct PinColumnRuntimeTests {
   }
 
   @Test
+  func `Dropping a pinned column at its own place unpins it`() throws {
+    var state = try makeState(windowCount: 3)
+    try reduce(.focusColumn(.first), on: monitorID, state: &state, viewports: viewports)
+    try reduce(.pinColumn(.left), on: monitorID, state: &state, viewports: viewports)
+    #expect(applyMouseDrop(WindowID(rawValue: 1), .column(index: 0), state: &state, viewports: viewports))
+    #expect(state.monitors[0].workspaces[0].columns.allSatisfy { $0.pin == nil })
+  }
+
+  @Test
   func `Dropping a pinned column into the strip unpins it`() throws {
     var state = try makeState(windowCount: 3)
     try reduce(.focusColumn(.first), on: monitorID, state: &state, viewports: viewports)

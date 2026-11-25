@@ -207,14 +207,30 @@ struct PinnedColumnTests {
     #expect(workspace.focusedColumn == 2)
   }
 
-  @Test
-  func `A new window joins the strip before the right pinned column`() {
+  @Test(arguments: [true, false])
+  func `A new window joins the strip before the right pinned column`(focuses: Bool) {
     var workspace = Workspace(
       id: WorkspaceID(rawValue: "1"),
       columns: [column(1, 0.5), column(2, 0.25, pin: .right)], focusedColumn: 1)
-    insertNewWindow(WindowID(rawValue: 3), into: &workspace, settings: settings)
+    insertNewWindow(WindowID(rawValue: 3), into: &workspace, settings: settings, focusInsertedWindow: focuses)
     #expect(workspace.columns.map(\.windows[0].rawValue) == [1, 3, 2])
-    #expect(workspace.focusedColumn == 1)
+    // Opened without focus, the selection stays on the pinned column.
+    #expect(workspace.focusedColumn == (focuses ? 1 : 2))
+  }
+
+  @Test
+  func `A pinned window wider than half the screen keeps its minimum and the strip starts beside it`() {
+    let workspace = Workspace(
+      id: WorkspaceID(rawValue: "1"), columns: [column(1, 0.5, pin: .left), column(2, 0.3)])
+    let windows = [
+      Window(id: WindowID(rawValue: 1), appID: "a", title: "", frame: viewport, minimumTiledWidth: 700),
+      Window(id: WindowID(rawValue: 2), appID: "b", title: "", frame: viewport),
+    ]
+    let frames = Dictionary(uniqueKeysWithValues: computeLayout(
+      workspace: workspace, viewport: viewport, windows: windows, settings: settings
+    ).map { ($0.windowID.rawValue, $0.frame) })
+    #expect(frames[1]!.width >= 700)
+    #expect(frames[2]!.x >= frames[1]!.x + frames[1]!.width)
   }
 
   @Test

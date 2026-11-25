@@ -494,7 +494,10 @@ extension AXFrameCoordinator {
             sizeApplied = accessibilityWriter.applySize(
               item.value, size: size, enhancedUIManagedByBatch: enhancedUIManaged, shouldApply: shouldApply)
             acceptedSize = sizeApplied ? accessibilityWriter.readSize(item.value.element) : nil
-            positionApplied = applyFinalPosition()
+            // Even if a newer frame arrived, never leave the window at the interim place.
+            positionApplied = accessibilityWriter.applyPosition(
+              item.value, point: point, verifyParkedPosition: false,
+              enhancedUIManagedByBatch: enhancedUIManaged, shouldApply: { true })
           }
         }
         // Keep borders on observed geometry without another message to the app's AX

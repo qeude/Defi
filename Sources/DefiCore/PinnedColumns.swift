@@ -24,12 +24,17 @@ public func removePinnedColumn(from workspace: inout Workspace) -> Column? {
 }
 
 /// `clearingPinnedEdge` for an offset chosen outside the layout, such as an Overview scroll.
-public func clearingPinnedEdge(_ offset: Double, in workspace: Workspace, settings: LayoutSettings) -> Double {
+public func clearingPinnedEdge(
+  _ offset: Double,
+  in workspace: Workspace,
+  viewport: Rect,
+  windowsByID: [WindowID: Window],
+  settings: LayoutSettings
+) -> Double {
   clearingPinnedEdge(
     offset, columns: workspace.columns,
     widths: columnWidthsInViewports(
-      workspace.columns, viewport: Rect(x: 0, y: 0, width: 1_000, height: 1), windowsByID: [:],
-      settings: settings))
+      workspace.columns, viewport: viewport, windowsByID: windowsByID, settings: settings))
 }
 
 /// Adds a pinned column at its edge, keeping the focused column, and settles the strip
@@ -91,7 +96,7 @@ func pinnedColumnWidths(
     min(
       columnLayoutWidths(
         [columns[$0]], viewport: viewport, windowsByID: windowsByID, settings: settings)[0],
-      limit)
+      max(limit, minimumSlotWidth(columns[$0], windowsByID: windowsByID, settings: settings)))
   }
 }
 
@@ -165,10 +170,18 @@ func scrollingColumnWidths(
 ) -> [Double] {
   let pinned = Set(pinnedColumnIndices(columns).values)
   let room = scrollingStripWidth(columns, viewport: viewport, windowsByID: windowsByID, settings: settings)
-  return columnLayoutWidths(
-    columns.indices.filter { !pinned.contains($0) }.map { columns[$0] },
-    viewport: viewport, windowsByID: windowsByID, settings: settings
-  ).map { min($0, room) }
+  let strip = columns.indices.filter { !pinned.contains($0) }.map { columns[$0] }
+  return zip(strip, columnLayoutWidths(strip, viewport: viewport, windowsByID: windowsByID, settings: settings))
+    .map { min($1, max(room, minimumSlotWidth($0, windowsByID: windowsByID, settings: settings))) }
+}
+
+/// The narrowest slot a column's windows accept, gaps included: a cap never goes below it,
+/// or the window would overflow its slot onto its neighbour.
+private func minimumSlotWidth(
+  _ column: Column, windowsByID: [WindowID: Window], settings: LayoutSettings
+) -> Double {
+  column.windows.compactMap { windowsByID[$0]?.minimumTiledWidth }.max()
+    .map { $0 + horizontalGaps(settings: settings) } ?? 0
 }
 
 /// Moves the pinned column to its end of the columns and returns any other claim to the

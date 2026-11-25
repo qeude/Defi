@@ -14,15 +14,19 @@ public func computeLayout(
   )
   let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
   let slots = columnSlots(workspace, viewport: viewport, windowsByID: windowsByID, settings: settings)
+  let pinned = !pinnedColumnIndices(workspace.columns).isEmpty
   let viewport = stripViewport(viewport, settings: settings)
   var frames: [FrameAssignment] = []
   let gaps = horizontalGaps(settings: settings)
 
   for (columnIndex, column) in workspace.columns.enumerated() {
     let (x, width) = slots[columnIndex]
-    let preferredWidth = preferredColumnLayoutWidth(
+    // Beside a pin a slot can be narrower than its fraction: an accepted size cached for
+    // the wider width must not restore it.
+    let preferred = preferredColumnLayoutWidth(
       column, viewport: viewport, windowsByID: windowsByID, gaps: gaps
     )
+    let preferredWidth = pinned ? min(width, preferred) : preferred
     let acceptedSizes = acceptedTiledSizes(
       column,
       preferredWidth: preferredWidth,

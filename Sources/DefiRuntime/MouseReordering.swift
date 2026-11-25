@@ -871,7 +871,7 @@ public func applyMouseDrop(
     else { return false }
     var column: Column
     if workspace.columns[sourceColumnIndex].windows.count == 1 {
-      guard index != sourceColumnIndex else { return false }
+      guard index != sourceColumnIndex || workspace.columns[sourceColumnIndex].pin != nil else { return false }
       column = workspace.columns.remove(at: sourceColumnIndex)
       // Dropped into the strip, a pinned column scrolls with it again.
       column.pin = nil
