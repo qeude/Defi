@@ -853,8 +853,9 @@ starts with the modifier held works on the display under the pointer:
 With `overview_gesture`, `overview_gesture_fingers` fingers swiped up open the
 Overview and swiped down close it, without a modifier. Four fingers match
 Niri. About the first two millimeters of the swipe pick its axis; a sideways
-swipe does nothing. The zoom follows the fingers, and lifting them finishes it the
-way they were moving, or, if they had stopped, when they had gone past
+swipe does nothing. Every finger must take part: the zoom waits until each one
+has moved, so a palm or thumb resting on the trackpad opens nothing. The zoom
+follows the fingers, and lifting them finishes it the way they were moving, or, if they had stopped, when they had gone past
 halfway. A flick needs 15% of the way, so a twitch of the fingers opens
 nothing.
 Once the Overview has changed since it opened, for example after scrolling,

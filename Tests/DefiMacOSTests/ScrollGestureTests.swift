@@ -142,6 +142,22 @@ struct ScrollGestureTests {
     #expect(move(0.5, 0.53) == nil)
     #expect(move(0.7, 0.53) == nil)
     #expect(lift() == nil)
+    // A palm resting beside fingers that swipe up opens nothing: it never moves.
+    let palm = (id: 4, position: CGPoint(x: 0.9, y: 0.02))
+    func moveBeside(_ y: Double, _ x: Double = 0.5, still: (id: Int, position: CGPoint)) -> OverviewSwipeEvent? {
+      time += 0.01
+      return swipe.update(at(y, x, 3) + [still], time: time, overviewOpen: false)
+    }
+    for y in [0.5, 0.55, 0.6, 0.7] { #expect(moveBeside(y, still: palm) == nil) }
+    #expect(lift() == nil)
+    // A finger that starts late opens once it follows, from rest, even after the others drifted sideways.
+    let late = { (y: Double) in (id: 4, position: CGPoint(x: 0.9, y: y)) }
+    #expect(moveBeside(0.5, still: late(0.5)) == nil)
+    #expect(moveBeside(0.6, still: late(0.5)) == nil)
+    for x in [0.51, 0.52, 0.53, 0.54] { #expect(moveBeside(0.6, x, still: late(0.5)) == nil) }
+    #expect(moveBeside(0.62, 0.54, still: late(0.52)) == .began(opening: true))
+    #expect(progress(moveBeside(0.64, 0.54, still: late(0.54))).map { abs($0 - along(200)) < 1e-9 } == true)
+    _ = lift()
     // Three fingers are not the Overview's, unless it is set to three.
     #expect(move(0.5, count: 3) == nil)
     #expect(move(0.7, count: 3) == nil)
