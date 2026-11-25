@@ -98,6 +98,10 @@ extension MacOSPlatform {
       desired: hiddenWindowIDs,
       skippedWindowIDs: skippedWindowIDs
     )
+    heldBackWindowIDs = Set(assignments.lazy.filter { skippedWindowIDs.contains($0.windowID)
+      && (previousTargetFrames[$0.windowID] != $0.frame
+        || effectiveHiddenWindowIDs.contains($0.windowID) != hiddenWindowIDs.contains($0.windowID))
+    }.map(\.windowID))
     let coordinatorWasBusy = frameCoordinator.isBusy
     var writeIntents: [WindowID: (position: Bool, size: Bool)] = [:]
     var referenceFrames: [WindowID: Rect] = [:]

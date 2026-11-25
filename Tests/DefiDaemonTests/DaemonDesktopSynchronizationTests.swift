@@ -362,6 +362,65 @@ struct DaemonDesktopSynchronizationTests {
     #expect(daemon.floatingWindowFrames[settings.id] == grown.frame)
   }
 
+  /// A close that brings a parked column into view while native focus is pending holds that
+  /// column back; the snapshot after the focus resolves must still write it.
+  @Test
+  @NavigationActor
+  func windowHeldBackForPendingNativeFocusIsWrittenOnceFocusResolves() async throws {
+    let directory = URL(filePath: "/tmp/defi-held-back-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let configURL = directory.appending(path: "config.toml")
+    try "[layout]\ndefault_column_width = 0.5\ngaps = 0\n[animation]\nenabled = false\n"
+      .write(to: configURL, atomically: true, encoding: .utf8)
+    let menuBar = await MainActor.run { MenuBarState(accessibilityTrusted: { false }) }
+    let daemon = try Daemon(
+      options: DaemonOptions(arguments: ["--config", configURL.path, "--socket", directory.appending(path: "d.sock").path]),
+      menuBar: menuBar,
+      instanceLockURL: directory.appending(path: "d.lock"),
+      topologyStore: WorkspaceTopologyStore(url: directory.appending(path: "topology.json")),
+      workspaceStatePublisher: { _ in },
+      desktopSnapshotOverviewUpdater: { _ in }
+    )
+    defer { daemon.flushPendingTopologyWrite() }
+    let monitor = MonitorSnapshot(id: MonitorID(rawValue: 1), frame: Rect(x: 0, y: 0, width: 1_000, height: 700))
+    daemon.latestMonitors = [monitor]
+    daemon.activeMonitorID = monitor.id
+    daemon.state.attachMonitor(monitor.id)
+    let windows = (1...4).map { id in
+      Window(id: WindowID(rawValue: UInt64(id)), appID: "app", title: "Window \(id)",
+        frame: Rect(x: Double(id - 1) * 500, y: 0, width: 500, height: 700), monitorID: monitor.id)
+    }
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(followFocus: true), isNativelyFocused: true,
+        state: &daemon.state)
+    }
+    focusWindow(windows[0].id, state: &daemon.state)
+    synchronizeScrollOffsets(state: &daemon.state, viewports: [monitor.id: monitor.frame])
+    daemon.state.monitors[0].workspaces[0].scrollOffset = 0
+    daemon.state.monitors[0].workspaces[0].targetScrollOffset = 0
+    func sync(_ windows: [Window], focusPending: Bool) {
+      daemon.applyDesktopSnapshot(
+        DesktopSnapshot(monitors: [monitor], windows: windows, focusedWindowID: windows[0].id,
+          nativeFocusChanged: focusPending),
+        nativeFocusWasPending: focusPending, forceFullWindowRefresh: false, forceWindowListRefresh: false,
+        forceApplicationInventoryRefresh: false, targetedWindowRetryRefresh: false,
+        consumePeriodicWindowRefresh: false)
+    }
+    sync(windows, focusPending: false)
+    let third = windows[2].id
+    #expect(daemon.platform.lastHiddenWindowIDs == [third, windows[3].id])
+
+    daemon.needsDesktopSync = false
+    sync([windows[0], windows[2], windows[3]], focusPending: true)
+    #expect(daemon.platform.lastHiddenWindowIDs.contains(third), "Held back while native focus resolves")
+    #expect(daemon.needsDesktopSync, "Nothing else is coming to write the window that should now show")
+
+    sync([windows[0], windows[2], windows[3]], focusPending: false)
+    #expect(daemon.platform.lastHiddenWindowIDs == [windows[3].id])
+    #expect((daemon.platform.targetFrames[third]?.x ?? .infinity) < monitor.frame.width)
+  }
+
   @Test func displayShowingAFullscreenSpaceGetsNoBorderOrDim() {
     let id = { WindowID(rawValue: $0) }
     let monitors: [WindowID: MonitorID] = [id(1): MonitorID(rawValue: 1), id(2): MonitorID(rawValue: 1),
