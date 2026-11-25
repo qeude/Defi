@@ -55,7 +55,8 @@ cleanup() {
 
 vm "[ -f ~/.glitch-daemon-was-running ] || ! pgrep -x defi-daemon >/dev/null || touch ~/.glitch-daemon-was-running; pkill -x defi-daemon; [ ! -x ~/Applications/Defi.app/Contents/MacOS/defi ] || ~/Applications/Defi.app/Contents/MacOS/defi service stop >/dev/null 2>&1; rm -rf $G; mkdir -p $G/tools ~/.config/defi; [ -f ~/.glitch-config.orig ] || [ ! -f ~/.config/defi/config.toml ] || cp ~/.config/defi/config.toml ~/.glitch-config.orig; true"
 # A config without its backup is never overwritten: cleanup would then delete it.
-vm "[ -f ~/.glitch-config.orig ] || [ -f ~/.glitch-config-created ] || [ ! -f ~/.config/defi/config.toml ] || { echo 'config.toml has no backup' >&2; exit 1; }; [ -f ~/.config/defi/config.toml ] || touch ~/.glitch-config-created; printf '[layout]\ndefault_column_width = ${DEFI_GLITCH_WIDTH:-0.6}\n\n[menu_bar]\nenabled = false\n${DEFI_GLITCH_CONFIG:-}' > ~/.config/defi/config.toml"
+printf '[layout]\ndefault_column_width = %s\n\n[menu_bar]\nenabled = false\n%b' "${DEFI_GLITCH_WIDTH:-0.6}" "${DEFI_GLITCH_CONFIG:-}" |
+  vm "[ -f ~/.glitch-config.orig ] || [ -f ~/.glitch-config-created ] || [ ! -f ~/.config/defi/config.toml ] || { echo 'config.toml has no backup' >&2; exit 1; }; [ -f ~/.config/defi/config.toml ] || touch ~/.glitch-config-created; cat > ~/.config/defi/config.toml"
 for tool in PerformanceFixture GlitchCamera; do vm "cat > $G/tools/$tool && chmod +x $G/tools/$tool" < ".build/glitch/$tool"; done
 vm "cat > $G/glitch_bench.py" < script/glitch_bench.py
 
