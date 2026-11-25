@@ -22,6 +22,10 @@ func delayedApplicationActivationIsCurrent(
     && input.latestCapturedCommandTimestamp <= startedAt
 }
 
+/// Bounds each main-thread subscription so a stopped app cannot hold it for the system default.
+/// Looser than reads: a timed-out subscription counts toward the attempts that mark an app unobservable.
+let observerSubscriptionTimeoutSeconds: Float = 0.25
+
 @MainActor
 final class PlatformEventMonitor {
   let handler: (PlatformEventKind, pid_t?) -> Void
@@ -40,6 +44,7 @@ final class PlatformEventMonitor {
   private let now: () -> TimeInterval
   private let addNotification: (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError
   private let removeNotification: (AXObserver, AXUIElement, CFString) -> AXError
+  private let messagingTimeoutAccess: AXMessagingTimeoutAccess
   private var workspaceTokens: [NSObjectProtocol] = []
   private var ownActivationToken: NSObjectProtocol?
   private var ownActivationPolicyToken: NSObjectProtocol?
@@ -75,7 +80,8 @@ final class PlatformEventMonitor {
     mouseGestureStartedHandler: @escaping (WindowID?) -> Void = { _ in },
     now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
     addNotification: @escaping (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError = AXObserverAddNotification,
-    removeNotification: @escaping (AXObserver, AXUIElement, CFString) -> AXError = AXObserverRemoveNotification
+    removeNotification: @escaping (AXObserver, AXUIElement, CFString) -> AXError = AXObserverRemoveNotification,
+    messagingTimeoutAccess: AXMessagingTimeoutAccess = .shared
   ) {
     self.handler = handler
     self.userInputTracker = userInputTracker
@@ -91,6 +97,7 @@ final class PlatformEventMonitor {
     self.now = now
     self.addNotification = addNotification
     self.removeNotification = removeNotification
+    self.messagingTimeoutAccess = messagingTimeoutAccess
   }
 
   func start() {
@@ -435,12 +442,10 @@ final class PlatformEventMonitor {
         !requiredFrames.contains(where: { CFEqual($0, candidate) })
       }
       for window in obsoleteFrameWindows {
-        for notification in [kAXMovedNotification, kAXResizedNotification] {
-          _ = removeNotification(
-            observer,
-            window,
-            notification as CFString
-          )
+        messagingTimeoutAccess.withTimeout(observerSubscriptionTimeoutSeconds, elements: [window]) {
+          for notification in [kAXMovedNotification, kAXResizedNotification] {
+            _ = removeNotification(observer, window, notification as CFString)
+          }
         }
       }
       observedWindows[processID] = known.filter { candidate in
@@ -734,24 +739,13 @@ final class PlatformEventMonitor {
     notifications: [String]
   ) -> Bool {
     let context = Unmanaged.passUnretained(self).toOpaque()
-    let result = registerNotificationBatch(
-      notifications: notifications,
-      add: { notification in
-        addNotification(
-          observer,
-          element,
-          notification as CFString,
-          context
-        )
-      },
-      remove: { notification in
-        _ = removeNotification(
-          observer,
-          element,
-          notification as CFString
-        )
-      }
-    )
+    let result = messagingTimeoutAccess.withTimeout(observerSubscriptionTimeoutSeconds, elements: [element]) {
+      registerNotificationBatch(
+        notifications: notifications,
+        add: { addNotification(observer, element, $0 as CFString, context) },
+        remove: { _ = removeNotification(observer, element, $0 as CFString) }
+      )
+    }
     if result == .success {
       notificationFailures[kind]?[element] = nil
     } else {

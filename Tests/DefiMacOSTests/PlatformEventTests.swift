@@ -1559,6 +1559,48 @@ struct PlatformEventTests {
     #expect(attempts <= notificationObservationMaxAttempts(for: .applicationTopology))
   }
 
+  @Test @MainActor
+  func observationOfAnUnresponsiveApplicationIsBoundedByTheReadTimeout() {
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let window = AXUIElementCreateApplication(-2)
+    let defaultTimeout: TimeInterval = 1.5
+    var timeouts: [CFHashCode: Float] = [:]
+    var time: TimeInterval = 0
+    let monitor = PlatformEventMonitor(
+      handler: { _, _ in }, now: { time },
+      addNotification: { _, element, _, _ in
+        // A stopped app answers nothing: each call waits out the element's messaging timeout.
+        let timeout = timeouts[CFHash(element)] ?? 0
+        time += timeout > 0 ? TimeInterval(timeout) : defaultTimeout
+        return .cannotComplete
+      },
+      removeNotification: { _, _, _ in .success },
+      messagingTimeoutAccess: AXMessagingTimeoutAccess { timeouts[CFHash($0)] = $1 }
+    )
+    defer { monitor.stop() }
+    monitor.refresh(applications: [pid: [window]])
+    // One application, one topology and one frame subscription, each failing at the first call.
+    #expect(time <= 3 * TimeInterval(observerSubscriptionTimeoutSeconds) + 0.001)
+  }
+
+  @Test @MainActor
+  func busyApplicationStillSubscribesWithinTheSubscriptionTimeout() {
+    let pid = ProcessInfo.processInfo.processIdentifier
+    var timeouts: [CFHashCode: Float] = [:]
+    let monitor = PlatformEventMonitor(
+      handler: { _, _ in },
+      addNotification: { _, element, _, _ in
+        // A busy but live app answers after 100 ms.
+        (timeouts[CFHash(element)] ?? 0) >= 0.1 ? .success : .cannotComplete
+      },
+      removeNotification: { _, _, _ in .success },
+      messagingTimeoutAccess: AXMessagingTimeoutAccess { timeouts[CFHash($0)] = $1 }
+    )
+    defer { monitor.stop() }
+    monitor.refresh(applications: [pid: []])
+    #expect(monitor.observationCoverage.applicationObservers == 1)
+  }
+
   @Test
   func applicationObserverIsPreparedBeforeInitialWindowDiscovery() {
     var actions: [String] = []
