@@ -306,6 +306,8 @@ struct OverviewSwipe {
   private var x = 0.0, y = 0.0
   private var velocity = 0.0, lastMove = 0.0
   private var stage = Stage.ignored
+  /// Where each finger touched down.
+  private var origins: [Int: CGPoint] = [:]
 
   init(fingers: Int) { swipe = FingerSwipe(fingers: fingers) }
 
@@ -322,6 +324,7 @@ struct OverviewSwipe {
     overviewOpen: Bool) -> OverviewSwipeEvent? {
     guard let step = swipe.update(touches, time: time) else { return nil }
     guard step.phase == 2 else {
+      origins = Dictionary(touches.map { ($0.id, $0.position) }) { $1 }
       defer { (x, y, velocity, stage) = (0, 0, 0, step.phase == 1 ? .waiting : .ignored) }
       guard stage == .opening || stage == .closing else { return nil }
       // Fingers that rested before lifting have no speed left.
@@ -340,6 +343,16 @@ struct OverviewSwipe {
       // Like the strip's swipes, the first points pick the axis; up opens, down closes.
       guard abs(y) > abs(x), (y < 0) != overviewOpen else {
         stage = .ignored
+        return nil
+      }
+      // A resting palm or thumb never moves: wait until every contact has moved the swipe's way, held at
+      // the start on the picked axis meanwhile, so a lagging finger opens from rest.
+      let up = y < 0
+      guard touches.allSatisfy({ touch in
+        origins[touch.id].map { (touch.position.y - $0.y) * (up ? 1 : -1) * FingerSwipe.travelPerWidth >= Self.start / 2 }
+          ?? true
+      }) else {
+        (x, y) = (0, up ? -Self.start : Self.start)
         return nil
       }
       stage = overviewOpen ? .closing : .opening
