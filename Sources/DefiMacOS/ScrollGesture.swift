@@ -192,6 +192,8 @@ struct FingerSwipe {
   private var slippedAt: TimeInterval?
   /// More fingers touched: theirs is another gesture until every finger lifts, whatever count it passes on the way.
   private var waitsForLift = false
+  /// The direction macOS scrolls in, read as a swipe begins: without natural scrolling the strip moves against the fingers.
+  var natural = true
 
   init(fingers: Int) { self.fingers = fingers }
 
@@ -366,12 +368,14 @@ func trackpadTouches(_ event: CGEvent) -> (touches: [(id: Int, position: CGPoint
 extension ScrollGestureInput {
   /// A gesture event's touches as one step of a finger swipe, or nil when it is none.
   init?(gesture event: CGEvent, touches: [(id: Int, position: CGPoint)], aspect: Double,
-    swipe: inout FingerSwipe, modifierBits: UInt64, announcedModifierBits: UInt64) {
+    swipe: inout FingerSwipe, natural: @autoclosure () -> Bool, modifierBits: UInt64, announcedModifierBits: UInt64) {
     guard let step = swipe.update(touches, time: eventSeconds(event.timestamp)) else { return nil }
+    if step.phase == 1 { swipe.natural = natural() }
+    let sign = swipe.natural ? 1.0 : -1.0
     phase = step.phase
-    dx = step.dx
+    dx = step.dx * sign
     // Positions are shares of the trackpad's width and height: the same finger travel counts the same on both axes.
-    dy = step.dy * aspect
+    dy = step.dy * aspect * sign
     let held = hotKeyModifierBits(event.flags) | announcedModifierBits
     modifierHeld = held & modifierBits == modifierBits
     location = event.location
@@ -402,6 +406,14 @@ public func systemTrackpadSwipes(
   let drag = fingers == 3 && enabled("TrackpadThreeFingerDrag")
   return (drag || enabled("Trackpad\(name)FingerHorizSwipeGesture"),
     drag || enabled("Trackpad\(name)FingerVertSwipeGesture"))
+}
+
+/// Whether macOS scrolls naturally, its default, as two-finger scrolls already arrive.
+func systemNaturalScrolling() -> Bool {
+  let key = "com.apple.swipescrolldirection" as CFString
+  // Drops this process's cached copy, so a change in System Settings shows up.
+  CFPreferencesAppSynchronize(kCFPreferencesAnyApplication)
+  return CFPreferencesCopyAppValue(key, kCFPreferencesAnyApplication) as? Bool ?? true
 }
 
 private let machNanoseconds: Double = {

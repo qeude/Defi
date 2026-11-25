@@ -826,7 +826,8 @@ final class InputMonitor: @unchecked Sendable {
   private func swipe(_ event: CGEvent, touches: [(id: Int, position: CGPoint)], aspect: Double,
     modifierBits: UInt64, announcedModifierBits: UInt64) {
     guard let input = ScrollGestureInput(gesture: event, touches: touches, aspect: aspect, swipe: &fingerSwipe,
-      modifierBits: modifierBits, announcedModifierBits: announcedModifierBits) else { return }
+      natural: systemNaturalScrolling(), modifierBits: modifierBits, announcedModifierBits: announcedModifierBits)
+    else { return }
     // The Overview scrolls with the strip's swipe, so one hand moves both.
     if lock.withLock({ overviewModeEnabled }) {
       if let travel = overviewStripSwipe.update(input, system: systemTrackpadSwipes(fingers: scrollGestureFingers)) {

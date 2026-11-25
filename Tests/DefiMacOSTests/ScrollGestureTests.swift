@@ -156,13 +156,28 @@ struct ScrollGestureTests {
     var swipe = FingerSwipe(fingers: 3)
     func step(_ x: Double, _ y: Double) -> ScrollGestureInput? {
       ScrollGestureInput(gesture: event, touches: (1...3).map { (id: $0, position: CGPoint(x: x, y: y)) },
-        aspect: 0.5, swipe: &swipe, modifierBits: 0, announcedModifierBits: 0)
+        aspect: 0.5, swipe: &swipe, natural: true, modifierBits: 0, announcedModifierBits: 0)
     }
     _ = step(0.5, 0.5)
     // A trackpad twice as wide as tall: a fifth of its height is a tenth of its width.
     let input = try #require(step(0.4, 0.3))
     #expect(abs(input.dx + FingerSwipe.travelPerWidth / 10) < 1e-6)
     #expect(abs(input.dy - FingerSwipe.travelPerWidth / 10) < 1e-6)
+  }
+
+  @Test
+  func `Without natural scrolling a finger swipe moves the other way, as macOS's direction stood when it began`() throws {
+    let event = try #require(CGEvent(source: nil))
+    var swipe = FingerSwipe(fingers: 3)
+    var natural = false
+    func step(_ x: Double, _ y: Double) -> ScrollGestureInput? {
+      ScrollGestureInput(gesture: event, touches: (1...3).map { (id: $0, position: CGPoint(x: x, y: y)) },
+        aspect: 1, swipe: &swipe, natural: natural, modifierBits: 0, announcedModifierBits: 0)
+    }
+    _ = step(0.5, 0.5)
+    natural = true
+    let input = try #require(step(0.6, 0.6))
+    #expect(input.dx < 0 && input.dy > 0)
   }
 
   @Test
