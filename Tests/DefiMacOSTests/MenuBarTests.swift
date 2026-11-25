@@ -129,4 +129,37 @@ struct MenuBarTests {
     #expect(state.needsAccessibilityPermission)
   }
 
+
+  @Test
+  func columnsItemFramesTheColumnsOnScreenAndHitsTheClickedOne() throws {
+    // A 1000-point strip scrolled one column right: column 1 (focused) and 2 are on screen.
+    let columns = [MenuColumn(x: -500, width: 500, windows: 1, windowID: 10),
+      MenuColumn(x: 0, width: 500, windows: 1, windowID: 11),
+      MenuColumn(x: 500, width: 500, windows: 2, windowID: 12),
+      MenuColumn(x: 1000, width: 330, windows: 1, windowID: 13)]
+    let monitor = MenuMonitor(id: 1, isFocused: true, activeWorkspace: "1", workspaces: [],
+      columns: columns, focusedColumn: 1, stripWidth: 1000)
+    let layout = menuBarColumnsLayout(monitor, maxWidth: 60)
+    #expect(layout.bars.map(\.alpha) == [0.28, 1, 0.55, 0.28])
+    #expect(layout.frame.minX < layout.bars[1].rect.minX && layout.bars[2].rect.maxX < layout.frame.maxX)
+    #expect(layout.frame.maxX < layout.bars[3].rect.minX && layout.bars[0].rect.maxX < layout.frame.minX)
+    for bar in layout.bars { #expect(layout.windowID(atX: bar.rect.midX) == bar.windowID) }
+    // A click near the edge of a wide bar stays on it, even when a narrow neighbor's middle is closer.
+    let edge = menuBarColumnsLayout(MenuMonitor(id: 1, isFocused: true, activeWorkspace: "1", workspaces: [],
+      columns: [MenuColumn(x: 0, width: 2000, windows: 1, windowID: 1), MenuColumn(x: 2000, width: 100, windows: 1, windowID: 2)],
+      focusedColumn: 0, stripWidth: 1000), maxWidth: 60)
+    #expect(edge.windowID(atX: edge.bars[0].rect.maxX - 0.5) == 1)
+
+    let many = (0..<40).map { MenuColumn(x: Double($0) * 500, width: 500, windows: 1, windowID: UInt64($0)) }
+    let crowded = menuBarColumnsLayout(MenuMonitor(id: 1, isFocused: true, activeWorkspace: "1",
+      workspaces: [], columns: Array(many.prefix(12)), focusedColumn: 0, stripWidth: 1000), maxWidth: 60)
+    #expect(crowded.size.width <= 60)
+    let wide = menuBarColumnsLayout(MenuMonitor(id: 1, isFocused: true, activeWorkspace: "1",
+      workspaces: [], columns: Array(many.prefix(12)), focusedColumn: 0, stripWidth: 1000), maxWidth: 120)
+    #expect(wide.size.width > crowded.size.width && wide.size.width <= 120)
+    let packed = menuBarColumnsLayout(MenuMonitor(id: 1, isFocused: true, activeWorkspace: "1",
+      workspaces: [], columns: many, focusedColumn: 0, stripWidth: 1000), maxWidth: 60)
+    #expect(packed.bars.allSatisfy { $0.rect.width >= 2 })
+    #expect(menuBarColumnsLayout(nil, maxWidth: 60).bars.isEmpty)
+  }
 }

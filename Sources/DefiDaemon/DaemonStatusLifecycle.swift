@@ -231,20 +231,45 @@ extension Daemon {
     let monitors = state.monitors
       .sorted { (deskFrames[$0.id]?.x ?? 0) < (deskFrames[$1.id]?.x ?? 0) }
       .map { monitor in
-        MenuMonitor(
+        let strip = config.menuBar.columns && monitor.id == focusedID ? menuStrip(monitor) : nil
+        return MenuMonitor(
           id: monitor.id.rawValue, isFocused: monitor.id == focusedID,
           activeWorkspace: monitor.activeWorkspace.rawValue,
           workspaces: monitor.workspaces.enumerated().map { offset, workspace in
             MenuWorkspace(id: workspace.id.rawValue, label: workspace.name ?? String(offset + 1),
               icon: workspace.name.map { config.workspaces.icons[$0] ?? "square.grid.2x2" },
               position: offset + 1, isEmpty: workspace.isEmpty)
-          })
+          },
+          columns: strip?.columns ?? [], focusedColumn: strip?.focused, stripWidth: strip?.width ?? 0)
       }
     let menuBarConfig = config.menuBar
     DispatchQueue.main.async { [menuBar] in
       menuBar.update(monitors: monitors, config: menuBarConfig)
     }
     publishWorkspaceStateIfNeeded()
+  }
+
+  /// The active workspace's columns where its scroll is heading, so the item never redraws per animation frame.
+  private func menuStrip(_ monitor: Monitor) -> (columns: [MenuColumn], focused: Int?, width: Double)? {
+    guard let viewport = viewportsByMonitor[monitor.id],
+      let workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace })
+    else { return nil }
+    let width = stripViewport(viewport, settings: state.layout).width
+    let widths = columnLayoutWidths(
+      workspace.columns, viewport: viewport,
+      windowsByID: state.windows, settings: state.layout)
+    var x = -workspace.targetScrollOffset * width
+    var columns: [MenuColumn] = []
+    var focused: Int?
+    for (index, (column, columnWidth)) in zip(workspace.columns, widths).enumerated() {
+      defer { x += columnWidth }
+      guard let windowID = column.windows.indices.contains(column.focusedWindow)
+        ? column.windows[column.focusedWindow] : column.windows.first
+      else { continue }
+      if index == workspace.focusedColumn, workspace.focusedLayer == .tiled { focused = columns.count }
+      columns.append(MenuColumn(x: x, width: columnWidth, windows: column.windows.count, windowID: windowID.rawValue))
+    }
+    return (columns, focused, width)
   }
 
   var activeDisplayRefreshRate: Double {

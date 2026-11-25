@@ -139,6 +139,7 @@ struct ConfigTests {
   static let rule = "[[rules]]\napp_id = \"device\"\ninitial_column_width"
   @Test(arguments: [
     ("[overview]\nzoom = 0.76", ConfigError.invalidValue("overview.zoom")),
+    ("[menu_bar]\ncolumns_width = 10", .invalidValue("menu_bar.columns_width")),
     ("[animation]\nstiffness = 99", .invalidValue("animation.stiffness")),
     ("[animation]\ndamping_ratio = 1.1", .invalidValue("animation.damping_ratio")),
     ("[animation]\ndamping_ratio = 0.4", .invalidValue("animation.damping_ratio")),
@@ -245,6 +246,8 @@ struct ConfigTests {
       inactive_style = "outlined"
       equal_width = false
       show = "current"
+      columns = true
+      columns_width = 90
 
       [keys]
       "mod-d" = "diagnostic-mark"
@@ -297,6 +300,8 @@ struct ConfigTests {
     #expect(config.menuBar.indicator == .pill && config.menuBar.show == .current)
     #expect(config.menuBar.inactiveStyle == .outlined && !config.menuBar.equalWidth && Config().menuBar.equalWidth)
     #expect(Config().menuBar.indicator == .dot && Config().menuBar.show == .all)
+    #expect(config.menuBar.columns && !Config().menuBar.columns)
+    #expect(config.menuBar.columnsWidth == 90 && Config().menuBar.columnsWidth == 60)
     #expect(config.keys["mod-d"] == "diagnostic-mark")
   }
 

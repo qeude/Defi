@@ -404,11 +404,14 @@ public struct MenuBarConfig: Codable, Equatable, Sendable {
   public var inactiveStyle: MenuBarInactiveStyle
   public var equalWidth: Bool
   public var show: MenuBarDisplays
+  public var columns: Bool
+  public var columnsWidth: Double
 
   public init(
     enabled: Bool = true, workspaceStyle: WorkspaceLabelStyle = .name,
     indicator: MenuBarIndicator = .dot, inactiveStyle: MenuBarInactiveStyle = .filled,
-    equalWidth: Bool = true, show: MenuBarDisplays = .all
+    equalWidth: Bool = true, show: MenuBarDisplays = .all, columns: Bool = false,
+    columnsWidth: Double = 60
   ) {
     self.enabled = enabled
     self.workspaceStyle = workspaceStyle
@@ -416,6 +419,8 @@ public struct MenuBarConfig: Codable, Equatable, Sendable {
     self.inactiveStyle = inactiveStyle
     self.equalWidth = equalWidth
     self.show = show
+    self.columns = columns
+    self.columnsWidth = columnsWidth
   }
 
   enum CodingKeys: String, CodingKey {
@@ -425,6 +430,8 @@ public struct MenuBarConfig: Codable, Equatable, Sendable {
     case inactiveStyle = "inactive_style"
     case equalWidth = "equal_width"
     case show
+    case columns
+    case columnsWidth = "columns_width"
   }
 
   public init(from decoder: Decoder) throws {
@@ -436,6 +443,8 @@ public struct MenuBarConfig: Codable, Equatable, Sendable {
     inactiveStyle = try values.decodeIfPresent(MenuBarInactiveStyle.self, forKey: .inactiveStyle) ?? defaults.inactiveStyle
     equalWidth = try values.decodeIfPresent(Bool.self, forKey: .equalWidth) ?? defaults.equalWidth
     show = try values.decodeIfPresent(MenuBarDisplays.self, forKey: .show) ?? defaults.show
+    columns = try values.decodeIfPresent(Bool.self, forKey: .columns) ?? defaults.columns
+    columnsWidth = try values.decodeIfPresent(Double.self, forKey: .columnsWidth) ?? defaults.columnsWidth
   }
 }
 

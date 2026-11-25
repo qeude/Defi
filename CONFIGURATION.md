@@ -1109,6 +1109,8 @@ indicator = "dot"
 inactive_style = "filled"
 equal_width = true
 show = "all"
+columns = false
+columns_width = 60
 ```
 
 | Setting | Default | Values | Description |
@@ -1119,11 +1121,21 @@ show = "all"
 | `inactive_style` | `"filled"` | `"filled"`, `"outlined"` | Inactive workspaces as dimmed shapes with their label cut out, or as outlines. |
 | `equal_width` | `true` | boolean | Gives every `"box"` or `"pill"` the width of the widest one. |
 | `show` | `"all"` | `"all"`, `"current"`, `"active"` | `"current"` shows only the workspaces of the focused display, `"active"` only its active workspace. |
+| `columns` | `false` | boolean | Adds a second item that maps the columns of the focused display's active workspace. See below. |
+| `columns_width` | `60` | 30 to 300 points | The widest the columns item gets before its bars narrow. |
 
 The active workspace is filled. An empty workspace is fainter than one with
 windows, and an empty dot is a ring. Displays without focus appear dimmer. The
 item follows the menu bar's own color, so it is white on a dark menu bar and
 black on a light one.
+
+With `columns = true`, a second item draws one bar per column, as wide as the
+column, and frames the columns on screen. The focused column is solid, the
+others on screen are dimmed, and those off screen are fainter. Stacked windows
+split their bar, up to three. The bars narrow to keep the item within
+`columns_width`, down to 2 points each, past which it grows. Click a bar to focus that column; click elsewhere,
+right-click, or Control-click to open the menu. It follows the focused display
+and shows where the strip is heading, not each frame of the scroll.
 
 When the menu bar runs out of room, macOS hides the leftmost items behind a
 chevron. Command-drag Defi's item next to the clock to keep it visible, or set

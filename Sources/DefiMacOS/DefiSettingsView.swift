@@ -395,6 +395,20 @@ private struct MenuBarSettingsView: View {
           Text("Active workspace").tag(MenuBarDisplays.active)
         }
         .settingsSearchTarget(.menuBarDisplays)
+        Toggle(
+          SettingsOption.menuBarColumns.title,
+          isOn: Binding(
+            get: { model.config.menuBar.columns },
+            set: { model.set(table: "menu_bar", key: "columns", value: $0 ? "true" : "false") }
+          ))
+          .settingsSearchTarget(.menuBarColumns)
+        SettingsNumberRow(
+          title: SettingsOption.menuBarColumnsWidth.title, value: model.config.menuBar.columnsWidth,
+          range: 30...300, step: 10, unit: "pt",
+          onChange: { model.set(table: "menu_bar", key: "columns_width", value: String($0)) }
+        )
+          .disabled(!model.config.menuBar.columns)
+          .settingsSearchTarget(.menuBarColumnsWidth)
       }
     }
     .formStyle(.grouped)
