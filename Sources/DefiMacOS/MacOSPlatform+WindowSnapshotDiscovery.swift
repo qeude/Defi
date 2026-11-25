@@ -679,14 +679,18 @@ onMain { $0.eventMonitor?.prepareForWindowDiscovery(
           discoveredElements: nextElements,
           cachedWindowState: cachedWindowState
         )
-        let confirmedWindowIDs = Set((retentionCGWindows ?? []).filter { record in
-          guard record.processID == processID else { return false }
-          if record.isOnscreen || appWindows == nil { return true }
-          let windowID = WindowID(rawValue: UInt64(record.id))
-          return previousElements[windowID].map { previous in
-            appWindows?.contains(where: { CFEqual($0, previous) }) == true
-          } ?? false
-        }.map { WindowID(rawValue: UInt64($0.id)) })
+        let confirmedWindowIDs = retentionConfirmedWindowIDs(
+          processID: processID,
+          records: retentionCGWindows ?? [],
+          listedInInventory: appWindows.map { appWindows in
+            { windowID in
+              previousElements[windowID].map { previous in
+                appWindows.contains(where: { CFEqual($0, previous) })
+              } ?? false
+            }
+          },
+          processShowsNativeFullscreen: nativeFullscreenProcessIDsByWindowID.values.contains(processID)
+        )
         let retention = retainedWindowIDsWithinGracePeriod(
           retainableWindowIDs,
           // WindowServer can retain closed, ordered-out surfaces. A successful AX

@@ -70,6 +70,7 @@ public func discoverWindow(
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .floating
     }
   } else {
+    let previousSelection = state.monitors[monitorIndex].workspaces[workspaceIndex].selectedWindowID
     insertNewWindow(
       window.id,
       width: .fraction(
@@ -80,6 +81,8 @@ public func discoverWindow(
     )
     if followsFocus {
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .tiled
+      state.monitors[monitorIndex].workspaces[workspaceIndex].focusReturn =
+        previousSelection.map { FocusReturn(opened: window.id, previous: $0) }
     }
   }
   if followsFocus {
@@ -205,7 +208,7 @@ public func reconcileWindows(
     if explicitlyRemovedWindowIDs.contains(existingID) {
       adjustNativeFullscreenPlacements(afterRemoving: existingID, state: &state)
     }
-    removeWindowFromEveryWorkspace(existingID, viewports: viewports, state: &state)
+    removeClosedWindow(existingID, viewports: viewports, state: &state)
     state.windows[existingID] = nil
     state.nativeFullscreenFloatingWindowIDs.remove(existingID)
     state.nativeFullscreenTiledPlacements[existingID] = nil
@@ -606,6 +609,29 @@ private func replace(
     replaced[windowID == previousID ? replacementID : windowID] = placement.relocated(column: column)
   }
   placements = replaced
+}
+
+/// Closing a window that is still the selection it opened with selects the window it was
+/// opened from instead of a neighbor.
+private func removeClosedWindow(
+  _ windowID: WindowID,
+  viewports: [MonitorID: Rect],
+  state: inout RuntimeState
+) {
+  var returning: (monitorIndex: Int, workspaceIndex: Int, previous: WindowID)?
+  for (monitorIndex, monitor) in state.monitors.enumerated() {
+    for (workspaceIndex, workspace) in monitor.workspaces.enumerated()
+    where workspace.focusReturn?.opened == windowID && workspace.selectedWindowID == windowID {
+      returning = workspace.focusReturn.map { (monitorIndex, workspaceIndex, $0.previous) }
+    }
+  }
+  removeWindowFromEveryWorkspace(windowID, viewports: viewports, state: &state)
+  guard let (monitorIndex, workspaceIndex, previous) = returning else { return }
+  var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
+  workspace.focusReturn = nil
+  restoreSelection(previous, in: &workspace)
+  repairWorkspaceScroll(&workspace, settings: state.layout(on: state.monitors[monitorIndex].id))
+  state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
 }
 
 func restoreSelection(

@@ -75,6 +75,8 @@ public struct Workspace: Equatable, Codable, Sendable {
   public var scrollOffset: Double
   public var targetScrollOffset: Double
   public var scrollFocus: ScrollFocus? = nil
+  /// Closing `opened` before the selection leaves it selects `previous` again.
+  public var focusReturn: FocusReturn? = nil
 
   public init(
     id: WorkspaceID,
@@ -127,6 +129,16 @@ extension Workspace {
     // A floating layer whose index no longer resolves falls back to the tiled selection, so a
     // stale index never drops focus from a snapshot or a fullscreen reconciliation.
     focusedLayer == .floating ? (focusedFloatingWindowID ?? focusedTiledWindowID) : focusedTiledWindowID
+  }
+}
+
+public struct FocusReturn: Equatable, Codable, Sendable {
+  public var opened: WindowID
+  public var previous: WindowID
+
+  public init(opened: WindowID, previous: WindowID) {
+    self.opened = opened
+    self.previous = previous
   }
 }
 

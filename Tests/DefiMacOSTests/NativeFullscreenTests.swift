@@ -403,6 +403,21 @@ struct NativeFullscreenTests {
   }
 
   @Test
+  func `Element fullscreen keeps the browser window it ordered out`() {
+    let browser = CGWindowRecord(id: 108, processID: 7, layer: 0, title: "Page",
+      frame: Rect(x: -999, y: 42, width: 1000, height: 657), isOnscreen: false)
+    let confirmed = { (fullscreen: Bool) in
+      retentionConfirmedWindowIDs(processID: 7, records: [browser], listedInInventory: { _ in false },
+        processShowsNativeFullscreen: fullscreen)
+    }
+
+    #expect(confirmed(true) == [WindowID(rawValue: 108)])
+    #expect(confirmed(false).isEmpty)
+    #expect(retentionConfirmedWindowIDs(processID: 7, records: [browser], listedInInventory: nil,
+      processShowsNativeFullscreen: false) == [WindowID(rawValue: 108)])
+  }
+
+  @Test
   func `Fullscreen space retains focus resources from masked spaces`() {
     let visibleID = WindowID(rawValue: 1)
     let maskedID = WindowID(rawValue: 2)
