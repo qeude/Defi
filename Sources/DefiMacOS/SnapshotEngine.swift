@@ -1147,7 +1147,7 @@ extension SnapshotEngine {
     var input = WindowClassificationInput(
       appID: window.appID, role: window.role, subrole: window.subrole, title: window.title)
     if rule != nil || window.role != kAXWindowRole || window.subrole != kAXStandardWindowSubrole {
-      if rule == nil, window.subrole == kAXDialogSubrole, window.title.isEmpty {
+      if rule == nil, window.subrole == kAXDialogSubrole {
         var close: CFTypeRef?, modal: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &close)
         AXUIElementCopyAttributeValue(element, kAXModalAttribute as CFString, &modal)

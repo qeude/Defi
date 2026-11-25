@@ -12,11 +12,10 @@ struct WindowDiscoveryTests {
   private let frame = Rect(x: 4, y: 34, width: 2_554, height: 1_354)
 
   @Test
-  func `An untitled dialog without chrome is a system accessory, a real dialog is not`() {
-    #expect(isSystemTextAccessory(title: "", hasCloseButton: false, isModal: false))
-    #expect(!isSystemTextAccessory(title: "", hasCloseButton: true, isModal: false))
-    #expect(!isSystemTextAccessory(title: "", hasCloseButton: false, isModal: true))
-    #expect(!isSystemTextAccessory(title: "Find", hasCloseButton: false, isModal: false))
+  func `A dialog without chrome is a text accessory, a real dialog is not`() {
+    #expect(isSystemTextAccessory(hasCloseButton: false, isModal: false))
+    #expect(!isSystemTextAccessory(hasCloseButton: true, isModal: false))
+    #expect(!isSystemTextAccessory(hasCloseButton: false, isModal: true))
   }
 
   @Test
