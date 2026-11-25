@@ -423,6 +423,12 @@ public struct RuntimeState: Equatable, Sendable {
 
   public mutating func maintainWorkspaceLifecycle() {
     for monitorIndex in monitors.indices {
+      for workspaceIndex in monitors[monitorIndex].workspaces.indices {
+        let workspace = monitors[monitorIndex].workspaces[workspaceIndex]
+        if let focusReturn = workspace.focusReturn, focusReturn.opened != workspace.selectedWindowID {
+          monitors[monitorIndex].workspaces[workspaceIndex].focusReturn = nil
+        }
+      }
       for workspaceIndex in monitors[monitorIndex].workspaces.indices
       where monitors[monitorIndex].workspaces[workspaceIndex].kind == .trailing
         && !monitors[monitorIndex].workspaces[workspaceIndex].isEmpty

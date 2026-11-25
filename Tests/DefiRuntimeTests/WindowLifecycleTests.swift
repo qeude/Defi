@@ -258,6 +258,48 @@ struct WindowLifecycleTests {
     #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: 3))
   }
 
+  @Test(arguments: [
+    // Closed at once: back to the window it opened from, not its right neighbor.
+    (false, false, UInt64(1)),
+    // Focus moved away and back before the close.
+    (true, false, UInt64(3)),
+    // WebKit element fullscreen: a helper window opens in fullscreen at the strip end.
+    (false, true, UInt64(1)),
+  ])
+  func `Closing a window that just opened returns to the window it opened from`(
+    focusMovedAway: Bool, fullscreen: Bool, expected: UInt64
+  ) {
+    let config = Config()
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let window = { (id: UInt64) in
+      Window(
+        id: WindowID(rawValue: id), appID: "app", title: "\(id)",
+        frame: Rect(x: 0, y: 0, width: 600, height: 800), processID: 7, monitorID: self.monitorID
+      )
+    }
+    let existing = [window(1), window(2), window(3)]
+    reconcileWindows(existing, config: config, appliesOpenFocus: false, state: &state)
+    focusWindow(WindowID(rawValue: 1), state: &state)
+    let opened = WindowID(rawValue: 4)
+    reconcileWindows(
+      existing + [window(4)], config: config,
+      nativeFullscreenWindowIDs: fullscreen ? [opened] : [], frontmostProcessID: 7, state: &state
+    )
+    #expect(state.selectedWindowID(on: monitorID) == opened)
+    if focusMovedAway {
+      focusWindow(WindowID(rawValue: 2), state: &state)
+      focusWindow(opened, state: &state)
+    }
+
+    reconcileWindows(
+      existing, config: config, explicitlyRemovedWindowIDs: fullscreen ? [opened] : [],
+      frontmostProcessID: 7, state: &state
+    )
+
+    #expect(state.selectedWindowID(on: monitorID) == WindowID(rawValue: expected))
+  }
+
   @Test
   func `Only a floating window the app in use opens appears on the active monitor`() {
     let second = MonitorID(rawValue: 2)
