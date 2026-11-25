@@ -748,8 +748,6 @@ private struct InputSettingsView: View {
         )
           .settingsSearchTarget(.pointerFocusScroll)
           .disabled(!model.config.input.focusFollowsMouse)
-        Toggle(SettingsOption.scrollGestures.title, isOn: boolBinding("input", "scroll_gestures", model.config.input.scrollGestures))
-          .settingsSearchTarget(.scrollGestures)
         ScrollGestureSettings(model: model)
         SettingsNumberRow(
           title: SettingsOption.scrollGestureSpeed.title,
@@ -2123,19 +2121,26 @@ private struct ScrollGestureSettings: View {
     let fingers = input.scrollGestureFingers
     let modifier = model.config.scrollGestureModifier
     let system = systemTrackpadSwipes(fingers: fingers)
+    let overviewFingers = input.overviewGesture ? input.overviewGestureFingers : nil
+    let activationBlocked = !input.scrollGestures && fingers == overviewFingers
     Group {
-      Picker(SettingsOption.scrollGestureFingers.title, selection: Binding(
-        get: { fingers },
-        set: { value in
-          // Two fingers need the modifier: restore it first so each save stays valid.
-          if value == 2, modifier == "none" { model.reset(table: "input", key: "scroll_gesture_modifier") }
-          model.set(table: "input", key: "scroll_gesture_fingers", value: String(value))
-        }
-      )) {
-        Text("Two").tag(2)
-        Text("Three").tag(3)
-        Text("Four").tag(4)
+      Toggle(SettingsOption.scrollGestures.title, isOn: Binding(
+        get: { input.scrollGestures },
+        set: { model.setScrollGesturesEnabled($0) }
+      ))
+        .settingsSearchTarget(.scrollGestures)
+        .disabled(activationBlocked)
+      if activationBlocked {
+        Text("The Overview uses this gesture. Choose a different number of fingers to enable scrolling.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
       }
+      GestureFingersMenu(
+        title: SettingsOption.scrollGestureFingers.title,
+        choices: [(2, "Two"), (3, "Three"), (4, "Four")],
+        selection: fingers, reservedFingers: overviewFingers, reservation: "used by the Overview",
+        select: model.setScrollGestureFingers
+      )
         .settingsSearchTarget(.scrollGestureFingers)
       Toggle(SettingsOption.scrollGestureModifier.title, isOn: Binding(
         get: { modifier != "none" },
@@ -2148,7 +2153,7 @@ private struct ScrollGestureSettings: View {
         }
       ))
         .settingsSearchTarget(.scrollGestureModifier)
-        .disabled(fingers == 2)
+        .disabled(!input.scrollGestures || fingers == 2)
       Text(caption(fingers: fingers, modifier: modifier, system: system))
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -2161,7 +2166,6 @@ private struct ScrollGestureSettings: View {
         }
       }
     }
-    .disabled(!input.scrollGestures)
   }
 
   private func caption(fingers: Int, modifier: String, system: (horizontal: Bool, vertical: Bool)) -> String {
@@ -2236,17 +2240,14 @@ private struct OverviewGestureSettings: View {
 
   var body: some View {
     let input = model.config.input
-    Picker(SettingsOption.overviewGesture.title, selection: Binding(
-      get: { input.overviewGesture ? input.overviewGestureFingers : 0 },
-      set: { value in
-        if value != 0 { model.set(table: "input", key: "overview_gesture_fingers", value: String(value)) }
-        model.set(table: "input", key: "overview_gesture", value: value != 0 ? "true" : "false")
-      }
-    )) {
-      Text("Off").tag(0)
-      Text("Three fingers").tag(3)
-      Text("Four fingers").tag(4)
-    }
+    let scrollFingers = input.scrollGestures ? input.scrollGestureFingers : nil
+    GestureFingersMenu(
+      title: SettingsOption.overviewGesture.title,
+      choices: [(0, "Off"), (3, "Three fingers"), (4, "Four fingers")],
+      selection: input.overviewGesture ? input.overviewGestureFingers : 0,
+      reservedFingers: scrollFingers, reservation: "used by scrolling",
+      select: { model.setOverviewGestureFingers($0 == 0 ? nil : $0) }
+    )
       .settingsSearchTarget(.overviewGesture)
     if input.overviewGesture { caption(input) }
   }
@@ -2270,6 +2271,41 @@ private struct OverviewGestureSettings: View {
       Text("\(count) fingers up open the Overview, down close it.")
         .font(.caption)
         .foregroundStyle(.secondary)
+    }
+  }
+}
+
+private struct GestureFingersMenu: View {
+  let title: String
+  let choices: [(fingers: Int, title: String)]
+  let selection: Int
+  let reservedFingers: Int?
+  let reservation: String
+  let select: (Int) -> Void
+
+  var body: some View {
+    let selectedTitle = choices.first { $0.fingers == selection }?.title ?? ""
+    LabeledContent(title) {
+      // A macOS menu-style Picker ignores disabled modifiers on individual choices.
+      Menu {
+        ForEach(choices, id: \.fingers) { choice in
+          let label = choice.fingers == reservedFingers ? "\(choice.title) · \(reservation)" : choice.title
+          Button {
+            select(choice.fingers)
+          } label: {
+            if choice.fingers == selection {
+              Label(label, systemImage: "checkmark")
+            } else {
+              Text(label)
+            }
+          }
+          .disabled(choice.fingers == reservedFingers)
+        }
+      } label: {
+        Text(selectedTitle)
+      }
+      .accessibilityLabel(title)
+      .accessibilityValue(selectedTitle)
     }
   }
 }

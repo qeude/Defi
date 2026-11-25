@@ -354,6 +354,42 @@ struct DefiSettingsModelTests {
   }
 
   @Test
+  func gestureSettingsPreventAndResolveConflicts() throws {
+    let url = try configFile()
+    defer { removeConfig(url) }
+    try Data("""
+      [input]
+      scroll_gestures = true
+      scroll_gesture_fingers = 4
+      scroll_gesture_modifier = "none"
+      overview_gesture = true
+      overview_gesture_fingers = 4
+      """.utf8).write(to: url)
+    let model = DefiSettingsModel(configURL: url)
+    #expect(model.config.input.overviewSwipesMoveStrip)
+
+    model.setScrollGesturesEnabled(false)
+    model.setScrollGesturesEnabled(true)
+    #expect(!model.config.input.scrollGestures)
+
+    model.setScrollGestureFingers(2)
+    model.setScrollGesturesEnabled(true)
+    model.setScrollGestureFingers(4)
+    #expect(model.config.input.scrollGestures)
+    #expect(model.config.input.scrollGestureFingers == 2)
+    #expect(model.config.scrollGestureModifier != "none")
+    #expect(model.config.input.overviewGestureActive)
+
+    model.setScrollGestureFingers(3)
+    model.setOverviewGestureFingers(3)
+    #expect(try Config.load(from: url).input.overviewGestureFingers == 4)
+    model.setOverviewGestureFingers(nil)
+    model.setScrollGestureFingers(4)
+    model.setOverviewGestureFingers(3)
+    #expect(try Config.load(from: url).input.overviewGestureActive)
+  }
+
+  @Test
   func externalReplacementRefreshesAndWinsOverPendingWrite() throws {
     let url = try configFile()
     defer { removeConfig(url) }
