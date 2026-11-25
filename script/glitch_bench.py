@@ -449,6 +449,41 @@ def activation(bench, rng, rounds):
             (bench.out / f'activate-{round(start, 1)}-trace.txt').write_text(bench.cli_run('trace')[0])
 
 
+def owner(bench, number):
+    """The live fixture showing this window, and the window's fixture id."""
+    for fixture in bench.fixtures.values():
+        if fixture.process.poll() is None:
+            for window in fixture.ask()['windows']:
+                if window['windowNumber'] == number:
+                    return fixture, window['id']
+    return None, None
+
+
+def hidden_close(bench, rng, rounds):
+    """Closing a column off screen to the left must leave the columns in view where they show."""
+    for r in range(rounds * 3):
+        columns_ = bench.columns(bench.active())
+        if len(columns_) < 5:
+            bench.check('scenario_error', False, error='fewer than five columns')
+            return
+        # Away from the strip's end, where clamping the scroll would hide a shift.
+        bench.act('select', ['focus-column', 'last'], columns_[-1][0])
+        for index in (-2, -3, -4):
+            bench.act('select', ['focus-column', 'left'], columns_[index][0])
+        bench.act('select', ['focus-column', 'right'], columns_[-3][0])
+        victim = columns_[rng.randrange(len(columns_) - 4)][0]
+        fixture, window_id = owner(bench, victim)
+        start, pids = now(), bench.daemons()
+        bench.log_event('close-hidden', window=victim, label=bench.hue_of.get(victim))
+        fixture.ask('close', id=window_id)
+        bench.judge('close-hidden', start, columns_[-3][0], pids, until=lambda: victim not in bench.window_ids())
+        # Reopen one so every round starts with as many columns.
+        start, pids = now(), bench.daemons()
+        number = bench.create(fixture.name, f'reopen{r}-{int(time.time() * 1000)}')
+        bench.log_event('open', window=number)
+        bench.judge('open', start, number, pids, until=lambda: bench.focused() == number)
+
+
 def overview(bench, rng, rounds):
     for _ in range(rounds):
         start, pids = now(), bench.daemons()
@@ -650,7 +685,7 @@ def settings(bench, rng, rounds):
 
 SCENARIOS = {'columns': columns, 'workspaces': workspaces, 'windows': windows, 'activation': activation,
              'overview': overview, 'fullscreen': fullscreen, 'restart': restart, 'slow': slow,
-             'displays': displays, 'settings': settings}
+             'displays': displays, 'settings': settings, 'hidden-close': hidden_close}
 
 
 # -- analysis ----------------------------------------------------------------------------------------
@@ -744,6 +779,8 @@ def analyze(out):
                 defect(action['scenario'], 'parking_leak', action=action['action'], labels=sorted(leaked), t=t0)
             placeholders(action, settled, [c for c in camera if 'windows' in c and settled['t'] <= c['t'] < t1],
                          after, defect)
+        if action['action'] == 'close-hidden' and len(displays) == 1:
+            view_shift(action, frames, t1, defect)
     # Seams are 2 pt marks seen at half resolution for one frame: reported, not scored.
     for c in counts.values():
         c['defects'] = sum(v for k, v in c.items() if k not in ('checks', 'seam', 'defects'))
@@ -759,6 +796,22 @@ def analyze(out):
 
 
 first_steps, stalls = [], []
+
+
+def shown(frame):
+    """Fixture labels at least 40 pt wide across the middle row."""
+    return {run[0] for run in frame['rows'][1] if run[0].startswith('w') and run[2] - run[1] >= 40}
+
+
+def view_shift(action, frames, t1, defect):
+    """Closing a hidden window changes nothing in view."""
+    before = [f for f in frames if f['t'] < action['t']]
+    after = [f for f in frames if f['t'] < t1]
+    if before and after:
+        was, now_ = shown(before[-1]) - {action.get('label')}, shown(after[-1])
+        if was != now_:
+            defect(action['scenario'], 'view_shift', action=action['action'], t=action['t'],
+                   before=sorted(was), after=sorted(now_))
 
 
 def judge_motion(action, frames, width, defect, instant=False):

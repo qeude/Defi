@@ -761,6 +761,7 @@ func groupedTiledColumns(
 
 func removeWindowFromEveryWorkspace(
   _ windowID: WindowID,
+  viewports: [MonitorID: Rect] = [:],
   state: inout RuntimeState
 ) {
   for monitorIndex in state.monitors.indices {
@@ -768,7 +769,11 @@ func removeWindowFromEveryWorkspace(
       removeWindow(
         windowID,
         from: &state.monitors[monitorIndex].workspaces[workspaceIndex],
-        settings: state.layout
+        settings: state.layout,
+        viewport: viewports[state.monitors[monitorIndex].id]
+          ?? Rect(x: 0, y: 0, width: 1_000, height: 1),
+        // Window bounds are in points: on the default viewport they would overstate the shift.
+        windowsByID: viewports[state.monitors[monitorIndex].id] == nil ? [:] : state.windows
       )
     }
   }
