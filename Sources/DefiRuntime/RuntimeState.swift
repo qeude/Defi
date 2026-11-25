@@ -423,7 +423,9 @@ public struct RuntimeState: Equatable, Sendable {
 
   public mutating func maintainWorkspaceLifecycle() {
     for monitorIndex in monitors.indices {
+      carryPinnedColumn(on: monitorIndex)
       for workspaceIndex in monitors[monitorIndex].workspaces.indices {
+        normalizeColumnPins(&monitors[monitorIndex].workspaces[workspaceIndex])
         let workspace = monitors[monitorIndex].workspaces[workspaceIndex]
         if let focusReturn = workspace.focusReturn, focusReturn.opened != workspace.selectedWindowID {
           monitors[monitorIndex].workspaces[workspaceIndex].focusReturn = nil
@@ -431,7 +433,7 @@ public struct RuntimeState: Equatable, Sendable {
       }
       for workspaceIndex in monitors[monitorIndex].workspaces.indices
       where monitors[monitorIndex].workspaces[workspaceIndex].kind == .trailing
-        && !monitors[monitorIndex].workspaces[workspaceIndex].isEmpty
+        && !holdsOnlyPinnedColumn(monitors[monitorIndex].workspaces[workspaceIndex])
       {
         monitors[monitorIndex].workspaces[workspaceIndex].kind = .ordinary
       }
@@ -463,6 +465,28 @@ public struct RuntimeState: Equatable, Sendable {
         monitors[monitorIndex].activeWorkspace = monitors[monitorIndex].workspaces.last!.id
       }
       updateAffinityPositions(on: monitorIndex)
+    }
+  }
+
+  /// The pinned column belongs to its monitor, so it rides the active workspace. Any other
+  /// workspace's pin, such as one migrated after display loss, joins the strip when the
+  /// active workspace already has one.
+  private mutating func carryPinnedColumn(on monitorIndex: Int) {
+    guard let activeIndex = monitors[monitorIndex].workspaces.firstIndex(where: {
+      $0.id == monitors[monitorIndex].activeWorkspace
+    }) else { return }
+    for workspaceIndex in monitors[monitorIndex].workspaces.indices where workspaceIndex != activeIndex {
+      guard let columnIndex = pinnedColumnIndices(
+        monitors[monitorIndex].workspaces[workspaceIndex].columns).values.first
+      else { continue }
+      if pinnedColumnIndices(monitors[monitorIndex].workspaces[activeIndex].columns).isEmpty {
+        let column = removePinnedColumn(from: &monitors[monitorIndex].workspaces[workspaceIndex])!
+        insertPinnedColumn(
+          column, into: &monitors[monitorIndex].workspaces[activeIndex], settings: layout,
+          excludingWindowIDs: nativeFullscreenWindowIDs)
+      } else {
+        monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].pin = nil
+      }
     }
   }
 

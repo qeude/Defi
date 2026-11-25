@@ -15,8 +15,10 @@ public func focusedColumnLeftScrollOffset(
   let widths = columnWidthsInViewports(
     workspace.columns, viewport: viewport, windowsByID: windowsByID, settings: settings
   )
-  let focusedLeft = widths.prefix(workspace.focusedColumn).reduce(0, +)
   let totalWidth = widths.reduce(0, +)
+  // A pinned column has no place in the strip, which stays where it is heading.
+  let focusedLeft = pinnedColumnIndices(workspace.columns).values.contains(workspace.focusedColumn)
+    ? workspace.targetScrollOffset : widths.prefix(workspace.focusedColumn).reduce(0, +)
   return min(max(focusedLeft, 0), max(totalWidth - 1, 0))
 }
 
@@ -61,11 +63,20 @@ public func focusedColumnScrollTarget(
     workspace.columns, viewport: viewport, windowsByID: windowsByID, settings: settings
   )
   let left = { (index: Int) in widths.prefix(index).reduce(0, +) }
+  let maxContentScroll = max(widths.reduce(0, +) - 1, 0)
+  let pinnedColumns = Set(pinnedColumnIndices(workspace.columns).values)
+  // A pinned column is always in view, so selecting it leaves the strip where it is heading.
+  if pinnedColumns.contains(workspace.focusedColumn) {
+    return (
+      clearingPinnedEdge(
+        min(max(workspace.targetScrollOffset, 0), maxContentScroll), columns: workspace.columns,
+        widths: widths),
+      recordedFocus)
+  }
   let focusedLeft = left(workspace.focusedColumn)
   let focusedWidth =
     widths.indices.contains(workspace.focusedColumn) ? widths[workspace.focusedColumn] : 0
   let focusedRight = focusedLeft + focusedWidth
-  let maxContentScroll = max(widths.reduce(0, +) - 1, 0)
   let minimumScroll = max(focusedRight - 1, 0)
   let maximumScroll = min(focusedLeft, maxContentScroll)
   let centered = min(
@@ -117,13 +128,13 @@ public func focusedColumnScrollTarget(
   let exactCenter =
     widths.indices.contains(workspace.focusedColumn) && focusedWidth <= 1 + 1e-9
     ? focusedLeft + focusedWidth / 2 - 0.5 : focusedLeft
-  let offset: Double
+  var offset: Double
   if let held {
     offset = held
   } else if free {
     offset = revealed
   } else if pinned || settings.centerFocusedColumn == .always
-    || (settings.alwaysCenterSingleColumn && workspace.columns.count == 1)
+    || (settings.alwaysCenterSingleColumn && workspace.columns.count - pinnedColumns.count == 1)
   {
     offset = exactCenter
   } else if settings.centerFocusedColumn == .onOverflow, overflows {
@@ -131,6 +142,8 @@ public func focusedColumnScrollTarget(
   } else {
     offset = revealed
   }
+  offset = clearingPinnedEdge(
+    offset, columns: workspace.columns, widths: widths, keeping: workspace.focusedColumn)
   return (
     offset,
     selectedWindowID.map {
@@ -155,16 +168,22 @@ public func focusedColumnAvailableWidth(
   maximumWidth: Double? = nil
 ) -> (width: Double, offset: Double)? {
   let workspace = workspaceForLayout(workspace, excludingWindowIDs: excludingWindowIDs)
-  guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
+  let pinned = Set(pinnedColumnIndices(workspace.columns).values)
+  guard workspace.columns.indices.contains(workspace.focusedColumn),
+    !pinned.contains(workspace.focusedColumn)
+  else { return nil }
+  let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
   let widths = columnWidthsInViewports(
-    workspace.columns, viewport: viewport,
-    windowsByID: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) }), settings: settings)
-  let point = 1 / stripViewport(viewport, settings: settings).width
+    workspace.columns, viewport: viewport, windowsByID: windowsByID, settings: settings)
+  let point = 1 / stripViewport(
+    scrollingViewport(workspace.columns, viewport: viewport, windowsByID: windowsByID, settings: settings),
+    settings: settings).width
   let lefts = widths.indices.map { widths.prefix($0).reduce(0, +) }
   // Where the strip is heading, so a resize right after navigation sees the new view.
   let start = workspace.targetScrollOffset
   let visible = widths.indices.filter {
-    lefts[$0] >= start - point && lefts[$0] + widths[$0] <= start + 1 + point
+    !pinned.contains($0)
+      && lefts[$0] >= start - point && lefts[$0] + widths[$0] <= start + 1 + point
   }
   guard visible.contains(workspace.focusedColumn), let first = visible.first else { return nil }
   let current = widths[workspace.focusedColumn]
@@ -186,8 +205,10 @@ public func visibleColumnsCenteredOffset(
 ) -> Double? {
   let offset = workspace.targetScrollOffset
   let workspace = workspaceForLayout(workspace, excludingWindowIDs: excludingWindowIDs)
+  let pinned = Set(pinnedColumnIndices(workspace.columns).values)
   guard settings.centerFocusedColumn != .always,
-    !(settings.alwaysCenterSingleColumn && workspace.columns.count <= 1)
+    !(settings.alwaysCenterSingleColumn && workspace.columns.count - pinned.count <= 1),
+    !pinned.contains(workspace.focusedColumn)
   else { return nil }
   let widths = columnWidthsInViewports(
     workspace.columns, viewport: viewport,
@@ -196,26 +217,33 @@ public func visibleColumnsCenteredOffset(
   let lefts = widths.indices.map { widths.prefix($0).reduce(0, +) }
   // Column slots include their gaps, so a slot spanning exactly the screen is in view.
   let inView = widths.indices.filter {
-    lefts[$0] >= offset - 1e-9 && lefts[$0] + widths[$0] <= offset + 1 + 1e-9
+    !pinned.contains($0) && lefts[$0] >= offset - 1e-9 && lefts[$0] + widths[$0] <= offset + 1 + 1e-9
   }
   guard inView.contains(workspace.focusedColumn), let first = inView.first, let last = inView.last
   else { return nil }
   let left = lefts[first]
   let right = lefts[last] + widths[last]
   guard right - left < 1 - 1e-9 else { return nil }
-  let centered = (left + right) / 2 - 0.5
+  let centered = clearingPinnedEdge(
+    (left + right) / 2 - 0.5, columns: workspace.columns, widths: widths,
+    keeping: workspace.focusedColumn)
   return abs(centered - offset) > 1e-9 ? centered : nil
 }
 
-private func columnWidthsInViewports(
+/// Column widths in scrolling strip widths. Pinned columns take no room in the strip.
+func columnWidthsInViewports(
   _ columns: [Column],
   viewport: Rect,
   windowsByID: [WindowID: Window],
   settings: LayoutSettings
 ) -> [Double] {
-  let stripWidth = stripViewport(viewport, settings: settings).width
-  return columnLayoutWidths(columns, viewport: viewport, windowsByID: windowsByID, settings: settings)
-    .map { $0 / stripWidth }
+  let pinned = Set(pinnedColumnIndices(columns).values)
+  let stripWidth = scrollingStripWidth(
+    columns, viewport: viewport, windowsByID: windowsByID, settings: settings)
+  var widths = scrollingColumnWidths(
+    columns, viewport: viewport, windowsByID: windowsByID, settings: settings
+  ).makeIterator()
+  return columns.indices.map { pinned.contains($0) ? 0 : widths.next()! / stripWidth }
 }
 
 public func repairWorkspaceScroll(
@@ -248,13 +276,14 @@ public func scrollGestureSnap(
   // from the released view instead would leave any column already fully in view where the
   // fingers stopped, half-cut neighbours included.
   guard workspace.columns.indices.contains(workspace.focusedColumn) else { return nil }
+  let pinned = Set(pinnedColumnIndices(workspace.columns).values)
   var rests: [(column: Int, offset: Double, focus: ScrollFocus?)] = []
   for direction in [-1, 1] {
     var stepped = workspace
     stepped.focusedLayer = .tiled
     stepped.scrollOffset = rest
     var column = workspace.focusedColumn
-    if direction == 1 {
+    if direction == 1, !pinned.contains(column) {
       let target = focusedColumnScrollTarget(
         workspace: stepped, viewport: viewport, windows: windows,
         settings: settings)
@@ -263,6 +292,7 @@ public func scrollGestureSnap(
     while workspace.columns.indices.contains(column + direction) {
       column += direction
       stepped.focusedColumn = column
+      guard !pinned.contains(column) else { continue }
       let target = focusedColumnScrollTarget(
         workspace: stepped, viewport: viewport, windows: windows,
         settings: settings)
@@ -320,13 +350,17 @@ public func scrollGestureFreeRest(
       abs(widths.prefix(column).reduce(0, +) + widths[column] / 2 - (wanted + 0.5)),
       forward ? -column : column)
   }
-  guard let column = workspace.columns.indices.min(by: { distance($0) < distance($1) })
+  let pinned = Set(pinnedColumnIndices(workspace.columns).values)
+  guard let column = workspace.columns.indices.filter({ !pinned.contains($0) })
+    .min(by: { distance($0) < distance($1) })
   else { return nil }
   let extent = extents[column]
   let rows = workspace.columns[column]
   let windowID = rows.windows.indices.contains(rows.focusedWindow) ? rows.windows[rows.focusedWindow] : nil
-  return (column, min(max(wanted, extent.lowerBound), extent.upperBound),
-    windowID.map { ScrollFocus(windowID: $0, centered: false, free: true) })
+  let offset = clearingPinnedEdge(
+    min(max(wanted, extent.lowerBound), extent.upperBound), columns: workspace.columns,
+    widths: widths, keeping: column)
+  return (column, offset, windowID.map { ScrollFocus(windowID: $0, centered: false, free: true) })
 }
 
 /// Each column's resting offsets: the focus policy pushed from the right, then from the

@@ -68,6 +68,8 @@ public enum Command: Equatable, Codable, Sendable {
   case switchPresetWindowHeight
   case centerColumn
   case centerVisibleColumns
+  /// Pins the focused column to an edge, or returns it to the strip from that edge.
+  case pinColumn(ColumnPin)
   case toggleFloating
   case activateFloating
   case activateWindow
@@ -86,6 +88,8 @@ public enum Command: Equatable, Codable, Sendable {
       return CommandEffects(editsSelectedLayout: true, resizesManagedLayout: true)
     case .moveColumn, .moveWindow, .toggleFloating:
       return CommandEffects(editsSelectedLayout: true)
+    case .pinColumn:
+      return CommandEffects(editsSelectedLayout: true, resizesManagedLayout: true)
     case .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
       .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
       return CommandEffects(editsSelectedLayout: true, resizesManagedLayout: true)

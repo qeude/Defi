@@ -27,18 +27,25 @@ public struct ContinuousStripPlan: Equatable, Sendable {
 }
 
 /// Columns that show more than a sliver of the viewport stay in place; `park`
-/// places the others.
+/// places the others. `pinned` windows always show, and the others count only what
+/// they show of `viewport` beside them.
 public func continuousStripFramesForActiveWorkspace(
   _ frames: [FrameAssignment],
   viewport: Rect,
+  pinned: Set<WindowID> = [],
   park: (FrameAssignment) -> Rect
 ) -> ContinuousStripPlan {
   var visibility: [WindowID: WindowVisibilityState] = [:]
+  let pinnedFrames = frames.filter { pinned.contains($0.windowID) }.map(\.frame)
   let planned = frames.map { assignment in
+    let frame = assignment.frame
     let visibleWidth =
-      min(assignment.frame.x + assignment.frame.width, viewport.x + viewport.width)
-      - max(assignment.frame.x, viewport.x)
-    guard visibleWidth <= parkedSliverWidth else {
+      min(frame.x + frame.width, viewport.x + viewport.width) - max(frame.x, viewport.x)
+    // macOS cannot clip a window: one reaching under a pinned column would cover it.
+    let underPin = pinnedFrames.contains {
+      min(frame.x + frame.width, $0.x + $0.width) > max(frame.x, $0.x)
+    }
+    guard visibleWidth <= parkedSliverWidth || underPin, !pinned.contains(assignment.windowID) else {
       visibility[assignment.windowID] = .visible
       return assignment
     }

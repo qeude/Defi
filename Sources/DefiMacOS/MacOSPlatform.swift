@@ -240,17 +240,21 @@ public final class MacOSPlatform {
       // A window still on its way to or from its parking corner is not on the ribbon yet.
       if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01,
         logical.map({ abs($0.y - frame.y) < 40 }) ?? true {
-        return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame)
+        return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame,
+          pinned: pinnedWindowIDs.contains(id))
       }
       // Parked at a corner, its native y is the display's bottom: the ribbon place is logical.
       guard let logical else { return nil }
-      return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: logical, to: logical)
+      return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: logical, to: logical,
+        pinned: pinnedWindowIDs.contains(id))
     } + nativeFullscreenProxies(monitor, from: previousNativeFullscreenRibbonFrames)
   }
   var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
   /// Native fullscreen placeholders at their ribbon place, set before each layout.
   public var nativeFullscreenRibbonPlaceholders: [WindowID: NativeFullscreenPlaceholder] = [:]
   var previousNativeFullscreenRibbonFrames: [WindowID: Rect] = [:]
+  /// Windows of pinned columns, set before each layout: strip windows slide beneath them.
+  public var pinnedWindowIDs: Set<WindowID> = []
   private var nativeFullscreenPictures: [WindowID: (key: String, image: CGImage)] = [:]
 
   /// The placeholders of `monitor` as overlay windows, so they travel with the ribbon.

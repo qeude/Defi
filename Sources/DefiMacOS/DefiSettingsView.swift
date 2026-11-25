@@ -1493,6 +1493,7 @@ private struct AppRulesSettingsView: View {
     if rule.intrinsicSize { actions.append("intrinsic size") }
     if let width = rule.initialColumnWidth { actions.append("initial width \(percent(width))") }
     if rule.includeInitialWidthInCycle { actions.append("include width in cycle") }
+    if let pin = rule.pin { actions.append("pin to the \(pin.rawValue)") }
     let conditionText = conditions.isEmpty ? "any matching window" : conditions.joined(separator: " · ")
     return "\(conditionText)  →  \(actions.joined(separator: ", "))"
   }
@@ -1569,6 +1570,7 @@ private struct SettingsRuleEditor: View {
     let hasAction = draft.workspace != nil || draft.monitor != nil || draft.followFocus
       || draft.openFocused != nil || draft.window != nil
       || draft.intrinsicSize || draft.initialColumnWidth != nil || draft.includeInitialWidthInCycle
+      || draft.pin != nil
     return hasMatcher && hasAction && (!customApplication || !(draft.appID?.isEmpty ?? true))
   }
 
@@ -1673,6 +1675,15 @@ private struct SettingsRuleEditor: View {
           )
           settingsDraftToggle("Include this width in Cycle Width",
             "Adds this width to the sizes Cycle Width steps through.", value: \Rule.includeInitialWidthInCycle)
+        }
+        Picker(selection: $draft.pin) {
+          Text("Scroll with the strip").tag(ColumnPin?.none)
+          Text("Pin to the left").tag(Optional(ColumnPin.left))
+          Text("Pin to the right").tag(Optional(ColumnPin.right))
+        } label: {
+          RuleInfoLabel("Pin column",
+            "Keeps the window’s column at this edge of the screen, on every workspace, while the other columns scroll beside it.",
+            note: "Applies only while the screen has no pinned column.")
         }
       }
     }

@@ -599,8 +599,9 @@ struct RuntimeWidthLearningTests {
     #expect(targets(state)[id] == Rect(x: 12, y: 12, width: 480, height: 676))
   }
 
-  @Test
-  func `Dragged left edge keeps the window where it was released`() throws {
+  // With a pinned column, the strip scrolls in the narrower room it leaves.
+  @Test(arguments: [false, true])
+  func `Dragged left edge keeps the window where it was released`(pinned: Bool) throws {
     var (state, _) = try singleWindowState()
     let sibling = Window(
       id: WindowID(rawValue: 2),
@@ -610,7 +611,16 @@ struct RuntimeWidthLearningTests {
       monitorID: monitorID
     )
     try discoverWindow(sibling, decision: RuleDecision(), state: &state)
-    state.monitors[0].workspaces[0].focusedColumn = 1
+    if pinned {
+      var column = Column(window: WindowID(rawValue: 3), width: .fraction(0.25))
+      column.pin = .left
+      state.windows[WindowID(rawValue: 3)] = Window(
+        id: WindowID(rawValue: 3), appID: "notes", title: "Notes", frame: viewport, monitorID: monitorID)
+      state.monitors[0].workspaces[0].columns.insert(column, at: 0)
+      // Room to grow: beside the pin, strip columns stop at the room it leaves.
+      state.monitors[0].workspaces[0].columns[2].width = .fraction(0.4)
+    }
+    state.monitors[0].workspaces[0].focusedColumn = pinned ? 2 : 1
     let before = try #require(targets(state)[sibling.id])
 
     #expect(learnTiledWindowWidth(

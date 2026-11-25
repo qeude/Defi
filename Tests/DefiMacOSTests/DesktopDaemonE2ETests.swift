@@ -314,6 +314,91 @@ extension DesktopE2ETests {
     XCTAssertEqual(try daemon.status("focused"), "\(floating.windowID)")
   }
 
+  func testPinnedColumnStaysInPlaceAcrossWorkspaces() throws {
+    let lane = try daemonLane()
+    let daemon = try lane.startDaemon(config: """
+      [workspaces]
+      names = ["a", "b"]
+      [input]
+      scroll_gestures = true
+      scroll_gesture_modifier = "ctrl+alt"
+      """)
+    defer { daemon.stop() }
+    try daemon.run("workspace a")
+    let pinned = try lane.openWindow(daemon: daemon)
+    defer { pinned.close() }
+    let strip = try (0..<3).map { _ in try lane.openWindow(daemon: daemon) }
+    defer { strip.forEach { $0.close() } }
+    let all = [pinned] + strip
+    try daemon.run("focus-window-id \(pinned.windowID)")
+    try daemon.run("pin-column left")
+    XCTAssertTrue(daemon.settle(all))
+    let pinnedFrame = try pinned.frame()
+    func members(_ workspace: String) throws -> [UInt64] {
+      try XCTUnwrap(daemon.workspaces().monitors.flatMap(\.workspaces).first { $0.id == workspace }).windows.map(\.id)
+    }
+    // No strip window rests across the pinned column's edge, wherever keys or swipes scroll.
+    func checkStrip(_ action: String) throws {
+      XCTAssertTrue(daemon.settle(all), "\(action) must settle")
+      XCTAssertEqual(try pinned.frame(), pinnedFrame, "The pinned column must stay put after \(action)")
+      let edge = pinnedFrame.maxX
+      for window in strip {
+        let frame = try window.frame()
+        XCTAssertFalse(frame.minX < edge - 1 && frame.maxX > edge + 1,
+          "Window \(window.windowID) straddles the pinned edge at \(frame) after \(action)")
+      }
+    }
+    for _ in 0..<4 {
+      try daemon.run("focus-column right")
+      try checkStrip("focus-column right")
+    }
+    var swipedTo = Set<String>()
+    for (steps, delta) in [(12, Int32(40)), (25, 40), (8, -60), (30, -40), (4, 400), (4, -400)] {
+      postSwipe(steps: steps, dx: delta)
+      try checkStrip("a swipe of \(steps) × \(delta)")
+      swipedTo.insert(try daemon.status("focused") ?? "")
+    }
+    XCTAssertGreaterThan(swipedTo.count, 1, "The swipes must scroll the strip: \(swipedTo)")
+
+    // A vertical swipe switches workspace around the pinned column.
+    postSwipe(steps: 20, dy: -60)
+    XCTAssertTrue(daemon.settle(all))
+    XCTAssertNotEqual(try daemon.status("workspace"), "a", "The vertical swipe must switch workspace")
+    XCTAssertEqual(try pinned.frame(), pinnedFrame, "The pinned column must stay through a vertical swipe")
+    try daemon.run("workspace b")
+    XCTAssertTrue(daemon.settle(all))
+    XCTAssertEqual(try pinned.frame(), pinnedFrame, "The pinned column must stay for every workspace")
+    XCTAssertEqual(try members("b"), [pinned.windowID])
+    _ = try daemon.send("move-column-to-workspace a")
+    XCTAssertTrue(daemon.settle(all))
+    XCTAssertEqual(try members("b"), [pinned.windowID], "The pinned column must refuse another workspace")
+
+    try daemon.run("workspace a")
+    XCTAssertTrue(daemon.settle(all))
+    XCTAssertEqual(try pinned.frame(), pinnedFrame)
+    XCTAssertEqual(Set(try members("a")), Set(all.map(\.windowID)))
+  }
+
+  /// Posts one two-finger swipe with the gesture modifier held, over the display's centre.
+  private func postSwipe(steps: Int, dx: Int32 = 0, dy: Int32 = 0, every interval: TimeInterval = 0.016) {
+    let display = CGDisplayBounds(CGMainDisplayID())
+    CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
+      mouseCursorPosition: CGPoint(x: display.midX, y: display.midY), mouseButton: .left)?.post(tap: .cghidEventTap)
+    let events: [(phase: Int64, dx: Int32, dy: Int32)] =
+      [(1, 0, 0)] + Array(repeating: (2, dx, dy), count: steps) + [(4, 0, 0)]
+    for event in events {
+      guard let scroll = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+        wheel1: event.dy, wheel2: event.dx, wheel3: 0) else { continue }
+      scroll.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+      scroll.setIntegerValueField(.scrollWheelEventScrollPhase, value: event.phase)
+      scroll.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(event.dy))
+      scroll.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(event.dx))
+      scroll.flags = [.maskControl, .maskAlternate]
+      scroll.post(tap: .cghidEventTap)
+      Thread.sleep(forTimeInterval: interval)
+    }
+  }
+
   private func daemonLane() throws -> DesktopDaemonLane {
     let environment = ProcessInfo.processInfo.environment
     var virtualMachine: Int32 = 0

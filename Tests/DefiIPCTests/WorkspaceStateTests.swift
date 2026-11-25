@@ -113,6 +113,17 @@ struct WorkspaceStateTests {
     #expect(encodedDev["icon"] == nil)
     #expect(encodedDev["selectedWindowID"] == nil)
     #expect((encodedDev["windows"] as? [[String: Any]])?.isEmpty == true)
+
+    var pinnedColumn = Column(window: windowID, width: .fraction(0.3))
+    pinnedColumn.pin = .left
+    let pinned = makeWorkspaceStateSnapshot(
+      monitors: [Monitor(id: firstMonitor, workspaces: [Workspace(id: dev, columns: [pinnedColumn])],
+        activeWorkspace: dev)],
+      windows: windows, displayOrder: [firstMonitor], focusedMonitorID: nil
+    ).monitors[0].workspaces[0]
+    #expect(pinned.windows.map(\.pinned) == [true])
+    #expect(!pinned.occupied)
+    #expect(pinned.applications.isEmpty)
   }
 
 }

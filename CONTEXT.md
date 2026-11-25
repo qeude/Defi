@@ -72,6 +72,12 @@ An ordered unit in the scrolling strip containing one tiled window or a vertical
 stack of tiled windows.
 _Avoid_: Tile, pane
 
+**Pinned column**:
+A column held at the left or right edge of its monitor, on every workspace of
+that monitor, while the rest of the scrolling strip scrolls beside it. A monitor
+has one at most.
+_Avoid_: Sticky window, center pin (`center-column`)
+
 **Stack**:
 The ordered vertical group of tiled windows inside one column.
 _Avoid_: Column

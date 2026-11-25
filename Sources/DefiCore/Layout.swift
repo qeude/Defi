@@ -13,18 +13,20 @@ public func computeLayout(
     excludingWindowIDs: excludingWindowIDs
   )
   let windowsByID = Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) })
-  let widths = columnLayoutWidths(
-    workspace.columns, viewport: viewport, windowsByID: windowsByID, settings: settings
-  )
+  let slots = columnSlots(workspace, viewport: viewport, windowsByID: windowsByID, settings: settings)
+  let pinned = !pinnedColumnIndices(workspace.columns).isEmpty
   let viewport = stripViewport(viewport, settings: settings)
-  var x = viewport.x - workspace.scrollOffset * viewport.width
   var frames: [FrameAssignment] = []
   let gaps = horizontalGaps(settings: settings)
 
   for (columnIndex, column) in workspace.columns.enumerated() {
-    let preferredWidth = preferredColumnLayoutWidth(
+    let (x, width) = slots[columnIndex]
+    // Beside a pin a slot can be narrower than its fraction: an accepted size cached for
+    // the wider width must not restore it.
+    let preferred = preferredColumnLayoutWidth(
       column, viewport: viewport, windowsByID: windowsByID, gaps: gaps
     )
+    let preferredWidth = pinned ? min(width, preferred) : preferred
     let acceptedSizes = acceptedTiledSizes(
       column,
       preferredWidth: preferredWidth,
@@ -32,7 +34,6 @@ public func computeLayout(
       windowsByID: windowsByID,
       settings: settings
     )
-    let width = widths[columnIndex]
     let heights = stackSlotHeights(
       column.windows, windowsByID: windowsByID, viewport: viewport, settings: settings,
       proportions: column.windowHeights
@@ -86,7 +87,6 @@ public func computeLayout(
       }
       frames.append(FrameAssignment(windowID: windowID, frame: target))
     }
-    x += width
   }
 
   return frames

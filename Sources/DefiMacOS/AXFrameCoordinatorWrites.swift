@@ -466,6 +466,40 @@ extension AXFrameCoordinator {
             positionApplied = applyFinalPosition()
           }
         }
+        // macOS also clamps growth past the display edge at the final place, as when a
+        // column straddling the edge widens in place: after a measured clamp, resize
+        // where the window fits on its display, then return it.
+        if sizeApplied, positionApplied || !positionWriteRequired, !item.value.isParked,
+          let accepted = acceptedSize, accepted.width < size.width - 0.5,
+          let display = frame.monitorFrames.first(where: {
+            Double(point.x) >= $0.x && Double(point.x) < $0.x + $0.width
+              && Double(point.y) >= $0.y && Double(point.y) < $0.y + $0.height
+          }),
+          // Stopped by the display edge, not by the app's own maximum width.
+          abs(Double(point.x) + accepted.width - (display.x + display.width)) < 1.5,
+          case let fitting = max(display.x, min(Double(point.x), display.x + display.width - size.width)),
+          abs(fitting - Double(point.x)) >= 0.5,
+          isCurrent(generation: frame.generation)
+        {
+          let shouldApply = { self.isCurrent(generation: frame.generation) }
+          let enhancedUIManaged = managesEnhancedUI || defersEnhancedUIRestore
+          lock.lock()
+          appendTraceLocked(
+            "edge-clamp-refit g=\(frame.generation) window=\(item.key.rawValue) accepted=\(Int(accepted.width)) target=\(Int(size.width))")
+          lock.unlock()
+          if accessibilityWriter.applyPosition(
+            item.value, point: CGPoint(x: fitting, y: point.y), verifyParkedPosition: false,
+            enhancedUIManagedByBatch: enhancedUIManaged, shouldApply: shouldApply)
+          {
+            sizeApplied = accessibilityWriter.applySize(
+              item.value, size: size, enhancedUIManagedByBatch: enhancedUIManaged, shouldApply: shouldApply)
+            acceptedSize = sizeApplied ? accessibilityWriter.readSize(item.value.element) : nil
+            // Even if a newer frame arrived, never leave the window at the interim place.
+            positionApplied = accessibilityWriter.applyPosition(
+              item.value, point: point, verifyParkedPosition: false,
+              enhancedUIManagedByBatch: enhancedUIManaged, shouldApply: { true })
+          }
+        }
         // Keep borders on observed geometry without another message to the app's AX
         // handler. Mandatory AX readback and unavailable WindowServer metadata keep
         // their existing fallback.

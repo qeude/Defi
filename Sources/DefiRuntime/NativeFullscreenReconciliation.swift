@@ -205,14 +205,16 @@ private func resumeNativeFullscreenWindow(
       max(placement.columnIndex - suspendedBefore, 0),
       visibleColumnCount
     )
-    workspace.columns.insert(
-      Column(
-        window: windowID,
-        width: placement.column.width,
-        preMaximizedWidth: placement.column.preMaximizedWidth
-      ),
-      at: insertionIndex
+    var column = Column(
+      window: windowID,
+      width: placement.column.width,
+      preMaximizedWidth: placement.column.preMaximizedWidth
     )
+    // A pinned window leaving fullscreen pins again unless another column was pinned since.
+    if let pin = placement.column.pin, pinnedColumnIndices(workspace.columns).isEmpty {
+      column.pin = pin
+    }
+    workspace.columns.insert(column, at: insertionIndex)
   }
   normalizeNativeFullscreenColumns(
     &workspace,

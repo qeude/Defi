@@ -79,6 +79,14 @@ public func discoverWindow(
       settings: state.layout,
       focusInsertedWindow: followsFocus
     )
+    // One pinned column per monitor: a rule pins only while the monitor has none.
+    if let pin = decision.pin,
+      state.monitors[monitorIndex].workspaces.allSatisfy({ pinnedColumnIndices($0.columns).isEmpty }),
+      let columnIndex = state.monitors[monitorIndex].workspaces[workspaceIndex].columns.firstIndex(
+        where: { $0.windows.contains(window.id) })
+    {
+      state.monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].pin = pin
+    }
     if followsFocus {
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusedLayer = .tiled
       state.monitors[monitorIndex].workspaces[workspaceIndex].focusReturn =
@@ -449,7 +457,7 @@ private func applyLateTitleRules(
   {
     var workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
     if let newIndex = workspace.columns.firstIndex(where: { $0.windows.contains(window.id) }),
-      newIndex != oldIndex, oldIndex < workspace.columns.count
+      newIndex != oldIndex, oldIndex < workspace.columns.count, workspace.columns[newIndex].pin == nil
     {
       let focusedWindow = workspace.columns[workspace.focusedColumn].windows
       workspace.columns.insert(workspace.columns.remove(at: newIndex), at: oldIndex)

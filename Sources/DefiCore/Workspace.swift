@@ -29,9 +29,15 @@ public func insertNewWindow(
     return
   }
 
-  let index = min(workspace.focusedColumn + 1, workspace.columns.count)
+  // A new column joins the strip, never past the column pinned to the right.
+  let focused = workspace.focusedColumn
+  let index = workspace.columns.indices.contains(focused) && workspace.columns[focused].pin == .right
+    ? focused : min(focused + 1, workspace.columns.count)
   workspace.columns.insert(column, at: index)
-  guard focusInsertedWindow else { return }
+  guard focusInsertedWindow else {
+    if index <= focused { workspace.focusedColumn += 1 }
+    return
+  }
   workspace.focusedColumn = index
   repairWorkspaceScroll(&workspace, settings: settings)
 }
@@ -39,13 +45,25 @@ public func insertNewWindow(
 public func focusColumn(
   _ direction: Direction,
   in workspace: inout Workspace,
+  viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
+  windows: [Window] = [],
   settings: LayoutSettings
 ) throws {
   guard !workspace.columns.isEmpty else {
     throw LayoutError.emptyWorkspace
   }
+  let pins = pinnedColumnIndices(workspace.columns)
+  // Leaving a pinned column enters the strip where it shows, not at its far end.
+  let current = workspace
+  let visible = { visibleStripColumns(
+    current, viewport: viewport,
+    windowsByID: Dictionary(uniqueKeysWithValues: windows.map { ($0.id, $0) }), settings: settings) }
 
   switch direction {
+  case .right where pins[.left] == workspace.focusedColumn:
+    workspace.focusedColumn = visible()?.first ?? min(workspace.focusedColumn + 1, workspace.columns.count - 1)
+  case .left where pins[.right] == workspace.focusedColumn:
+    workspace.focusedColumn = visible()?.last ?? max(workspace.focusedColumn - 1, 0)
   case .left, .previous:
     workspace.focusedColumn = max(workspace.focusedColumn - 1, 0)
   case .right, .next:
@@ -78,16 +96,20 @@ public func moveFocusedWindow(
     return
   }
 
+  // Pinned columns keep their edge, and the strip moves between them.
+  let pinned = Set(pinnedColumnIndices(workspace.columns).values)
+  guard !pinned.contains(source) else { return }
+  let strip = workspace.columns.indices.filter { !pinned.contains($0) }
   let target: Int
   switch direction {
   case .left, .previous:
-    target = max(source - 1, 0)
+    target = max(source - 1, strip[0])
   case .right, .next:
-    target = min(source + 1, workspace.columns.count - 1)
+    target = min(source + 1, strip[strip.count - 1])
   case .first:
-    target = 0
+    target = strip[0]
   case .last:
-    target = workspace.columns.count - 1
+    target = strip[strip.count - 1]
   case .up, .down:
     throw LayoutError.unsupportedDirection
   }

@@ -515,6 +515,7 @@ public struct Rule: Codable, Equatable, Sendable {
   public var intrinsicSize: Bool
   public var initialColumnWidth: Double?
   public var includeInitialWidthInCycle: Bool
+  public var pin: ColumnPin?
 
   public init(
     appID: String? = nil,
@@ -528,7 +529,8 @@ public struct Rule: Codable, Equatable, Sendable {
     window: RuleWindow? = nil,
     intrinsicSize: Bool = false,
     initialColumnWidth: Double? = nil,
-    includeInitialWidthInCycle: Bool = false
+    includeInitialWidthInCycle: Bool = false,
+    pin: ColumnPin? = nil
   ) {
     self.appID = appID
     self.title = title
@@ -542,6 +544,7 @@ public struct Rule: Codable, Equatable, Sendable {
     self.intrinsicSize = intrinsicSize
     self.initialColumnWidth = initialColumnWidth
     self.includeInitialWidthInCycle = includeInitialWidthInCycle
+    self.pin = pin
   }
 
   enum CodingKeys: String, CodingKey {
@@ -557,6 +560,7 @@ public struct Rule: Codable, Equatable, Sendable {
     case intrinsicSize = "intrinsic_size"
     case initialColumnWidth = "initial_column_width"
     case includeInitialWidthInCycle = "include_initial_width_in_cycle"
+    case pin
   }
 
   public init(from decoder: Decoder) throws {
@@ -580,6 +584,12 @@ public struct Rule: Codable, Equatable, Sendable {
     initialColumnWidth = try values.decodeIfPresent(Double.self, forKey: .initialColumnWidth)
     includeInitialWidthInCycle =
       try values.decodeIfPresent(Bool.self, forKey: .includeInitialWidthInCycle) ?? false
+    if values.contains(.pin) {
+      guard let pin = try? values.decode(ColumnPin.self, forKey: .pin) else {
+        throw ConfigError.invalidValue("rules.pin takes \"left\" or \"right\"")
+      }
+      self.pin = pin
+    }
   }
 
   func matches(appID actualAppID: String, title actualTitle: String, role actualRole: String?)
@@ -628,6 +638,8 @@ public struct RuleDecision: Equatable, Sendable {
   public var intrinsicSize: Bool
   public var initialColumnWidth: Double?
   public var includeInitialWidthInCycle: Bool
+  /// The edge a new tiled window's column pins to, when that edge is free.
+  public var pin: ColumnPin?
 
   public init(
     workspace: WorkspaceID? = nil,
@@ -638,7 +650,8 @@ public struct RuleDecision: Equatable, Sendable {
     forceTiling: Bool = false,
     intrinsicSize: Bool = false,
     initialColumnWidth: Double? = nil,
-    includeInitialWidthInCycle: Bool = false
+    includeInitialWidthInCycle: Bool = false,
+    pin: ColumnPin? = nil
   ) {
     self.workspace = workspace
     self.monitor = monitor
@@ -649,5 +662,6 @@ public struct RuleDecision: Equatable, Sendable {
     self.intrinsicSize = intrinsicSize
     self.initialColumnWidth = initialColumnWidth
     self.includeInitialWidthInCycle = includeInitialWidthInCycle
+    self.pin = pin
   }
 }

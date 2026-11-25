@@ -111,9 +111,15 @@ extension Daemon {
   private func edgeScrollShift(
     _ edge: DragEdgeScroll, since offset: Double, viewports: [MonitorID: Rect]
   ) -> (shift: Double, windowIDs: Set<WindowID>) {
-    let windowIDs = state.monitors.first { $0.id == edge.anchor.monitorID }?.workspaces
-      .first { $0.id == edge.anchor.workspaceID }.map { Set($0.columns.flatMap(\.windows)) } ?? []
-    let strip = viewports[edge.anchor.monitorID].map { stripViewport($0, settings: state.layout).width } ?? 0
+    let workspace = state.monitors.first { $0.id == edge.anchor.monitorID }?.workspaces
+      .first { $0.id == edge.anchor.workspaceID }
+    let windowIDs = workspace.map {
+      Set($0.columns.flatMap(\.windows)).subtracting(pinnedWindowIDs($0.columns))
+    } ?? []
+    let strip = viewports[edge.anchor.monitorID].map {
+      scrollingStripWidth(workspace?.columns ?? [], viewport: $0, windowsByID: state.windows,
+        settings: state.layout)
+    } ?? 0
     return ((offset - edge.offset) * strip, windowIDs)
   }
 

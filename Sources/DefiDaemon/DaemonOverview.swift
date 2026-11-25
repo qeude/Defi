@@ -283,7 +283,7 @@ extension Daemon {
       commitScrollOffsets: { [weak self] offsets in
         NavigationActor.enqueue { [weak self] in
           guard let self else { return }
-          let changedMonitorIDs = applyOverviewScrollOffsets(offsets, state: &state)
+          let changedMonitorIDs = applyOverviewScrollOffsets(offsets, viewports: viewportsByMonitor, state: &state)
           guard !changedMonitorIDs.isEmpty else { return }
           persistTopology()
           guard !overviewState.usesWorkspaceParking else { return }
@@ -373,7 +373,7 @@ extension Daemon {
     offsets: [MonitorID: [WorkspaceID: Double]]
   ) {
     guard overviewToggleState.isCurrentSession(overviewGeneration) else { return }
-    overviewEditedMonitorIDs.formUnion(applyOverviewScrollOffsets(offsets, state: &state))
+    overviewEditedMonitorIDs.formUnion(applyOverviewScrollOffsets(offsets, viewports: viewportsByMonitor, state: &state))
     let previousSelectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
@@ -463,7 +463,7 @@ extension Daemon {
     offsets: [MonitorID: [WorkspaceID: Double]]
   ) {
     guard overviewToggleState.isCurrentSession(overviewGeneration) else { return }
-    overviewEditedMonitorIDs.formUnion(applyOverviewScrollOffsets(offsets, state: &state))
+    overviewEditedMonitorIDs.formUnion(applyOverviewScrollOffsets(offsets, viewports: viewportsByMonitor, state: &state))
     let inputTimestamp = ProcessInfo.processInfo.systemUptime
     do {
       let selectedWindowID = try focusOverviewWorkspace(
