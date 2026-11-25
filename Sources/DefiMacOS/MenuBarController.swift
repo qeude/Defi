@@ -26,6 +26,7 @@ public final class MenuBarController: NSObject {
       button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
     columnsItem.autosaveName = "Defi Columns"
+    columnsItem.isVisible = false
     if let button = columnsItem.button {
       button.imagePosition = .imageOnly
       button.target = self

@@ -260,14 +260,16 @@ extension Daemon {
       windowsByID: state.windows, settings: state.layout)
     var x = -workspace.targetScrollOffset * width
     var columns: [MenuColumn] = []
-    for (column, columnWidth) in zip(workspace.columns, widths) {
+    var focused: Int?
+    for (index, (column, columnWidth)) in zip(workspace.columns, widths).enumerated() {
       defer { x += columnWidth }
       guard let windowID = column.windows.indices.contains(column.focusedWindow)
         ? column.windows[column.focusedWindow] : column.windows.first
       else { continue }
+      if index == workspace.focusedColumn, workspace.focusedLayer == .tiled { focused = columns.count }
       columns.append(MenuColumn(x: x, width: columnWidth, windows: column.windows.count, windowID: windowID.rawValue))
     }
-    return (columns, workspace.focusedLayer == .tiled ? workspace.focusedColumn : nil, width)
+    return (columns, focused, width)
   }
 
   var activeDisplayRefreshRate: Double {

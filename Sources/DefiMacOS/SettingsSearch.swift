@@ -24,9 +24,9 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case menuBarIndicator
   case menuBarInactiveStyle
   case menuBarEqualWidth
+  case menuBarDisplays
   case menuBarColumns
   case menuBarColumnsWidth
-  case menuBarDisplays
   case configurationFile
   case configurationGuide
   case logs
