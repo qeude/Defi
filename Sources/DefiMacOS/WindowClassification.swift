@@ -57,11 +57,11 @@ func isAppDrawnPopup(subrole: String?, isModal: Bool) -> Bool {
   !isModal && (subrole == "AXSystemDialog" || subrole == "AXSystemFloatingWindow")
 }
 
-/// A system text accessory: a remote view TextEdit shows as an untitled dialog each time its
-/// text settles. It animates its own size and refuses to move, so managing it opened a floating
-/// window on the overlay and held every workspace landing until it timed out.
-func isSystemTextAccessory(title: String, hasCloseButton: Bool, isModal: Bool) -> Bool {
-  title.isEmpty && !hasCloseButton && !isModal
+/// A text accessory: a dialog without a close button that is not modal, such as the remote view
+/// TextEdit shows each time its text settles or Mail's titled search suggestions. It animates its
+/// own size, so managing it played open and close animations on the overlay as it crossed 80x60.
+func isSystemTextAccessory(hasCloseButton: Bool, isModal: Bool) -> Bool {
+  !hasCloseButton && !isModal
 }
 
 /// A new window that is a system text accessory, such as an input method's candidate list,
@@ -70,13 +70,13 @@ func isTextInputAccessory(_ element: AXUIElement) -> Bool {
   AXMessagingTimeoutAccess.shared.withTimeout(accessibilityReadTimeoutSeconds, elements: [element]) {
     var values: CFArray?
     AXUIElementCopyMultipleAttributeValues(element,
-      [kAXSubroleAttribute, kAXTitleAttribute, kAXCloseButtonAttribute, kAXModalAttribute] as CFArray,
+      [kAXSubroleAttribute, kAXCloseButtonAttribute, kAXModalAttribute] as CFArray,
       [], &values)
     let read = values as? [AnyObject] ?? []
     // A missing attribute reads back as an AXValue error, not as the attribute's type.
-    guard read.count == 4, read[0] as? String == kAXDialogSubrole else { return false }
-    return isSystemTextAccessory(title: read[1] as? String ?? "",
-      hasCloseButton: CFGetTypeID(read[2]) == AXUIElementGetTypeID(), isModal: read[3] as? Bool ?? false)
+    guard read.count == 3, read[0] as? String == kAXDialogSubrole else { return false }
+    return isSystemTextAccessory(
+      hasCloseButton: CFGetTypeID(read[1]) == AXUIElementGetTypeID(), isModal: read[2] as? Bool ?? false)
   }
 }
 
@@ -108,7 +108,7 @@ func classifyWindow(_ window: WindowClassificationInput, rule: RuleWindow?) -> W
   case nil: break
   }
   if window.subrole == kAXDialogSubrole,
-    isSystemTextAccessory(title: window.title, hasCloseButton: window.closeButton != nil, isModal: window.modal)
+    isSystemTextAccessory(hasCloseButton: window.closeButton != nil, isModal: window.modal)
   {
     return outcome(.ignored, "text-accessory")
   }
