@@ -136,7 +136,11 @@ public func focusWindow(
 public func removeWindow(
   _ windowID: WindowID,
   from workspace: inout Workspace,
-  settings: LayoutSettings
+  settings: LayoutSettings,
+  // shortcut: the default viewport keeps the view exactly for fractional widths only; pass the
+  // monitor's viewport from moves, floating and fullscreen if pixel widths shift there.
+  viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
+  windowsByID: [WindowID: Window] = [:]
 ) -> Bool {
   if let index = workspace.floatingWindows.firstIndex(of: windowID) {
     workspace.floatingWindows.remove(at: index)
@@ -159,12 +163,23 @@ public func removeWindow(
     return false
   }
 
+  // A column leaving before the selected one leaves the columns in view where they show, as in Niri.
+  // Measured with its window, whose own size may set the column's width.
+  let shift =
+    workspace.columns[columnIndex].windows.count == 1 && columnIndex < workspace.focusedColumn
+    ? columnLayoutWidths(
+      workspace.columns, viewport: viewport, windowsByID: windowsByID, settings: settings
+    )[columnIndex] / stripViewport(viewport, settings: settings).width
+    : 0
   workspace.columns[columnIndex].windows.remove(at: windowIndex)
   workspace.columns[columnIndex].windowHeights?[windowID] = nil
   if windowIndex < workspace.columns[columnIndex].focusedWindow {
     workspace.columns[columnIndex].focusedWindow -= 1
   }
   if workspace.columns[columnIndex].windows.isEmpty {
+    workspace.scrollOffset -= shift
+    workspace.targetScrollOffset -= shift
+    workspace.scrollFocus?.heldOffset? -= shift
     workspace.columns.remove(at: columnIndex)
     if columnIndex < workspace.focusedColumn { workspace.focusedColumn -= 1 }
     workspace.focusedColumn =

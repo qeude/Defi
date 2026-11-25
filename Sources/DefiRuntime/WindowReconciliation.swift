@@ -205,7 +205,7 @@ public func reconcileWindows(
     if explicitlyRemovedWindowIDs.contains(existingID) {
       adjustNativeFullscreenPlacements(afterRemoving: existingID, state: &state)
     }
-    removeWindowFromEveryWorkspace(existingID, state: &state)
+    removeWindowFromEveryWorkspace(existingID, viewports: viewports, state: &state)
     state.windows[existingID] = nil
     state.nativeFullscreenFloatingWindowIDs.remove(existingID)
     state.nativeFullscreenTiledPlacements[existingID] = nil

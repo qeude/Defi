@@ -448,6 +448,42 @@ struct WindowLifecycleTests {
     #expect(state.monitors[0].workspaces[0].columns.isEmpty)
   }
 
+  @Test(arguments: [nil, 700.0])
+  func `Closing a column left of the view keeps the visible columns in place`(firstMinimumWidth: Double?) throws {
+    let config = Config(layout: LayoutConfig(defaultColumnWidth: 0.5))
+    var state = RuntimeState(config: config)
+    state.attachMonitor(monitorID)
+    let viewport = Rect(x: 0, y: 0, width: 1_000, height: 700)
+    var windows = (1...5).map {
+      Window(
+        id: WindowID(rawValue: UInt64($0)), appID: "app", title: "\($0)",
+        frame: Rect(x: 0, y: 0, width: 500, height: 700), monitorID: monitorID)
+    }
+    windows[0].minimumTiledWidth = firstMinimumWidth
+    func settle() {
+      synchronizeScrollOffsets(state: &state, viewports: [monitorID: viewport])
+      state.monitors[0].workspaces[0].scrollOffset = state.monitors[0].workspaces[0].targetScrollOffset
+    }
+    for window in windows {
+      try discoverWindow(window, decision: RuleDecision(), isFrontmostAppSpawn: true, state: &state)
+      settle()
+    }
+    for direction in [Direction.left, .left, .right] {
+      try reduce(.focusColumn(direction), on: monitorID, state: &state, viewports: [monitorID: viewport])
+      settle()
+    }
+    // Columns 3 and 4 show, column 4 selected; a minimum width also counts its gaps.
+    let firstWidth = (firstMinimumWidth ?? 500) / 1_000
+    #expect(abs(state.monitors[0].workspaces[0].targetScrollOffset - firstWidth - 0.5) < 0.05)
+
+    reconcileWindows(Array(windows.dropFirst()), config: config, viewports: [monitorID: viewport], state: &state)
+    settle()
+
+    // Column 1 left the strip off screen: columns 3 and 4 stay where they were.
+    #expect(state.monitors[0].workspaces[0].targetScrollOffset == 0.5)
+    #expect(state.monitors[0].workspaces[0].scrollOffset == 0.5)
+  }
+
   @Test
   func `Reconcile preserves layout when a native tab replaces the window ID`() throws {
     let config = Config()
