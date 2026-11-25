@@ -811,6 +811,10 @@ starts with the modifier held works on the display under the pointer:
 - In the **Overview**, a three- or four-finger swipe scrolls the Overview,
   modifier or not: the same travel moves it as many columns and workspaces as
   it moves the strip. Two-finger scrolling works there too.
+- Every swipe follows the scroll direction set in System Settings > Trackpad:
+  with **Natural scrolling** off, the strip and the workspaces move against
+  your fingers, as two-finger scrolls do. The Overview gesture always opens
+  with a swipe up.
 
 <details>
 <summary>Gesture details</summary>
