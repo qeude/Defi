@@ -1,11 +1,46 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
+
+let macOSDeploymentTarget = "15.4"
+
+/// SwiftPM records the deployment target as the SDK version in
+/// `LC_BUILD_VERSION`, and macOS picks window chrome from that SDK version: the
+/// daemon otherwise keeps the pre-Tahoe titlebar, with its smaller traffic
+/// lights and centered title. SwiftPM has no typed setting for the real SDK, so
+/// pass it to the linker directly. SwiftPM caches this with the manifest: after an
+/// SDK update, `swift package purge-cache` refreshes the recorded version.
+func linkerSDKVersionFlags() -> [String] {
+  let xcrun = Process()
+  xcrun.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+  xcrun.arguments = ["--sdk", "macosx", "--show-sdk-version"]
+  let output = Pipe()
+  xcrun.standardOutput = output
+  xcrun.standardError = FileHandle.nullDevice
+  do {
+    try xcrun.run()
+  } catch {
+    return []
+  }
+  let data = output.fileHandleForReading.readDataToEndOfFile()
+  xcrun.waitUntilExit()
+  let version = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+  guard xcrun.terminationStatus == 0, !version.isEmpty else { return [] }
+  return [
+    "-Xlinker", "-platform_version",
+    "-Xlinker", "macos",
+    "-Xlinker", macOSDeploymentTarget,
+    "-Xlinker", version,
+  ]
+}
+
+let sdkLinkerFlags = linkerSDKVersionFlags()
 
 let package = Package(
   name: "Defi",
   platforms: [
-    .macOS("15.4")
+    .macOS(macOSDeploymentTarget)
   ],
   products: [
     .library(name: "DefiModel", targets: ["DefiModel"]),
@@ -57,7 +92,8 @@ let package = Package(
         "DefiRuntime",
         "DefiIPC",
         "DefiMacOS",
-      ]
+      ],
+      linkerSettings: sdkLinkerFlags.isEmpty ? [] : [.unsafeFlags(sdkLinkerFlags)]
     ),
     .executableTarget(
       name: "DefiCLI",
