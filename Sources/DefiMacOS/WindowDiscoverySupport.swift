@@ -704,6 +704,24 @@ func cachedWindowIDsToRetain(
   })
 }
 
+/// Retained windows whose omission from the AX inventory cannot mean they closed;
+/// `listedInInventory` is nil when the inventory failed.
+func retentionConfirmedWindowIDs(
+  processID: pid_t,
+  records: [CGWindowRecord],
+  listedInInventory: ((WindowID) -> Bool)?,
+  processShowsNativeFullscreen: Bool
+) -> Set<WindowID> {
+  Set(records.compactMap { record in
+    guard record.processID == processID else { return nil }
+    let windowID = WindowID(rawValue: UInt64(record.id))
+    // WebKit element fullscreen orders the browser window out and drops it from AX until the exit.
+    let confirmed = record.isOnscreen || processShowsNativeFullscreen
+      || (listedInInventory?(windowID) ?? true)
+    return confirmed ? windowID : nil
+  })
+}
+
 func retainedWindowIDsWithinGracePeriod(
   _ candidates: Set<WindowID>,
   previousDeadlines: [WindowID: TimeInterval],
