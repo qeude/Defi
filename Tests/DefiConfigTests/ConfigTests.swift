@@ -207,6 +207,7 @@ struct ConfigTests {
       zoom = 0.25
       window_previews = false
       window_corner_radius = 18
+      search_bar = false
 
       [decorations.borders]
       enabled = true
@@ -275,6 +276,7 @@ struct ConfigTests {
       overviewGestureFingers: 3).overviewGestureActive)
     #expect(!config.overview.windowPreviews)
     #expect(config.overview.windowCornerRadius == 18)
+    #expect(!config.overview.searchBar)
     #expect(config.decorations.borders.width == 3.5)
     #expect(config.decorations.borders.inactiveEnabled)
     #expect(config.decorations.borders.inactiveDim == 0.25)

@@ -1005,6 +1005,7 @@ The Overview scale and what its window cards show.
 zoom = 0.5
 window_previews = true
 window_corner_radius = 12
+search_bar = true
 ```
 
 | Setting | Default | Values | Description |
@@ -1012,6 +1013,7 @@ window_corner_radius = 12
 | `zoom` | `0.5` | `0` to `0.75` | Scale of workspaces and windows. Lower values show more of the neighboring workspaces. |
 | `window_previews` | `true` | boolean | Shows window pictures in cards. With `[animation].enabled = false` too, Defi takes no pictures at all. |
 | `window_corner_radius` | `12` | `0` to `64` | Corner radius of window cards and their borders. |
+| `search_bar` | `true` | boolean | Keeps a search field above the cards. When `false`, the cards take the whole height and a field appears only while you type. |
 
 Opening the Overview zooms your windows out to their cards, and closing it zooms
 them back, with or without previews. Reduce Motion or
@@ -1027,9 +1029,8 @@ moves to its neighbor once the window is gone; if the app asks to save first,
 the card stays selected.
 
 Typing filters the Overview by window title and app name, ignoring case and
-accents; with several words, each must match. A small field shows the query,
-cards that do not match dim in place, and the selection moves to the first
-match. Tab and Shift-Tab step through the matches, Delete and Option-Delete
+accents; with several words, each must match. A field shows the query, cards
+that do not match dim in place, and the selection moves to the first match. Tab and Shift-Tab step through the matches, Delete and Option-Delete
 edit the query, Return opens the selection, and Escape clears the query before a
 second Escape closes the Overview. Shortcuts, arrows, and keys with Command or
 Control keep their action, and while the Overview is open, typed keys never
@@ -1394,6 +1395,7 @@ damping_ratio = 0.9
 zoom = 0.5
 window_previews = true
 window_corner_radius = 12
+search_bar = true
 
 [decorations.borders]
 enabled = true

@@ -252,6 +252,10 @@ final class OverviewPanel {
     }
   }
 
+  func setFilterDimmed(_ ids: Set<WindowID>, animated: Bool) {
+    surfaceScene?.setFilterDimmed(ids, animated: animated)
+  }
+
   /// Lifts the open Overview's windows above its cards, so the fingers can zoom them back.
   func beginSurfaceClosing() -> Bool {
     guard !openingTransitionInProgress, let surfaceScene, let screen = window.screen,

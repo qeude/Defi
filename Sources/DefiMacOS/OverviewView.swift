@@ -13,7 +13,6 @@ struct OverviewFilterPresentation: Equatable {
   var query = ""
   var matchCount = 0
   var dimmedWindowIDs = Set<WindowID>()
-  var showsField = false
 }
 
 // The overview is a retained layer tree: a refresh moves existing textures and the
@@ -36,12 +35,22 @@ final class OverviewView: NSView {
     didSet {
       guard oldValue != filter else { return }
       needsDisplay = true
-      filterField.update(query: filter.showsField ? filter.query : "", matchCount: filter.matchCount,
-        animated: animatesSelection && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-      layoutFilterField()
+      filterField.update(query: filter.query, matchCount: filter.matchCount)
+      showFilterField(animated: animatesSelection && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
     }
   }
-  private let filterField = OverviewFilterField()
+  /// `[overview].search_bar`: a band above the cards keeps the field; otherwise it shows only with a query.
+  var showsSearchBar = true {
+    didSet {
+      guard oldValue != showsSearchBar else { return }
+      needsDisplay = true
+      showFilterField(animated: false)
+    }
+  }
+  let filterField = OverviewFilterField()
+  // Cards darken as they pass under the band. A backdrop blur here dropped most frames of the zoom.
+  private let bandShade = CAGradientLayer()
+  private var bandShadeOpacity: CGFloat = 0
   var hasDesktopImage: Bool { desktopImage != nil }
   private var previews: [WindowID: WindowPicture] = [:]
   private var blurredPreviews: [WindowID: CGImage] = [:]
@@ -125,6 +134,7 @@ final class OverviewView: NSView {
     setAccessibilityElement(true)
     setAccessibilityRole(.group)
     setAccessibilityLabel("Defi Overview")
+    bandShade.zPosition = 999
     addSubview(filterField)
   }
 
@@ -133,14 +143,39 @@ final class OverviewView: NSView {
     layoutFilterField()
   }
 
-  /// Centered above the Dock, or the bottom edge when the Dock is elsewhere.
+  private func showFilterField(animated: Bool) {
+    filterField.compact = !showsSearchBar
+    filterField.setShown(showsSearchBar || !filter.query.isEmpty, animated: animated)
+    layoutFilterField()
+  }
+
+  /// The strip above the cards that holds the filter field, below the menu bar.
+  var reservedTop: CGFloat {
+    guard showsSearchBar else { return 0 }
+    let menuBar = window?.screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 0
+    return menuBar + 20 + OverviewFilterField.height + 20
+  }
+
+  /// Where workspaces project: the whole view below the band.
+  var projectionBounds: CGRect {
+    CGRect(x: 0, y: reservedTop, width: bounds.width, height: max(bounds.height - reservedTop, 1))
+  }
+
   private func layoutFilterField() {
     let size = filterField.fittingSize
-    let screen = window?.screen
-    let bottomInset = screen.map { $0.visibleFrame.minY - $0.frame.minY } ?? 0
-    filterField.setFrameSize(size)
-    filterField.setFrameOrigin(NSPoint(
-      x: (bounds.width - size.width) / 2, y: bounds.height - bottomInset - 32 - size.height))
+    let band = reservedTop
+    // Without the band, above the Dock, or the bottom edge when the Dock is elsewhere.
+    let bottomInset = window?.screen.map { $0.visibleFrame.minY - $0.frame.minY } ?? 0
+    filterField.frame = NSRect(x: (bounds.width - size.width) / 2,
+      y: showsSearchBar ? band - 20 - size.height : bounds.height - bottomInset - 32 - size.height,
+      width: size.width, height: size.height)
+    guard showsSearchBar, let layer else { return }
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    if bandShade.superlayer !== layer { layer.addSublayer(bandShade) }
+    bandShade.frame = CGRect(x: 0, y: 0, width: bounds.width, height: band + 64)
+    bandShade.locations = [0, NSNumber(value: Double(band / (band + 64))), 1]
+    CATransaction.commit()
   }
 
   func discardPreviewImages() {
@@ -243,6 +278,13 @@ final class OverviewView: NSView {
       )
     }
     setFrame(canvas, bounds)
+    let shadeOpacity: CGFloat = !showsSearchBar ? 0
+      : NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency ? 0.85 : 0.55
+    if shadeOpacity != bandShadeOpacity {
+      bandShadeOpacity = shadeOpacity
+      bandShade.isHidden = shadeOpacity == 0
+      bandShade.colors = [shadeOpacity, shadeOpacity * 0.7, 0].map { NSColor.black.withAlphaComponent($0).cgColor }
+    }
     var groups: [CALayer] = []
     var overlay: [CALayer] = []
     var liveWorkspaces = Set<WorkspaceID>()
