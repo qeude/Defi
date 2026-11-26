@@ -33,6 +33,8 @@ private struct DefiSettingsPane: View {
   @State private var model: DefiSettingsModel
   @State private var selection = SettingsRevealRequest(destination: .page(.general))
   @State private var sidebarQuery = ""
+  /// What the results show; follows the field a beat later, so a keystroke draws before the list changes.
+  @State private var appliedQuery = ""
   @FocusState private var resultsFocused: Bool
 
   init(model: DefiSettingsModel) {
@@ -40,7 +42,7 @@ private struct DefiSettingsPane: View {
   }
 
   var body: some View {
-    let query = sidebarQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    let query = appliedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     let results = query.isEmpty ? [] : SettingsSearchCatalog.results(
       matching: query, config: model.config, shortcuts: model.shortcutRows, resolution: model.shortcutResolution)
 
@@ -50,20 +52,12 @@ private struct DefiSettingsPane: View {
         set: { if let destination = $0 { select(destination) } }
       )) {
         if query.isEmpty {
-          ForEach(SettingsPage.allCases) { page in
-            Label {
-              Text(page.rawValue)
-            } icon: {
-              Image(systemName: page.symbol)
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(.white)
-                .frame(width: 15, height: 15)
-                .frame(width: 24, height: 24)
-                .background(page.color, in: RoundedRectangle(cornerRadius: 6))
+          ForEach(SettingsPage.sidebarGroups, id: \.pages) { group in
+            if let title = group.title {
+              Section(title) { sidebarRows(group.pages) }
+            } else {
+              sidebarRows(group.pages)
             }
-            .padding(.vertical, 4)
-            .tag(SettingsDestination.page(page))
           }
         } else {
           ForEach(results) { result in
@@ -87,6 +81,7 @@ private struct DefiSettingsPane: View {
         }
       }
       .listStyle(.sidebar)
+      .background(SidebarSlidingSelection(revision: AnyHashable([query, "\(selection.destination)"])))
       .focused($resultsFocused)
       .safeAreaInset(edge: .top, spacing: 0) {
         SettingsSearchField(text: $sidebarQuery, moveToResults: results.first.map { result in
@@ -111,7 +106,9 @@ private struct DefiSettingsPane: View {
         }
       }
       .navigationTitle("Settings")
-      .navigationSplitViewColumnWidth(min: 170, ideal: 210, max: 270)
+      .navigationSplitViewColumnWidth(min: 190, ideal: 215, max: 280)
+      // The column width alone leaves the sidebar too narrow for "Mouse & Trackpad".
+      .frame(minWidth: 190)
       .toolbar(removing: .sidebarToggle)
     } detail: {
       SettingsPageView(request: selection, model: model)
@@ -121,6 +118,13 @@ private struct DefiSettingsPane: View {
     // window's top edge, with no title bar of its own.
     .toolbar(removing: .title)
     .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+    // The desktop tints the whole window through its glass, as in the sidebar.
+    .containerBackground(.regularMaterial, for: .window)
+    .task(id: sidebarQuery) {
+      if !sidebarQuery.isEmpty { try? await Task.sleep(for: .milliseconds(30)) }
+      guard !Task.isCancelled else { return }
+      appliedQuery = sidebarQuery
+    }
     .onChange(of: query) { _, query in
       if query.isEmpty {
         selection = SettingsRevealRequest(destination: .page(selection.destination.page))
@@ -134,7 +138,6 @@ private struct DefiSettingsPane: View {
     .frame(minWidth: 860, idealWidth: 920, minHeight: 620, idealHeight: 680)
     .background(ResizableSettingsWindow())
     .task {
-      model.refreshSystemStatus()
       model.startWatching()
     }
     .onAppear {
@@ -154,7 +157,7 @@ private struct DefiSettingsPane: View {
     }
     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
     { _ in
-      model.refreshSystemStatus()
+      model.refreshSystemStatusInBackground()
     }
     .alert(
       "Defi Settings",
@@ -167,6 +170,18 @@ private struct DefiSettingsPane: View {
       Button("OK", role: .cancel) { model.dismissMessage() }
     } message: {
       Text(model.message ?? "")
+    }
+  }
+
+  private func sidebarRows(_ pages: [SettingsPage]) -> some View {
+    ForEach(pages) { page in
+      Label {
+        Text(page.rawValue)
+      } icon: {
+        SettingsPageIcon(page: page, size: 24)
+      }
+      .padding(.vertical, 4)
+      .tag(SettingsDestination.page(page))
     }
   }
 
@@ -185,11 +200,46 @@ private struct ResizableSettingsWindow: NSViewRepresentable {
   func updateNSView(_ nsView: NSView, context: Context) {}
 
   final class WindowView: NSView {
+    private var styleObservation: NSKeyValueObservation?
+
     override func viewDidMoveToWindow() {
       super.viewDidMoveToWindow()
-      window?.styleMask.insert(.resizable)
+      // The Settings scene's preference style centers toolbar items; the title belongs at the leading edge.
+      window?.toolbarStyle = .unified
+      keepResizable()
+      // The scene reapplies its fixed-size style mask whenever its toolbar updates.
+      styleObservation = window?.observe(\.styleMask) { [weak self] _, _ in
+        DispatchQueue.main.async { MainActor.assumeIsolated { self?.keepResizable() } }
+      }
+    }
+
+    private func keepResizable() {
+      guard let window, !window.styleMask.contains(.resizable) else { return }
+      window.styleMask.insert(.resizable)
     }
   }
+}
+
+extension SettingsPage {
+  /// The page's row in the sidebar, counting group titles.
+  static func sidebarRowIndex(of page: SettingsPage) -> Int? {
+    var row = 0
+    for group in sidebarGroups {
+      if group.title != nil { row += 1 }
+      if let index = group.pages.firstIndex(of: page) { return row + index }
+      row += group.pages.count
+    }
+    return nil
+  }
+
+  /// Sidebar sections in page order; the first has no title.
+  static let sidebarGroups: [(title: String?, pages: [SettingsPage])] = [
+    (nil, [.general, .layout]),
+    ("Input", [.keyboard, .input]),
+    ("Interface", [.appearance, .menuBar]),
+    ("Windows", [.workspaces, .appRules]),
+    ("Defi", [.about]),
+  ]
 }
 
 private extension SettingsPage {
@@ -197,6 +247,7 @@ private extension SettingsPage {
     switch self {
     case .general: .gray
     case .layout: .teal
+    case .keyboard: .gray
     case .input: .blue
     case .appearance: .purple
     case .menuBar: .cyan
@@ -209,7 +260,8 @@ private extension SettingsPage {
     switch self {
     case .general: "gearshape"
     case .layout: "rectangle.split.2x1"
-    case .input: "keyboard"
+    case .keyboard: "keyboard"
+    case .input: "computermouse"
     case .appearance: "paintpalette"
     case .menuBar: "menubar.rectangle"
     case .workspaces: "rectangle.3.group"
@@ -219,22 +271,203 @@ private extension SettingsPage {
   }
 }
 
+private struct SettingsPageIcon: View {
+  let page: SettingsPage
+  let size: CGFloat
+
+  var body: some View {
+    SettingsIcon(symbol: page.symbol, color: page.color, size: size)
+  }
+}
+
+struct SettingsIcon: View {
+  let symbol: String
+  let color: Color
+  let size: CGFloat
+
+  var body: some View {
+    Image(systemName: symbol)
+      .resizable()
+      .scaledToFit()
+      .foregroundStyle(.white)
+      .frame(width: size * 0.62, height: size * 0.62)
+      .frame(width: size, height: size)
+      .background(color.gradient, in: RoundedRectangle(cornerRadius: size / 4, style: .continuous))
+  }
+}
+
 @MainActor
 private struct SettingsPageView: View {
   let request: SettingsRevealRequest
   let model: DefiSettingsModel
+  @State private var navigator = SettingsSubpageNavigator()
 
   var body: some View {
-    switch request.destination.page {
+    let page = request.destination.page
+    // Pages stay alive once built, so going back to one shows it at once; only the selection slides.
+    SettingsPageStack(page: page, request: request) { page, request, visibility in
+      AnyView(content(page, request: request)
+        .scrollContentBackground(.hidden)
+        .environment(navigator)
+        .environment(visibility))
+    }
+    // The title sits in the toolbar beside the traffic lights: content under the toolbar gets no clicks.
+    .toolbar { pageTitle(page) }
+    .onChange(of: request) { navigator.pop() }
+  }
+
+  @ToolbarContentBuilder private func pageTitle(_ page: SettingsPage) -> some ToolbarContent {
+    if #available(macOS 26, *) {
+      ToolbarItem(placement: .navigation) { header(page) }
+        .sharedBackgroundVisibility(.hidden)
+    } else {
+      ToolbarItem(placement: .navigation) { header(page) }
+    }
+  }
+
+  /// The page title, which shrinks to its icon followed by the subpage title while one is open.
+  private func header(_ page: SettingsPage) -> some View {
+    HStack(spacing: 8) {
+      Button { navigator.pop() } label: {
+        SettingsPageIcon(page: page, size: 30)
+      }
+      .buttonStyle(.plain)
+      .allowsHitTesting(navigator.title != nil)
+      .help(navigator.title == nil ? "" : "Back to \(page.rawValue)")
+      .accessibilityLabel(navigator.title == nil ? page.rawValue : "Back to \(page.rawValue)")
+      if let title = navigator.title {
+        Image(systemName: "chevron.forward")
+          .font(.headline)
+          .foregroundStyle(.tertiary)
+          .accessibilityHidden(true)
+        Text(title)
+          .font(.title2.bold())
+          .lineLimit(1)
+          .accessibilityAddTraits(.isHeader)
+      } else {
+        Text(page.rawValue)
+          .font(.title2.bold())
+          .accessibilityAddTraits(.isHeader)
+      }
+    }
+    // Lines the title's icon up with the cards' edge below it.
+    .padding(.leading, 15)
+    // Animating a toolbar item relays out the whole toolbar every frame; only the content slides.
+    .transaction { $0.animation = nil }
+  }
+
+  @ViewBuilder private func content(_ page: SettingsPage, request: SettingsRevealRequest) -> some View {
+    switch page {
     case .general: GeneralSettingsView(model: model, request: request)
     case .layout: LayoutSettingsView(model: model, request: request)
-    case .input: InputSettingsView(model: model, request: request)
+    case .keyboard: KeyboardSettingsView(model: model, request: request)
+    case .input: PointerSettingsView(model: model, request: request)
     case .appearance: AppearanceSettingsView(model: model, request: request)
     case .menuBar: MenuBarSettingsView(model: model, request: request)
     case .workspaces: WorkspaceSettingsView(model: model, request: request)
     case .appRules: AppRulesSettingsView(model: model, request: request)
     case .about: AboutSettingsView(request: request)
     }
+  }
+}
+
+/// False while a page sits built but hidden behind another, so its demos stop animating. An object
+/// rather than an environment value, so showing a page updates only the views that read it.
+@MainActor @Observable
+final class SettingsPageVisibility {
+  var visible: Bool
+
+  init(visible: Bool) { self.visible = visible }
+}
+
+/// One hosting view per page, built the first time it shows or while the window idles, then only hidden.
+/// Rebuilding a page on every switch cost 50 to 150 ms of layout before the new page could draw.
+private struct SettingsPageStack: NSViewRepresentable {
+  let page: SettingsPage
+  let request: SettingsRevealRequest
+  let content: (SettingsPage, SettingsRevealRequest, SettingsPageVisibility) -> AnyView
+
+  func makeCoordinator() -> Coordinator { Coordinator() }
+
+  func makeNSView(context: Context) -> NSView {
+    let view = NSView()
+    context.coordinator.container = view
+    return view
+  }
+
+  func updateNSView(_ view: NSView, context: Context) {
+    context.coordinator.content = content
+    context.coordinator.show(page, request: request)
+    context.coordinator.prebuildSoon()
+  }
+
+  @MainActor final class Coordinator {
+    weak var container: NSView?
+    var content: ((SettingsPage, SettingsRevealRequest, SettingsPageVisibility) -> AnyView)?
+    private var pages: [SettingsPage: (host: NSHostingView<AnyView>, request: SettingsRevealRequest,
+      visibility: SettingsPageVisibility)] = [:]
+    private var current: SettingsPage?
+    private var prebuild: Task<Void, Never>?
+
+    func show(_ page: SettingsPage, request: SettingsRevealRequest) {
+      if let built = pages[page], built.request != request {
+        // Only a new request for this page, such as a search result, changes its content.
+        built.host.rootView = content?(page, request, built.visibility) ?? AnyView(EmptyView())
+        pages[page]?.request = request
+      } else if pages[page] == nil {
+        build(page, request: request, visible: true)
+      }
+      guard current != page else { return }
+      if let current, let old = pages[current] {
+        old.host.isHidden = true
+        old.visibility.visible = false
+      }
+      if let shown = pages[page] {
+        shown.host.isHidden = false
+        shown.visibility.visible = true
+      }
+      current = page
+    }
+
+    @discardableResult
+    private func build(_ page: SettingsPage, request: SettingsRevealRequest, visible: Bool) -> NSHostingView<AnyView> {
+      let visibility = SettingsPageVisibility(visible: visible)
+      let host = NSHostingView(rootView: content?(page, request, visibility) ?? AnyView(EmptyView()))
+      host.sizingOptions = []
+      host.isHidden = !visible
+      if let container {
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host)
+      }
+      pages[page] = (host, request, visibility)
+      return host
+    }
+
+    /// Builds the remaining pages one at a time while the window idles.
+    func prebuildSoon() {
+      guard prebuild == nil else { return }
+      prebuild = Task { @MainActor [weak self] in
+        try? await Task.sleep(for: .milliseconds(600))
+        for page in SettingsPage.allCases {
+          guard let self, !Task.isCancelled else { return }
+          guard self.pages[page] == nil else { continue }
+          self.build(page, request: SettingsRevealRequest(destination: .page(page)), visible: false)
+            .layoutSubtreeIfNeeded()
+          try? await Task.sleep(for: .milliseconds(120))
+        }
+      }
+    }
+
+    deinit { prebuild?.cancel() }
+  }
+}
+
+extension SettingsRevealRequest {
+  /// A search result points at one of these options, so it must show even where its switch hides it.
+  func reveals(_ options: SettingsOption...) -> Bool {
+    if case .option(let option) = destination { return options.contains(option) }
+    return false
   }
 }
 
@@ -284,25 +517,19 @@ private struct GeneralSettingsView: View {
 
   var body: some View {
     Form {
-      Section("Permissions") {
-        LabeledContent(
-          SettingsOption.accessibility.title, value: model.accessibilityGranted ? "Granted" : "Not granted")
-          .settingsSearchTarget(.accessibility)
-        if !model.accessibilityGranted {
-          Button("Open Accessibility Settings…") { model.openAccessibilitySettings() }
-        }
-        LabeledContent(
-          SettingsOption.screenRecording.title,
-          value: model.screenCaptureAvailable ? "Granted" : "Not granted")
-          .settingsSearchTarget(.screenRecording)
-        if !model.screenCaptureAvailable {
-          Text("Animations and Overview previews need Screen Recording. Without it, windows move at once.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          Button("Open Screen Recording Settings…") { model.openScreenRecordingSettings() }
+      Section("Permissions", symbol: "lock.shield", color: .green) {
+        HStack(spacing: 10) {
+          PermissionTile(
+            title: SettingsOption.accessibility.title, symbol: "accessibility", purpose: "Moves and focuses windows",
+            granted: model.accessibilityGranted, grant: model.openAccessibilitySettings)
+            .settingsSearchTarget(.accessibility)
+          PermissionTile(
+            title: SettingsOption.screenRecording.title, symbol: "record.circle", purpose: "Animations and previews",
+            granted: model.screenCaptureAvailable, grant: model.openScreenRecordingSettings)
+            .settingsSearchTarget(.screenRecording)
         }
       }
-      Section("General") {
+      Section("Startup", symbol: "power", color: .green) {
         Toggle(
           SettingsOption.launchAtLogin.title,
           isOn: Binding(
@@ -312,29 +539,45 @@ private struct GeneralSettingsView: View {
           .settingsSearchTarget(.launchAtLogin)
         if let notice = model.launchAtLoginNotice {
           Text(notice)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .settingsNote()
         }
         AutomaticUpdatesToggle()
           .settingsSearchTarget(.automaticUpdates)
       }
-      Section("Configuration") {
-        LabeledContent("File", value: model.configurationPath)
-          .textSelection(.enabled)
-        HStack {
-          Button(SettingsOption.configurationFile.title) { model.openConfiguration() }
+      Section("Configuration", symbol: "doc.text", color: .blue) {
+        HStack(spacing: 10) {
+          Image(nsImage: NSWorkspace.shared.icon(forFile: model.configurationPath))
+            .resizable()
+            .frame(width: 32, height: 32)
+          VStack(alignment: .leading, spacing: 1) {
+            Text(URL(filePath: model.configurationPath).lastPathComponent).fontWeight(.medium)
+            Text((model.configurationPath as NSString).abbreviatingWithTildeInPath)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(1)
+              .truncationMode(.middle)
+              .textSelection(.enabled)
+          }
+          Spacer(minLength: 8)
+          Button("Open") { model.openConfiguration() }
+            .help(SettingsOption.configurationFile.title)
             .settingsSearchTarget(.configurationFile)
-          Button(SettingsOption.configurationGuide.title) { model.openDocumentation() }
+          Button("Guide") { model.openDocumentation() }
+            .help(SettingsOption.configurationGuide.title)
             .settingsSearchTarget(.configurationGuide)
         }
       }
-      Section("Diagnostics") {
-        Button(SettingsOption.logs.title) { model.openLogs() }
-          .settingsSearchTarget(.logs)
-        TriageRow()
+      Section("Diagnostics", symbol: "stethoscope", color: .red) {
+        HStack(spacing: 8) {
+          Button { model.openLogs() } label: { Label("Logs", systemImage: "folder") }
+            .help(SettingsOption.logs.title)
+            .settingsSearchTarget(.logs)
+          TriageButton()
+          Spacer(minLength: 0)
+        }
       }
     }
-    .formStyle(.grouped)
+    .formStyle(.settingsCards)
     .modifier(SettingsRevealModifier(request: request))
   }
 }
@@ -345,8 +588,10 @@ private struct MenuBarSettingsView: View {
   let request: SettingsRevealRequest
 
   var body: some View {
+    let menuBar = model.config.menuBar
     Form {
       Section {
+        SettingsMenuBarPreview(config: model.config, displayCount: model.displays.count)
         Toggle(
           SettingsOption.menuBar.title,
           isOn: Binding(
@@ -354,51 +599,54 @@ private struct MenuBarSettingsView: View {
             set: { model.set(table: "menu_bar", key: "enabled", value: $0 ? "true" : "false") }
           ))
           .settingsSearchTarget(.menuBar)
-        Picker(SettingsOption.workspaceDisplay.title, selection: Binding(
-          get: { model.config.menuBar.workspaceStyle },
-          set: { model.set(table: "menu_bar", key: "workspace_style", value: tomlString($0.rawValue)) }
-        )) {
-          Text("Name only").tag(WorkspaceLabelStyle.name)
-          Text("Icon only").tag(WorkspaceLabelStyle.icon)
-          Text("Icon and name").tag(WorkspaceLabelStyle.iconAndName)
-          Text("Number").tag(WorkspaceLabelStyle.number)
-          Text("None").tag(WorkspaceLabelStyle.none)
+        if menuBar.enabled || request.reveals(.workspaceDisplay, .menuBarIndicator, .menuBarInactiveStyle,
+          .menuBarEqualWidth, .menuBarDisplays) {
+          Picker(SettingsOption.workspaceDisplay.title, selection: Binding(
+            get: { model.config.menuBar.workspaceStyle },
+            set: { model.set(table: "menu_bar", key: "workspace_style", value: tomlString($0.rawValue)) }
+          )) {
+            Text("Name only").tag(WorkspaceLabelStyle.name)
+            Text("Icon only").tag(WorkspaceLabelStyle.icon)
+            Text("Icon and name").tag(WorkspaceLabelStyle.iconAndName)
+            Text("Number").tag(WorkspaceLabelStyle.number)
+            Text("None").tag(WorkspaceLabelStyle.none)
+          }
+          .settingsSearchTarget(.workspaceDisplay)
+          Picker(SettingsOption.menuBarIndicator.title, selection: Binding(
+            get: { model.config.menuBar.indicator },
+            set: { model.set(table: "menu_bar", key: "indicator", value: tomlString($0.rawValue)) }
+          )) {
+            Text("Dots").tag(MenuBarIndicator.dot)
+            Text("Pills").tag(MenuBarIndicator.pill)
+            Text("Boxes").tag(MenuBarIndicator.box)
+            Text("Circles").tag(MenuBarIndicator.circle)
+          }
+          .settingsSearchTarget(.menuBarIndicator)
+          Picker(SettingsOption.menuBarInactiveStyle.title, selection: Binding(
+            get: { model.config.menuBar.inactiveStyle },
+            set: { model.set(table: "menu_bar", key: "inactive_style", value: tomlString($0.rawValue)) }
+          )) {
+            Text("Filled").tag(MenuBarInactiveStyle.filled)
+            Text("Outlined").tag(MenuBarInactiveStyle.outlined)
+          }
+          .settingsSearchTarget(.menuBarInactiveStyle)
+          Toggle(
+            SettingsOption.menuBarEqualWidth.title,
+            isOn: Binding(
+              get: { model.config.menuBar.equalWidth },
+              set: { model.set(table: "menu_bar", key: "equal_width", value: $0 ? "true" : "false") }
+            ))
+            .settingsSearchTarget(.menuBarEqualWidth)
+          Picker(SettingsOption.menuBarDisplays.title, selection: Binding(
+            get: { model.config.menuBar.show },
+            set: { model.set(table: "menu_bar", key: "show", value: tomlString($0.rawValue)) }
+          )) {
+            Text("All displays").tag(MenuBarDisplays.all)
+            Text("Focused display").tag(MenuBarDisplays.current)
+            Text("Active workspace").tag(MenuBarDisplays.active)
+          }
+          .settingsSearchTarget(.menuBarDisplays)
         }
-        .settingsSearchTarget(.workspaceDisplay)
-        Picker(SettingsOption.menuBarIndicator.title, selection: Binding(
-          get: { model.config.menuBar.indicator },
-          set: { model.set(table: "menu_bar", key: "indicator", value: tomlString($0.rawValue)) }
-        )) {
-          Text("Dots").tag(MenuBarIndicator.dot)
-          Text("Pills").tag(MenuBarIndicator.pill)
-          Text("Boxes").tag(MenuBarIndicator.box)
-          Text("Circles").tag(MenuBarIndicator.circle)
-        }
-        .settingsSearchTarget(.menuBarIndicator)
-        Picker(SettingsOption.menuBarInactiveStyle.title, selection: Binding(
-          get: { model.config.menuBar.inactiveStyle },
-          set: { model.set(table: "menu_bar", key: "inactive_style", value: tomlString($0.rawValue)) }
-        )) {
-          Text("Filled").tag(MenuBarInactiveStyle.filled)
-          Text("Outlined").tag(MenuBarInactiveStyle.outlined)
-        }
-        .settingsSearchTarget(.menuBarInactiveStyle)
-        Toggle(
-          SettingsOption.menuBarEqualWidth.title,
-          isOn: Binding(
-            get: { model.config.menuBar.equalWidth },
-            set: { model.set(table: "menu_bar", key: "equal_width", value: $0 ? "true" : "false") }
-          ))
-          .settingsSearchTarget(.menuBarEqualWidth)
-        Picker(SettingsOption.menuBarDisplays.title, selection: Binding(
-          get: { model.config.menuBar.show },
-          set: { model.set(table: "menu_bar", key: "show", value: tomlString($0.rawValue)) }
-        )) {
-          Text("All displays").tag(MenuBarDisplays.all)
-          Text("Focused display").tag(MenuBarDisplays.current)
-          Text("Active workspace").tag(MenuBarDisplays.active)
-        }
-        .settingsSearchTarget(.menuBarDisplays)
         Toggle(
           SettingsOption.menuBarColumns.title,
           isOn: Binding(
@@ -406,16 +654,19 @@ private struct MenuBarSettingsView: View {
             set: { model.set(table: "menu_bar", key: "columns", value: $0 ? "true" : "false") }
           ))
           .settingsSearchTarget(.menuBarColumns)
-        SettingsNumberRow(
-          title: SettingsOption.menuBarColumnsWidth.title, value: model.config.menuBar.columnsWidth,
-          range: 30...300, step: 10, unit: "pt",
-          onChange: { model.set(table: "menu_bar", key: "columns_width", value: String($0)) }
-        )
-          .disabled(!model.config.menuBar.columns)
-          .settingsSearchTarget(.menuBarColumnsWidth)
+        if menuBar.columns || request.reveals(.menuBarColumnsWidth) {
+          SettingsNumberRow(
+            title: SettingsOption.menuBarColumnsWidth.title, value: menuBar.columnsWidth,
+            range: 30...300, step: 10, unit: "pt",
+            onChange: { model.set(table: "menu_bar", key: "columns_width", value: String($0)) }
+          )
+            .settingsSearchTarget(.menuBarColumnsWidth)
+        }
       }
     }
-    .formStyle(.grouped)
+    .formStyle(.settingsCards)
+    .animation(.smooth(duration: 0.3), value: menuBar.enabled)
+    .animation(.smooth(duration: 0.3), value: menuBar.columns)
     .modifier(SettingsRevealModifier(request: request))
   }
 }
@@ -428,7 +679,8 @@ private struct LayoutSettingsView: View {
 
   var body: some View {
     Form {
-      Section("Columns") {
+      Section("Columns", symbol: "rectangle.split.3x1", color: .teal) {
+        SettingsColumnsPreview(layout: model.config.layout)
         SettingsNumberRow(
           title: SettingsOption.defaultColumnWidth.title, value: model.config.layout.defaultColumnWidth * 100,
           range: 5...100, step: 5, unit: "%",
@@ -454,7 +706,8 @@ private struct LayoutSettingsView: View {
       }
       PresetsSettings(
         title: "Width presets", footer: "Cycle Width switches between these sizes in list order.",
-        kind: .width, values: model.config.layout.presetColumnWidths
+        kind: .width, values: model.config.layout.presetColumnWidths,
+        centering: model.config.layout.centerFocusedColumn
       ) {
         model.set(table: "layout", key: "preset_column_widths", value: tomlArray($0))
       }
@@ -462,37 +715,24 @@ private struct LayoutSettingsView: View {
       PresetsSettings(
         title: "Height presets",
         footer: "Switch Preset Window Height gives a stacked window these shares of its column in list order.",
-        kind: .height, values: model.config.layout.presetWindowHeights
+        kind: .height, values: model.config.layout.presetWindowHeights,
+        centering: model.config.layout.centerFocusedColumn
       ) {
         model.set(table: "layout", key: "preset_window_heights", value: tomlArray($0))
       }
         .settingsSearchTarget(.heightPresets)
       DisplayLayoutsSection(model: model, editing: $editingDisplay)
         .settingsSearchTarget(.displayLayouts)
-      Section("Spacing") {
+      Section("Spacing", symbol: "square.dashed", color: .mint,
+        info: "Margins at each screen edge, the gap between windows, and the areas kept free at the top and bottom of the screen.") {
         SpacingEditor(model: model)
+          .settingsEdgeToEdge()
           .settingsSearchTarget(.screenMargins)
       }
-      Section("Reserved areas") {
-        SettingsNumberRow(
-          title: SettingsOption.reservedTop.title, value: model.config.layout.reservedTop,
-          range: 0...512, step: 1, unit: "px",
-
-          onChange: { model.set(table: "layout", key: "reserved_top", value: String($0)) }
-        )
-          .settingsSearchTarget(.reservedTop)
-        SettingsNumberRow(
-          title: SettingsOption.reservedBottom.title, value: model.config.layout.reservedBottom,
-          range: 0...512, step: 1, unit: "px",
-
-          onChange: { model.set(table: "layout", key: "reserved_bottom", value: String($0)) }
-        )
-          .settingsSearchTarget(.reservedBottom)
-      }
     }
-    .formStyle(.grouped)
+    .formStyle(.settingsCards)
     .modifier(SettingsRevealModifier(request: request))
-    .sheet(item: $editingDisplay) { DisplayLayoutEditor(model: model, name: $0.id) }
+    .settingsSubpage(item: $editingDisplay, title: \.id) { DisplayLayoutEditor(model: model, name: $0.id) }
   }
 
   private func stringBinding(_ table: String, _ key: String, _ value: String) -> Binding<String> {
@@ -518,78 +758,28 @@ enum PresetKind {
   }
 }
 
-private struct PresetRowID: Hashable {
-  let kind: PresetKind
-  let index: Int
-}
-
 @MainActor
 private struct PresetsSettings: View {
   let title: String
   let footer: String
   let kind: PresetKind
   let values: [Double]
+  let centering: CenterFocusedColumn
   let save: ([Double]) -> Void
+  @State private var hovered: Int?
 
   var body: some View {
     Section {
-      PresetRows(kind: kind, values: values, save: save)
+      SettingsPresetsPreview(kind: kind, values: values, held: hovered, centering: centering)
+      PresetChips(kind: kind, values: values, save: save, hovered: $hovered)
     } header: {
       HStack {
-        Text(title)
+        SettingsSectionTitle(title, symbol: kind == .width ? "arrow.left.and.right" : "arrow.up.and.down",
+          color: kind == .width ? .blue : .indigo, info: footer)
         Spacer()
         AddPresetMenu(kind: kind, values: values, save: save)
       }
-    } footer: {
-      Text(footer)
     }
-  }
-}
-
-@MainActor
-private struct PresetRows: View {
-  let kind: PresetKind
-  let values: [Double]
-  let save: ([Double]) -> Void
-
-  var body: some View {
-    // Form lists every section's rows together, so bare indices would collide across presets.
-    ForEach(values.indices.map { PresetRowID(kind: kind, index: $0) }, id: \.self) { row in
-      let index = row.index
-      HStack {
-        Text("Preset \(index + 1)")
-        Slider(value: Binding(
-          get: { values[index] * 100 },
-          set: { update(index, percentage: $0) }
-        ), in: 5...kind.maximum, step: 5)
-        .accessibilityLabel("Preset \(index + 1) \(kind.name)")
-        TextField(kind.name.capitalized, value: Binding(
-          get: { values[index] * 100 },
-          set: { update(index, percentage: $0) }
-        ), format: .number.precision(.fractionLength(0...2)))
-        .labelsHidden()
-        .multilineTextAlignment(.trailing)
-        .frame(width: 65)
-        Text("%").foregroundStyle(.secondary)
-        Button {
-          var values = values
-          values.remove(at: index)
-          save(values)
-        } label: {
-          Image(systemName: "minus.circle")
-        }
-        .buttonStyle(.borderless)
-        .disabled(values.count == 1)
-        .accessibilityLabel("Remove preset \(index + 1)")
-      }
-    }
-  }
-
-  private func update(_ index: Int, percentage: Double) {
-    guard !PresetKind.duplicates(percentage, in: values, except: index) else { return }
-    var values = values
-    values[index] = percentage / 100
-    save(values)
   }
 }
 
@@ -636,20 +826,20 @@ private struct DisplayLayoutsSection: View {
   @Binding var editing: DisplayLayoutSheet?
 
   var body: some View {
-    // A footer here pulls the last global width preset out of its section, so the hint is a row.
-    Section("Displays") {
-      Text("Give a display its own column widths. Other displays use the values above.")
-        .foregroundStyle(.secondary)
+    Section {
       ForEach(Array(model.monitorLayoutNames.enumerated()), id: \.offset) { _, name in
-        HStack {
+        Button { editing = DisplayLayoutSheet(id: name) } label: {
           VStack(alignment: .leading, spacing: 2) {
             Text(name)
             Text(summary(name)).font(.caption).foregroundStyle(.secondary)
           }
-          Spacer()
-          Button("Customize…") { editing = DisplayLayoutSheet(id: name) }
         }
+        .buttonStyle(.settingsNavigation)
+        .accessibilityHint("Customize widths on this display")
       }
+    } header: {
+      SettingsSectionTitle("Displays", symbol: "display", color: .cyan,
+        info: "Give a display its own column widths. Other displays use the values above.")
     }
   }
 
@@ -667,14 +857,12 @@ private struct DisplayLayoutsSection: View {
 private struct DisplayLayoutEditor: View {
   let model: DefiSettingsModel
   let name: String
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.closeSettingsSubpage) private var dismiss
 
   var body: some View {
     let override = model.monitorLayout(name)
     let layout = model.config.layout
-    VStack(alignment: .leading, spacing: 0) {
-      Text(name).font(.title3.bold()).padding([.top, .horizontal], 20)
-      Form {
+    Form {
         Section {
           Toggle("Same as all displays", isOn: Binding(
             get: { override?.defaultColumnWidth == nil },
@@ -690,9 +878,7 @@ private struct DisplayLayoutEditor: View {
               .foregroundStyle(.secondary)
           }
         } header: {
-          Text(SettingsOption.defaultColumnWidth.title)
-        } footer: {
-          Text("New windows on \(name) open at this width.")
+          SettingsInfoLabel(SettingsOption.defaultColumnWidth.title, "New windows on \(name) open at this width.")
         }
         Section {
           Toggle("Same as all displays", isOn: Binding(
@@ -704,148 +890,148 @@ private struct DisplayLayoutEditor: View {
           ))
           if let presets = override?.presetColumnWidths {
             let save = { model.setMonitorLayout(name, key: "preset_column_widths", value: tomlArray($0)) }
-            PresetRows(kind: .width, values: presets, save: save)
+            PresetChips(kind: .width, values: presets, save: save, hovered: .constant(nil))
             LabeledContent("Add preset") { AddPresetMenu(kind: .width, values: presets, save: save) }
           } else {
             LabeledContent("Presets", value: percentages(layout.presetColumnWidths))
               .foregroundStyle(.secondary)
           }
         } header: {
-          Text("Width presets")
-        } footer: {
-          Text("Cycle Width steps through these on \(name). Spacing stays the same on every display.")
+          SettingsInfoLabel("Width presets", "Cycle Width steps through these on \(name). Spacing stays the same on every display.")
         }
-      }
-      .formStyle(.grouped)
     }
-    .frame(minWidth: 560, minHeight: 420)
-    .toolbar {
-      ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+    .formStyle(.settingsCards)
+    .safeAreaInset(edge: .bottom) {
+      SettingsSubpageActions { Button("Done") { dismiss() }.keyboardShortcut(.defaultAction) }
     }
   }
 }
 
 @MainActor
-private struct InputSettingsView: View {
+private struct PointerSettingsView: View {
+  let model: DefiSettingsModel
+  let request: SettingsRevealRequest
+  @State private var gestureDemo = SettingsPointerDemo.swipe
+
+  var body: some View {
+    let input = model.config.input
+    Form {
+      Section("Pointer", symbol: "cursorarrow", color: .blue) {
+        Toggle(isOn: boolBinding("input", "focus_follows_mouse", input.focusFollowsMouse)) {
+          SettingsInfoLabel(SettingsOption.focusFollowsPointer.title,
+            "Moving the pointer onto a window focuses it, without a click.")
+        }
+          .settingsSearchTarget(.focusFollowsPointer)
+        if input.focusFollowsMouse || request.reveals(.pointerFocusDelay, .pointerFocusScroll) {
+          SettingsNumberRow(
+            title: SettingsOption.pointerFocusDelay.title,
+            value: Double(input.focusFollowsMouseDelayMS),
+            range: 0...1_000, step: 10, unit: "ms",
+            info: "How long the pointer must rest on a window before it takes focus. 0 ms focuses at once.",
+            onChange: { model.set(table: "input", key: "focus_follows_mouse_delay_ms", value: String(Int($0.rounded()))) }
+          )
+            .settingsSearchTarget(.pointerFocusDelay)
+          SettingsNumberRow(
+            title: SettingsOption.pointerFocusScroll.title,
+            value: (input.focusFollowsMouseMaxScrollAmount ?? 0) * 100,
+            range: 0...100, step: 1, unit: "%",
+            info: "How far the strip may scroll to focus a window under the pointer, as a share of the screen width. 0 % focuses only windows already fully in view.",
+            onChange: { model.set(table: "input", key: "focus_follows_mouse_max_scroll_amount", value: String($0 / 100)) }
+          )
+            .settingsSearchTarget(.pointerFocusScroll)
+        }
+        Toggle(isOn: boolBinding("input", "mouse_follows_focus", input.mouseFollowsFocus)) {
+          SettingsInfoLabel(SettingsOption.pointerFollowsFocus.title,
+            "Moves the pointer to the center of a window you focus with the keyboard, unless it is already inside.")
+        }
+          .settingsSearchTarget(.pointerFollowsFocus)
+      }
+      Section("Trackpad", symbol: "hand.draw", color: .teal) {
+        SettingsPointerDemoView(demo: gestureDemo, input: input)
+        ScrollGestureSettings(model: model, request: request)
+          .onHover { if $0 { gestureDemo = .swipe } }
+        if input.scrollGestures || request.reveals(.scrollGestureSpeed, .scrollGestureSnap) {
+          SettingsNumberRow(
+            title: SettingsOption.scrollGestureSpeed.title,
+            value: input.scrollGestureSpeed * 100,
+            range: 25...400, step: 5, unit: "%",
+            onChange: { model.set(table: "input", key: "scroll_gesture_speed", value: String($0 / 100)) }
+          )
+            .settingsSearchTarget(.scrollGestureSpeed)
+            .onHover { if $0 { gestureDemo = .swipe } }
+          Toggle(isOn: boolBinding("input", "scroll_gesture_snap", input.scrollGestureSnap)) {
+            SettingsInfoLabel(SettingsOption.scrollGestureSnap.title, input.scrollGestureSnap
+              ? "The strip lands on the nearest column."
+              : "The strip stops where you let go. The column in the middle gets focus.")
+          }
+            .settingsSearchTarget(.scrollGestureSnap)
+            .onHover { if $0 { gestureDemo = .swipe } }
+        }
+        OverviewGestureSettings(model: model)
+          .onHover { if $0 { gestureDemo = .overview } }
+        WindowTilingConflict()
+      }
+    }
+    .formStyle(.settingsCards)
+    .animation(.smooth(duration: 0.3), value: input.focusFollowsMouse)
+    .animation(.smooth(duration: 0.3), value: input.scrollGestures)
+    .modifier(SettingsRevealModifier(request: request))
+  }
+
+  private func boolBinding(_ table: String, _ key: String, _ value: Bool) -> Binding<Bool> {
+    Binding(get: { value }, set: { model.set(table: table, key: key, value: $0 ? "true" : "false") })
+  }
+}
+
+@MainActor
+private struct KeyboardSettingsView: View {
   let model: DefiSettingsModel
   let request: SettingsRevealRequest
   @AppStorage(displayModDefaultsKey) private var displayMod = false
   @State private var shortcutSheet: ShortcutSheet?
-  @State private var shortcutFilter = SettingsShortcutFilter.query("")
+  @State private var search = ShortcutSearch()
+  @State private var slotsCache = SettingsShortcutSlotsCache()
 
   var body: some View {
     let commands = SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows)
-    let visibleCommands = commands.filter(shortcutFilter.includes)
+    let slots = slotsCache.slots(model: model, displayMod: displayMod)
+    let active = search.active
 
-    return Form {
-      if let keyboardMessage = DefiSettingsRuntimeStatus.shared.keyboardMessage {
-        Section {
-          Text(keyboardMessage)
-            .foregroundStyle(.secondary)
-        }
+    // The full list is built once and only hidden while results show: rebuilding hundreds of rows on
+    // every search or scroll dropped frames. Only the field and the results read the search, so a
+    // keystroke never evaluates this page.
+    return VStack(spacing: 0) {
+      ShortcutSearchBar(search: search)
+      ZStack {
+        // Its own hosting view, which AppKit skips while hidden: in the page's view graph its rows
+        // weighed on every keystroke's update.
+        SettingsIsolatedHost(hidden: active, content: SettingsShortcutListForm(
+          model: model, commands: commands, slots: slots, request: request,
+          onAdd: { shortcutSheet = ShortcutSheet(row: nil) }
+        ).equatable())
+        ShortcutSearchResults(model: model, commands: commands, slots: slots, search: search)
+          .opacity(active ? 1 : 0)
+          .allowsHitTesting(active)
+          .accessibilityHidden(!active)
+          // The shown list sits on top, so scroll events reach it.
+          .zIndex(active ? 1 : -1)
       }
-      Section("Pointer") {
-        Toggle(SettingsOption.focusFollowsPointer.title, isOn: boolBinding("input", "focus_follows_mouse", model.config.input.focusFollowsMouse))
-          .settingsSearchTarget(.focusFollowsPointer)
-        Toggle(SettingsOption.pointerFollowsFocus.title, isOn: boolBinding("input", "mouse_follows_focus", model.config.input.mouseFollowsFocus))
-          .settingsSearchTarget(.pointerFollowsFocus)
-        SettingsNumberRow(
-          title: SettingsOption.pointerFocusDelay.title,
-          value: Double(model.config.input.focusFollowsMouseDelayMS),
-          range: 0...1_000, step: 10, unit: "ms",
-          onChange: { model.set(table: "input", key: "focus_follows_mouse_delay_ms", value: String(Int($0.rounded()))) }
-        )
-          .settingsSearchTarget(.pointerFocusDelay)
-          .disabled(!model.config.input.focusFollowsMouse)
-        SettingsNumberRow(
-          title: SettingsOption.pointerFocusScroll.title,
-          value: (model.config.input.focusFollowsMouseMaxScrollAmount ?? 0) * 100,
-          range: 0...100, step: 1, unit: "%",
-
-          onChange: { model.set(table: "input", key: "focus_follows_mouse_max_scroll_amount", value: String($0 / 100)) }
-        )
-          .settingsSearchTarget(.pointerFocusScroll)
-          .disabled(!model.config.input.focusFollowsMouse)
-        ScrollGestureSettings(model: model)
-        SettingsNumberRow(
-          title: SettingsOption.scrollGestureSpeed.title,
-          value: model.config.input.scrollGestureSpeed * 100,
-          range: 25...400, step: 5, unit: "%",
-          onChange: { model.set(table: "input", key: "scroll_gesture_speed", value: String($0 / 100)) }
-        )
-          .settingsSearchTarget(.scrollGestureSpeed)
-          .disabled(!model.config.input.scrollGestures)
-        Toggle(SettingsOption.scrollGestureSnap.title,
-          isOn: boolBinding("input", "scroll_gesture_snap", model.config.input.scrollGestureSnap))
-          .settingsSearchTarget(.scrollGestureSnap)
-          .disabled(!model.config.input.scrollGestures)
-        Text(model.config.input.scrollGestureSnap
-          ? "The strip lands on the nearest column."
-          : "The strip stops where you let go. The column in the middle gets focus.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        OverviewGestureSettings(model: model)
-        WindowTilingConflict()
-      }
-      Section("Modifiers") {
-        ModKeyRow(model: model)
-          .settingsSearchTarget(.modKey)
-        Toggle(
-          "Show mod (\(shortcutKeyLabel("mod-a", aliases: model.config.modifierAliases).dropLast())) as ✧",
-          isOn: $displayMod
-        )
-          .settingsSearchTarget(.modSymbol)
-      }
-      Section("Cheatsheet") {
-        Toggle(SettingsOption.cheatsheet.title, isOn: Binding(
-          get: { model.config.showCheatsheetOnModifierHold },
-          set: { model.set(table: "", key: "show_cheatsheet_on_modifier_hold", value: $0 ? "true" : "false") }
-        ))
-        .settingsSearchTarget(.cheatsheet)
-      }
-      Section {
-        ForEach(visibleCommands, id: \.self) { command in
-          SettingsShortcutActionRow(
-            command: command, model: model,
-            displayMod: displayMod
-          )
-        }
-        if visibleCommands.isEmpty {
-          Text("No matching actions.").foregroundStyle(.secondary)
-        }
-        Button(SettingsOption.customShortcut.title) { shortcutSheet = ShortcutSheet(row: nil) }
-          .settingsSearchTarget(.customShortcut)
-      } header: {
-        HStack {
-          Text("Keyboard shortcuts")
-          Spacer()
-          TextField("Search actions", text: Binding(
-            get: { shortcutFilter.text },
-            set: { shortcutFilter = .query($0) }
-          ), prompt: Text("Search actions"))
-            .labelsHidden()
-            .textFieldStyle(.roundedBorder)
-            .font(.body)
-            .frame(width: 220)
-        }
-      }
-      .id(SettingsSearchAnchor.keyboardShortcuts)
     }
-    .formStyle(.grouped)
     .modifier(SettingsRevealModifier(request: request, ready: revealReady, prepare: prepareReveal))
     .onChange(of: commands) { _, commands in
-      if case .command(let command) = shortcutFilter, !commands.contains(command) {
-        shortcutFilter = .query("")
+      if case .command(let command) = search.filter, !commands.contains(command) {
+        search.set(.query(""))
       }
     }
-    .sheet(item: $shortcutSheet) { sheet in
+    .settingsSubpage(item: $shortcutSheet, title: { $0.row == nil ? "New Shortcut" : "Edit Shortcut" }) { sheet in
       SettingsShortcutEditor(model: model, row: sheet.row)
     }
   }
 
   private var revealReady: Bool {
+    // Reads the filter only for a shortcut reveal, so typing a search leaves this page alone.
     if case .shortcut(let command) = request.destination {
-      return shortcutFilter == .command(command)
+      return search.filter == .command(command)
         && SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows).contains(command)
     }
     return true
@@ -855,73 +1041,258 @@ private struct InputSettingsView: View {
     if case .shortcut(let command) = request.destination,
       SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows).contains(command)
     {
-      shortcutFilter = .command(command)
-    } else if case .command = shortcutFilter {
-      shortcutFilter = .query("")
+      search.set(.command(command))
+    } else if case .command = search.filter {
+      search.set(.query(""))
+    }
+  }
+}
+
+/// The shortcut search, apart from the page: the field writes the text, the results read the filter,
+/// and the page reads only whether a search is showing.
+@MainActor
+@Observable
+private final class ShortcutSearch {
+  var query = ""
+  private(set) var filter = SettingsShortcutFilter.query("")
+  private(set) var active = false
+
+  func filter(_ filter: SettingsShortcutFilter) {
+    self.filter = filter
+    if active != filter.isActive { active = filter.isActive }
+  }
+
+  /// Shows `filter` and puts its text in the field.
+  func set(_ filter: SettingsShortcutFilter) {
+    self.filter(filter)
+    if query != filter.text { query = filter.text }
+  }
+}
+
+/// Pinned above the list, so a search is one click away however far the list scrolled. Native: a
+/// SwiftUI text field dropped a frame on every keystroke.
+@MainActor
+private struct ShortcutSearchBar: View {
+  let search: ShortcutSearch
+
+  var body: some View {
+    SettingsSearchField(text: Bindable(search).query, prompt: "Search shortcuts", large: true)
+      .padding(.horizontal, 20)
+      .padding(.top, 10)
+      .padding(.bottom, 4)
+      // The filter follows the text a beat later, so a keystroke draws before the rows change.
+      .task(id: search.query) {
+        guard search.query != search.filter.text else { return }
+        try? await Task.sleep(for: .milliseconds(30))
+        guard !Task.isCancelled else { return }
+        search.filter(.query(search.query))
+      }
+  }
+}
+
+/// Kept alive while empty, so the first keystroke fills a list instead of building one. One card whose
+/// rows sit directly in the scroll view's lazy stack: a card stack nested in it measured every row.
+@MainActor
+private struct ShortcutSearchResults: View {
+  let model: DefiSettingsModel
+  let commands: [String]
+  let slots: SettingsShortcutSlots
+  let search: ShortcutSearch
+
+  var body: some View {
+    let filter = search.filter
+    let visible = filter.isActive ? commands.filter(filter.includes) : []
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 0) {
+        ForEach(visible, id: \.self) { command in
+          VStack(spacing: 0) {
+            if command != visible.first { Divider().padding(.leading, 12) }
+            SettingsShortcutActionRow(command: command, slots: slots[command], live: filter == .command(command), model: model)
+              .equatable()
+              .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+              .padding(.horizontal, 12)
+              .padding(.vertical, 8)
+          }
+        }
+        if filter.isActive && visible.isEmpty {
+          Text("No matching actions.")
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+      }
+      .background(SettingsCardBackground())
+      .id(SettingsSearchAnchor.keyboardShortcuts)
+      .padding(.horizontal, 20)
+      .padding(.vertical, 14)
+    }
+  }
+}
+
+/// One action's shortcuts, read once for the whole page: each row filtering every binding made a long
+/// page slow to scroll and to search.
+private struct SettingsShortcutSlots: Equatable {
+  struct Slot: Equatable {
+    let row: SettingsShortcutRow?
+    let label: String
+  }
+
+  private let byCommand: [String: [Slot]]
+
+  @MainActor init(model: DefiSettingsModel, displayMod: Bool) {
+    let aliases = model.config.modifierAliases
+    let resolution = model.shortcutResolution
+    byCommand = Dictionary(grouping: model.shortcutRows, by: \.command).mapValues { rows in
+      rows.map { Slot(row: $0, label: shortcutKeyLabel($0.accelerator, aliases: aliases, displayMod: displayMod,
+        resolved: resolution)) }
     }
   }
 
-  private func boolBinding(_ table: String, _ key: String, _ value: Bool) -> Binding<Bool> {
-    Binding(
-      get: { value },
-      set: {
-        model.set(table: table, key: key, value: $0 ? "true" : "false")
-      })
+  subscript(command: String) -> [Slot] { byCommand[command] ?? [Slot(row: nil, label: "Record Shortcut…")] }
+}
+
+/// Every action in its group's card, built once: a search only hides it, and typing never rebuilds it.
+@MainActor
+private struct SettingsShortcutListForm: View, Equatable {
+  let model: DefiSettingsModel
+  let commands: [String]
+  let slots: SettingsShortcutSlots
+  /// Scrolls this list to a revealed option, as the page's own reader cannot reach into its host.
+  let request: SettingsRevealRequest
+  let onAdd: () -> Void
+  @AppStorage(displayModDefaultsKey) private var displayMod = false
+
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.commands == rhs.commands && lhs.slots == rhs.slots && lhs.request == rhs.request
+  }
+
+  var body: some View {
+    Form {
+      if let keyboardMessage = DefiSettingsRuntimeStatus.shared.keyboardMessage {
+        Section {
+          Text(keyboardMessage)
+            .foregroundStyle(.secondary)
+        }
+      }
+      Section("Modifier key", symbol: "command", color: .gray) {
+        ModKeyRow(model: model)
+          .settingsSearchTarget(.modKey)
+        Toggle(
+          "Show mod (\(shortcutKeyLabel("mod-a", aliases: model.config.modifierAliases).dropLast())) as ✧",
+          isOn: $displayMod
+        )
+          .settingsSearchTarget(.modSymbol)
+        Toggle(SettingsOption.cheatsheet.title, isOn: Binding(
+          get: { model.config.showCheatsheetOnModifierHold },
+          set: { model.set(table: "", key: "show_cheatsheet_on_modifier_hold", value: $0 ? "true" : "false") }
+        ))
+        .settingsSearchTarget(.cheatsheet)
+      }
+      Section("Keyboard shortcuts", symbol: "keyboard", color: .indigo) {
+        Button(action: onAdd) {
+          SettingsAddLabel(title: SettingsOption.customShortcut.title)
+        }
+          .buttonStyle(.settingsNavigation)
+          .settingsSearchTarget(.customShortcut)
+      }
+      .id(SettingsSearchAnchor.keyboardShortcuts)
+      ForEach(SettingsShortcutGroup.groups(commands), id: \.title) { group in
+        Section(group.title, symbol: group.symbol, color: group.color) {
+          ForEach(group.commands, id: \.self) { command in
+            SettingsShortcutActionRow(command: command, slots: slots[command], live: false, model: model)
+              .equatable()
+          }
+        }
+      }
+    }
+    .formStyle(.settingsCards)
+    .modifier(SettingsRevealModifier(request: request))
+  }
+}
+
+/// A view in a hosting view of its own, hidden by AppKit rather than by opacity.
+private struct SettingsIsolatedHost<Content: View>: NSViewRepresentable {
+  let hidden: Bool
+  let content: Content
+
+  func makeNSView(context: Context) -> NSHostingView<Content> {
+    let host = NSHostingView(rootView: content)
+    host.sizingOptions = []
+    return host
+  }
+
+  func updateNSView(_ host: NSHostingView<Content>, context: Context) {
+    host.rootView = content
+    host.isHidden = hidden
+  }
+}
+
+/// Keeps the slots between keystrokes of a search: labels are parsed once per change of the shortcuts.
+@MainActor
+private final class SettingsShortcutSlotsCache {
+  private var key: (config: Config, rows: [SettingsShortcutRow], displayMod: Bool)?
+  private var slots: SettingsShortcutSlots?
+
+  func slots(model: DefiSettingsModel, displayMod: Bool) -> SettingsShortcutSlots {
+    if let key, let slots, key.config == model.config, key.rows == model.shortcutRows, key.displayMod == displayMod {
+      return slots
+    }
+    let slots = SettingsShortcutSlots(model: model, displayMod: displayMod)
+    key = (model.config, model.shortcutRows, displayMod)
+    self.slots = slots
+    return slots
   }
 }
 
 @MainActor
-private struct SettingsShortcutActionRow: View {
+private struct SettingsShortcutActionRow: View, Equatable {
   let command: String
+  let slots: [SettingsShortcutSlots.Slot]
+  let live: Bool
   let model: DefiSettingsModel
-  let displayMod: Bool
+
+  nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.command == rhs.command && lhs.slots == rhs.slots && lhs.live == rhs.live
+  }
 
   var body: some View {
     HStack {
       Text(SettingsSearchCatalog.commandTitle(command))
         .frame(maxWidth: .infinity, alignment: .leading)
-      let bindings = model.shortcutRows.filter { $0.command == command }
-      if bindings.isEmpty {
-        HStack {
-          recorder(nil)
-          Image(systemName: "minus.circle").hidden()
-        }
-      } else {
-        VStack(alignment: .trailing) {
-          ForEach(bindings) { row in
-            HStack {
-              if row.isEnabled {
-                recorder(row)
-              } else {
-                Text("Disabled").foregroundStyle(.secondary)
-                Button("Reset to Default") { model.restoreShortcut(row) }
-              }
-              Button { model.removeShortcut(row) } label: {
-                Image(systemName: "minus.circle")
-              }
-              .buttonStyle(.borderless)
-              .accessibilityLabel("Remove shortcut for \(command)")
-              .disabled(!row.isEnabled)
+      // Keyed by position, not by keys: a new shortcut morphs the same pill instead of replacing it.
+      VStack(alignment: .trailing) {
+        ForEach(Array(slots.enumerated()), id: \.offset) { _, slot in
+          HStack {
+            if let row = slot.row, !row.isEnabled {
+              Text("Disabled").foregroundStyle(.secondary)
+              Button("Reset to Default") { model.restoreShortcut(row) }
+            } else {
+              recorder(slot)
             }
+            Button { if let row = slot.row { model.removeShortcut(row) } } label: {
+              Image(systemName: "minus.circle").foregroundStyle(.secondary)
+            }
+            // Plain, not borderless: a borderless button is an AppKit control, costly in every row.
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove shortcut for \(command)")
+            .disabled(slot.row?.isEnabled != true)
+            .opacity(slot.row == nil ? 0 : 1)
           }
         }
       }
     }
   }
 
-  private func recorder(_ row: SettingsShortcutRow?) -> some View {
-    SettingsShortcutRecorder(
-      label: row.map {
-        shortcutKeyLabel($0.accelerator, aliases: model.config.modifierAliases,
-          displayMod: displayMod,
-          resolved: model.shortcutResolution)
-      } ?? "Record Shortcut…",
-      command: command,
-      onRecord: { model.saveShortcut(row, accelerator: $0, command: command) }
+  private func recorder(_ slot: SettingsShortcutSlots.Slot) -> some View {
+    SettingsShortcutField(
+      label: slot.label, command: command, live: live, unset: slot.row == nil,
+      onRecord: { model.saveShortcut(slot.row, accelerator: $0, command: command) }
     )
     .frame(width: 170, height: 28)
+    // One branch whatever the row: a new shortcut becomes restorable, and swapping views lost the morph.
     .contextMenu {
-      if let row, row.canRestore {
+      if let row = slot.row, row.canRestore {
         Button("Reset to Default") { model.restoreShortcut(row) }
       }
     }
@@ -932,93 +1303,115 @@ private struct SettingsShortcutActionRow: View {
 private struct AppearanceSettingsView: View {
   let model: DefiSettingsModel
   let request: SettingsRevealRequest
+  @AppStorage(settingsShowAdvancedKey) private var advanced = false
+
   var body: some View {
+    let borders = model.config.decorations.borders
     Form {
-      Section("Window borders") {
+      Section {
+        SettingsBorderPreview(config: model.config)
+          .settingsEdgeToEdge()
+      }
+      Section("Window borders", symbol: "square.dashed.inset.filled", color: .purple) {
         settingsToggle(
           model, title: SettingsOption.focusedBorder.title, table: "decorations.borders",
-          key: "enabled", value: model.config.decorations.borders.enabled
+          key: "enabled", value: borders.enabled
         )
           .settingsSearchTarget(.focusedBorder)
-        SettingsNumberRow(
-          title: SettingsOption.borderWidth.title, value: model.config.decorations.borders.width,
-          range: 0...64, step: 1, unit: "px",
-
-          onChange: { model.set(table: "decorations.borders", key: "width", value: String($0)) }
-        )
-          .settingsSearchTarget(.borderWidth)
-        ColorPicker(SettingsOption.focusedBorderColor.title, selection: colorBinding("color"), supportsOpacity: true)
-          .settingsSearchTarget(.focusedBorderColor)
-        Picker(SettingsOption.borderPlacement.title, selection: stringBinding(
-          model, table: "decorations.borders", key: "placement", value: model.config.decorations.borders.placement
-        )) {
-          Text("Inside window").tag("inside")
-          Text("Outside window").tag("outside")
+        if borders.enabled || request.reveals(.borderWidth, .focusedBorderColor, .borderPlacement, .captureBorders) {
+          SettingsNumberRow(
+            title: SettingsOption.borderWidth.title, value: borders.width,
+            range: 0...64, step: 1, unit: "px",
+            onChange: { model.set(table: "decorations.borders", key: "width", value: String($0)) }
+          )
+            .settingsSearchTarget(.borderWidth)
+          ColorPicker(SettingsOption.focusedBorderColor.title, selection: colorBinding("color"), supportsOpacity: true)
+            .settingsSearchTarget(.focusedBorderColor)
+          Picker(SettingsOption.borderPlacement.title, selection: stringBinding(
+            model, table: "decorations.borders", key: "placement", value: borders.placement
+          )) {
+            Text("Inside window").tag("inside")
+            Text("Outside window").tag("outside")
+          }
+          .settingsSearchTarget(.borderPlacement)
+          settingsToggle(
+            model, title: SettingsOption.captureBorders.title, table: "decorations.borders",
+            key: "capture_enabled", value: borders.captureEnabled
+          )
+            .settingsSearchTarget(.captureBorders)
         }
-        .settingsSearchTarget(.borderPlacement)
-        settingsToggle(
-          model, title: SettingsOption.unfocusedBorders.title, table: "decorations.borders",
-          key: "inactive_enabled", value: model.config.decorations.borders.inactiveEnabled
-        )
-          .settingsSearchTarget(.unfocusedBorders)
-        ColorPicker(SettingsOption.unfocusedBorderColor.title, selection: colorBinding("inactive_color"), supportsOpacity: true)
-          .settingsSearchTarget(.unfocusedBorderColor)
-        settingsToggle(
-          model, title: SettingsOption.captureBorders.title, table: "decorations.borders",
-          key: "capture_enabled", value: model.config.decorations.borders.captureEnabled
-        )
-          .settingsSearchTarget(.captureBorders)
       }
-      Section("Unfocused windows") {
+      Section("Unfocused windows", symbol: "circle.lefthalf.filled", color: .gray) {
         SettingsNumberRow(
-          title: SettingsOption.unfocusedDim.title, value: model.config.decorations.borders.inactiveDim * 100,
+          title: SettingsOption.unfocusedDim.title, value: borders.inactiveDim * 100,
           range: 0...90, step: 5, unit: "%",
           onChange: { model.set(table: "decorations.borders", key: "inactive_dim", value: String($0 / 100)) }
         )
           .settingsSearchTarget(.unfocusedDim)
+        settingsToggle(
+          model, title: SettingsOption.unfocusedBorders.title, table: "decorations.borders",
+          key: "inactive_enabled", value: borders.inactiveEnabled
+        )
+          .settingsSearchTarget(.unfocusedBorders)
+        if borders.inactiveEnabled || request.reveals(.unfocusedBorderColor) {
+          ColorPicker(SettingsOption.unfocusedBorderColor.title, selection: colorBinding("inactive_color"), supportsOpacity: true)
+            .settingsSearchTarget(.unfocusedBorderColor)
+        }
       }
-      Section("Animation") {
+      Section("Animation", symbol: "wand.and.stars", color: .pink) {
         settingsToggle(
           model, title: SettingsOption.animations.title, table: "animation", key: "enabled",
           value: model.config.animation.enabled
         )
           .settingsSearchTarget(.animations)
-        SettingsNumberRow(
-          title: SettingsOption.animationStiffness.title, value: model.config.animation.stiffness,
-          range: 100...2_000, step: 50, unit: "",
-          onChange: { model.set(table: "animation", key: "stiffness", value: String($0)) }
-        )
-          .settingsSearchTarget(.animationStiffness)
-        SettingsNumberRow(
-          title: SettingsOption.animationDamping.title, value: model.config.animation.dampingRatio,
-          range: 0.5...1, step: 0.05, unit: "",
-          onChange: { model.set(table: "animation", key: "damping_ratio", value: String($0)) }
-        )
-          .settingsSearchTarget(.animationDamping)
+        if model.config.animation.enabled || request.reveals(.animationStiffness, .animationDamping) {
+          SettingsAdvancedButton(expanded: $advanced)
+          if advanced || request.reveals(.animationStiffness, .animationDamping) {
+            SettingsNumberRow(
+              title: SettingsOption.animationStiffness.title, value: model.config.animation.stiffness,
+              range: 100...2_000, step: 50, unit: "",
+              info: "Spring stiffness of every motion. Higher is faster.",
+              onChange: { model.set(table: "animation", key: "stiffness", value: String($0)) }
+            )
+              .settingsSearchTarget(.animationStiffness)
+            SettingsNumberRow(
+              title: SettingsOption.animationDamping.title, value: model.config.animation.dampingRatio,
+              range: 0.5...1, step: 0.05, unit: "",
+              info: "1 never overshoots. Lower values arrive sooner and overshoot slightly.",
+              onChange: { model.set(table: "animation", key: "damping_ratio", value: String($0)) }
+            )
+              .settingsSearchTarget(.animationDamping)
+          }
+        }
       }
-      Section("Overview") {
-        SettingsNumberRow(
-          title: SettingsOption.overviewScale.title, value: model.config.overview.zoom * 100,
-          range: 0...75, step: 5, unit: "%",
-
-          onChange: { model.set(table: "overview", key: "zoom", value: String($0 / 100)) }
-        )
-          .settingsSearchTarget(.overviewScale)
-        SettingsNumberRow(
-          title: SettingsOption.overviewCornerRadius.title, value: model.config.overview.windowCornerRadius,
-          range: 0...64, step: 1, unit: "px",
-
-          onChange: { model.set(table: "overview", key: "window_corner_radius", value: String($0)) }
-        )
-          .settingsSearchTarget(.overviewCornerRadius)
+      Section("Overview", symbol: "square.grid.2x2", color: .blue) {
         settingsToggle(
           model, title: SettingsOption.windowPreviews.title, table: "overview",
           key: "window_previews", value: model.config.overview.windowPreviews
         )
           .settingsSearchTarget(.windowPreviews)
+        SettingsAdvancedButton(expanded: $advanced)
+        if advanced || request.reveals(.overviewScale, .overviewCornerRadius) {
+          SettingsNumberRow(
+            title: SettingsOption.overviewScale.title, value: model.config.overview.zoom * 100,
+            range: 0...75, step: 5, unit: "%",
+            onChange: { model.set(table: "overview", key: "zoom", value: String($0 / 100)) }
+          )
+            .settingsSearchTarget(.overviewScale)
+          SettingsNumberRow(
+            title: SettingsOption.overviewCornerRadius.title, value: model.config.overview.windowCornerRadius,
+            range: 0...64, step: 1, unit: "px",
+            onChange: { model.set(table: "overview", key: "window_corner_radius", value: String($0)) }
+          )
+            .settingsSearchTarget(.overviewCornerRadius)
+        }
       }
     }
-    .formStyle(.grouped)
+    .formStyle(.settingsCards)
+    .animation(.smooth(duration: 0.3), value: borders.enabled)
+    .animation(.smooth(duration: 0.3), value: borders.inactiveEnabled)
+    .animation(.smooth(duration: 0.3), value: model.config.animation.enabled)
+    .animation(.smooth(duration: 0.3), value: advanced)
     .modifier(SettingsRevealModifier(request: request))
   }
 
@@ -1052,7 +1445,7 @@ private struct WorkspaceSettingsView: View {
         .settingsReorderable()
       } header: {
         HStack {
-          Text("Named workspaces")
+          SettingsSectionTitle("Named workspaces", symbol: "tag", color: .indigo)
           Spacer()
           Button {
             newName = ""
@@ -1066,7 +1459,7 @@ private struct WorkspaceSettingsView: View {
         }
       }
       .settingsSearchTarget(.namedWorkspaces)
-      Section("Startup workspace") {
+      Section("Startup workspace", symbol: "power", color: .green) {
         Picker(
           SettingsOption.defaultWorkspace.title,
           selection: Binding(
@@ -1083,13 +1476,13 @@ private struct WorkspaceSettingsView: View {
         .settingsSearchTarget(.defaultWorkspace)
       }
       if model.displays.isEmpty {
-        Section("Displays") {
+        Section("Displays", symbol: "display", color: .cyan) {
           Text("No display identity is available. Display affinity remains unchanged.")
             .foregroundStyle(.secondary)
         }
       }
     }
-    .formStyle(.grouped)
+    .formStyle(.settingsCards)
     .modifier(SettingsRevealModifier(
       request: request,
       ready: SettingsSearchCatalog.contains(request.destination, config: model.config, shortcuts: [])
@@ -1363,16 +1756,11 @@ private struct AppRulesSettingsView: View {
   let request: SettingsRevealRequest
   @State private var editor: RuleSheet?
   @State private var search = ""
+  @State private var uninstalledToRemove: [String]?
+  @Environment(SettingsPageVisibility.self) private var visibility: SettingsPageVisibility?
 
   var body: some View {
     Form {
-      Section {
-        Text("Rules apply only to new windows when an app opens them. Saving a rule does not change existing windows. Matching rules combine in list order: the last workspace or display, window placement, opening focus, or initial width wins, while enabled behavior flags accumulate.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        Button(SettingsOption.addAppRule.title) { editor = RuleSheet(rule: nil, index: nil) }
-          .settingsSearchTarget(.addAppRule)
-      }
       Section {
         if model.config.rules.isEmpty {
           Text("No application rules are configured.")
@@ -1386,10 +1774,26 @@ private struct AppRulesSettingsView: View {
           appRuleRow(row.rule, index: index)
         }
         .settingsReorderable()
+        Button { editor = RuleSheet(rule: nil, index: nil) } label: {
+          SettingsAddLabel(title: SettingsOption.addAppRule.title, iconWidth: 28)
+        }
+          .buttonStyle(.settingsNavigation)
+          .settingsSearchTarget(.addAppRule)
       } header: {
         HStack {
-          Text("Application rules")
+          SettingsSectionTitle("Application rules", symbol: "app.badge", color: .orange,
+            info: "Rules apply only to new windows when an app opens them. Saving a rule does not change existing windows. Matching rules combine in list order: the last workspace or display, window placement, opening focus, or initial width wins, while enabled behavior flags accumulate.")
           Spacer()
+          let uninstalled = uninstalledRuleIndices(model.config.rules, isInstalled: applicationIsInstalled)
+          if !uninstalled.isEmpty {
+            Button { uninstalledToRemove = uninstalled.compactMap { model.config.rules[$0].appID } } label: {
+              Label("\(uninstalled.count) uninstalled", systemImage: "trash")
+                .font(.callout)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Remove the rules of apps that are no longer installed")
+          }
           TextField("Search rules", text: $search, prompt: Text("Search rules"))
             .labelsHidden()
             .textFieldStyle(.roundedBorder)
@@ -1399,11 +1803,30 @@ private struct AppRulesSettingsView: View {
       }
       .settingsSearchTarget(.appRules)
     }
-    .formStyle(.grouped)
+    .formStyle(.settingsCards)
+    .confirmationDialog(
+      uninstalledToRemove?.count == 1 ? "Remove the rule for an uninstalled app?" : "Remove rules for uninstalled apps?",
+      isPresented: Binding(get: { uninstalledToRemove != nil }, set: { if !$0 { uninstalledToRemove = nil } })
+    ) {
+      Button("Remove", role: .destructive) {
+        // The config can reload while the dialog is open: remove what is still uninstalled now, never stale indices.
+        if let shown = uninstalledToRemove {
+          model.removeRules(at: uninstalledRuleIndices(model.config.rules) { !shown.contains($0) || applicationIsInstalled($0) })
+        }
+        uninstalledToRemove = nil
+      }
+    } message: {
+      Text((uninstalledToRemove ?? []).joined(separator: ", "))
+    }
     .modifier(SettingsRevealModifier(request: request, prepare: { search = "" }))
     .modifier(SettingsReorderContainer(itemID: \SettingsRuleRow.id, move: model.reorderRules))
-    .onAppear { model.refreshApplications() }
-    .sheet(item: $editor) { sheet in
+    // The page is built hidden while the window idles; scan apps only once it shows.
+    .onChange(of: visibility?.visible ?? true, initial: true) { _, visible in
+      if visible { model.refreshApplications() }
+    }
+    .settingsSubpage(item: $editor, title: { sheet in
+      sheet.rule.map { model.ruleName($0, index: sheet.index ?? 0) } ?? "New Rule"
+    }) { sheet in
       SettingsRuleEditor(model: model, rule: sheet.rule, index: sheet.index)
     }
   }
@@ -1473,7 +1896,11 @@ private struct AppRulesSettingsView: View {
       application: rule.appID.flatMap { appID in
         model.applications.first(where: {
           $0.bundleIdentifier.caseInsensitiveCompare(appID) == .orderedSame
-        })
+        }) ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: appID).map {
+          // Apps outside the scanned folders, such as one inside Xcode, still have an icon.
+          SettingsApplicationOption(id: appID, bundleIdentifier: appID, name: $0.deletingPathExtension().lastPathComponent,
+            path: $0.path, openWindowCount: 0)
+        }
       },
       fallbackLabel: "Custom application rule"
     )
@@ -1538,7 +1965,7 @@ private struct SettingsRuleEditor: View {
   @State private var saveError: String?
   @State private var originalRuleCount: Int
   @State private var originalWasRemoved = false
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.closeSettingsSubpage) private var dismiss
 
   init(model: DefiSettingsModel, rule: Rule?, index: Int?) {
     self.model = model
@@ -1592,7 +2019,7 @@ private struct SettingsRuleEditor: View {
         }
         if customApplication {
           TextField(text: optionalStringBinding(\.appID), prompt: nil) {
-            RuleInfoLabel("Bundle identifier or suffix",
+            SettingsInfoLabel("Bundle identifier or suffix",
               "Matches the app’s bundle identifier, or its end, in any case. For example, “com.apple.Notes” or “Notes”.")
           }
         }
@@ -1600,16 +2027,16 @@ private struct SettingsRuleEditor: View {
       Section("Window conditions") {
         DisclosureGroup("Advanced conditions", isExpanded: $conditionsExpanded) {
           TextField(text: optionalStringBinding(\.title), prompt: nil) {
-            RuleInfoLabel("Title contains",
+            SettingsInfoLabel("Title contains",
               "Matches windows whose title contains this text, in any case. For example, “picture-in-picture” for a browser’s floating video.",
               note: "Match the app alone when you can: titles change with the system language and some appear late.")
           }
           TextField(text: optionalStringBinding(\.titleRegex), prompt: nil) {
-            RuleInfoLabel("Title matches pattern",
+            SettingsInfoLabel("Title matches pattern",
               "Matches windows whose title matches this regular expression, in any case. For example, “^note-[0-9]+$”.")
           }
           TextField(text: optionalStringBinding(\.role), prompt: nil) {
-            RuleInfoLabel("Accessibility role",
+            SettingsInfoLabel("Accessibility role",
               "Matches the window’s accessibility role exactly, such as “AXWindow”. Rarely needed.")
           }
         }
@@ -1625,7 +2052,7 @@ private struct SettingsRuleEditor: View {
           Text("Leave workspace unchanged").tag("")
           ForEach(model.config.workspaces.names, id: \.self) { Text($0).tag($0) }
         } label: {
-          RuleInfoLabel("Move to workspace", "Opens new matching windows on this named workspace.")
+          SettingsInfoLabel("Move to workspace", "Opens new matching windows on this named workspace.")
         }
         Picker(selection: Binding(
           get: { draft.monitor },
@@ -1637,7 +2064,7 @@ private struct SettingsRuleEditor: View {
           Text("Leave display unchanged").tag(String?.none)
           ForEach(displayOptions, id: \.self) { Text(ruleDisplayTitle($0)).tag(Optional($0)) }
         } label: {
-          RuleInfoLabel("Move to display",
+          SettingsInfoLabel("Move to display",
             "Opens new matching windows on this display’s active workspace.",
             note: "While the display is disconnected, windows open where they would without this rule.")
         }
@@ -1648,14 +2075,14 @@ private struct SettingsRuleEditor: View {
           Text("Focus the window").tag(Optional(true))
           Text("Keep current focus").tag(Optional(false))
         } label: {
-          RuleInfoLabel("When the window opens",
+          SettingsInfoLabel("When the window opens",
             "Default focuses a window opened from the app you are using. Keep current focus opens it in the background without scrolling.")
         }
         Picker(selection: $draft.window) {
           Text("Automatic").tag(RuleWindow?.none)
           ForEach(RuleWindow.allCases, id: \.self) { Text($0.settingsTitle).tag(Optional($0)) }
         } label: {
-          RuleInfoLabel("Window",
+          SettingsInfoLabel("Window",
             "Automatic suits most apps: app windows tile, while dialogs, progress, and fixed-size windows float.",
             note: "Force only for a window Defi gets wrong. Force tiled also tiles the app’s dialogs; add a title to target one window.")
         }
@@ -1665,7 +2092,7 @@ private struct SettingsRuleEditor: View {
           get: { draft.initialColumnWidth != nil },
           set: { draft.initialColumnWidth = $0 ? model.config.layout.defaultColumnWidth : nil }
         )) {
-          RuleInfoLabel("Set initial column width", "Opens the window’s column at this width instead of the default.")
+          SettingsInfoLabel("Set initial column width", "Opens the window’s column at this width instead of the default.")
         }
         if let width = draft.initialColumnWidth {
           SettingsNumberRow(
@@ -1681,18 +2108,19 @@ private struct SettingsRuleEditor: View {
           Text("Pin to the left").tag(Optional(ColumnPin.left))
           Text("Pin to the right").tag(Optional(ColumnPin.right))
         } label: {
-          RuleInfoLabel("Pin column",
+          SettingsInfoLabel("Pin column",
             "Keeps the window’s column at this edge of the screen, on every workspace, while the other columns scroll beside it.",
             note: "Applies only while the screen has no pinned column.")
         }
       }
     }
-    .formStyle(.grouped)
-    .frame(minWidth: 620, minHeight: 600)
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-      ToolbarItem(placement: .confirmationAction) {
-        Button("Save Rule") { save() }.disabled(!isValid || originalWasRemoved)
+    .formStyle(.settingsCards)
+    .safeAreaInset(edge: .bottom) {
+      SettingsSubpageActions {
+        Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+        Button("Save Rule") { save() }
+          .keyboardShortcut(.defaultAction)
+          .disabled(!isValid || originalWasRemoved)
       }
     }
     .sheet(isPresented: $applicationPickerPresented) {
@@ -1778,7 +2206,7 @@ private struct SettingsRuleEditor: View {
 
   private func settingsDraftToggle(_ title: String, _ info: String, value keyPath: WritableKeyPath<Rule, Bool>) -> some View {
     Toggle(isOn: Binding(get: { draft[keyPath: keyPath] }, set: { draft[keyPath: keyPath] = $0 })) {
-      RuleInfoLabel(title, info)
+      SettingsInfoLabel(title, info)
     }
   }
 
@@ -1878,7 +2306,7 @@ private struct ShortcutSheet: Identifiable {
 private struct SettingsShortcutEditor: View {
   @AppStorage(displayModDefaultsKey) private var displayMod = false
   let model: DefiSettingsModel
-  @Environment(\.dismiss) private var dismiss
+  @Environment(\.closeSettingsSubpage) private var dismiss
   @State private var sourceRow: SettingsShortcutRow?
   @State private var sourceWasRemoved = false
   @State private var accelerator: String
@@ -1914,19 +2342,18 @@ private struct SettingsShortcutEditor: View {
   var body: some View {
     Form {
       Section("Shortcut") {
-        SettingsShortcutRecorder(
+        SettingsShortcutField(
           label: accelerator.isEmpty
             ? "Record Shortcut…"
             : shortcutKeyLabel(accelerator, aliases: model.config.modifierAliases,
               displayMod: displayMod,
               resolved: model.shortcutResolution),
           command: sourceRow?.command ?? "New shortcut",
+          unset: accelerator.isEmpty,
           onRecord: { accelerator = $0 }
         )
-        .frame(width: 190, height: 30)
         Text("Use Control, Option, or Command with a supported key.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+          .settingsNote()
       }
       Section("Action") {
         Toggle("Custom command…", isOn: $usesCustomCommand)
@@ -1934,8 +2361,7 @@ private struct SettingsShortcutEditor: View {
           TextField("Command", text: $customCommand)
             .font(.body.monospaced())
           Text("Use any command documented in the configuration guide.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .settingsNote()
         } else {
           Picker("Action", selection: $action) {
             ForEach(SettingsShortcutActions.actions, id: \.self) { value in
@@ -1970,11 +2396,10 @@ private struct SettingsShortcutEditor: View {
         }
       }
     }
-    .formStyle(.grouped)
-    .frame(minWidth: 520, minHeight: 380)
-    .toolbar {
-      ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-      ToolbarItem(placement: .confirmationAction) {
+    .formStyle(.settingsCards)
+    .safeAreaInset(edge: .bottom) {
+      SettingsSubpageActions {
+        Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
         Button("Save") {
           model.dismissMessage()
           let command = usesCustomCommand
@@ -1983,6 +2408,7 @@ private struct SettingsShortcutEditor: View {
           model.saveShortcut(sourceRow, accelerator: accelerator, command: command)
           if model.message == nil { dismiss() }
         }
+        .keyboardShortcut(.defaultAction)
         .disabled(sourceWasRemoved || accelerator.isEmpty || (usesCustomCommand ? customCommand.isEmpty : !isArgumentValid))
       }
     }
@@ -2070,11 +2496,8 @@ private struct ModKeyRow: View {
 
   var body: some View {
     HStack {
-      VStack(alignment: .leading, spacing: 2) {
-        Text(SettingsOption.modKey.title)
-        Text("Every built-in shortcut and each mod- shortcut you write uses these modifiers.")
-          .font(.caption).foregroundStyle(.secondary)
-      }
+      SettingsInfoLabel(SettingsOption.modKey.title,
+        "Every built-in shortcut and each mod- shortcut you write uses these modifiers.")
       Spacer()
       HStack(spacing: 4) {
         ForEach(modifierOrder, id: \.name) { modifier in
@@ -2104,6 +2527,7 @@ private struct SettingsNumberRow: View {
   let range: ClosedRange<Double>
   let step: Double
   let unit: String
+  var info: String?
   let onChange: (Double) -> Void
 
   private var valueBinding: Binding<Double> {
@@ -2112,7 +2536,7 @@ private struct SettingsNumberRow: View {
 
   var body: some View {
     HStack(spacing: 8) {
-      Text(title)
+      if let info { SettingsInfoLabel(title, info) } else { Text(title) }
       Spacer()
       TextField(title, value: valueBinding, format: .number.precision(.fractionLength(0...2)))
         .labelsHidden()
@@ -2144,6 +2568,7 @@ private func settingsToggle(
 @MainActor
 private struct ScrollGestureSettings: View {
   let model: DefiSettingsModel
+  let request: SettingsRevealRequest
 
   var body: some View {
     let input = model.config.input
@@ -2161,9 +2586,17 @@ private struct ScrollGestureSettings: View {
         .disabled(activationBlocked)
       if activationBlocked {
         Text("The Overview uses this gesture. Choose a different number of fingers to enable scrolling.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+          .settingsNote()
       }
+      if input.scrollGestures || activationBlocked || request.reveals(.scrollGestureFingers, .scrollGestureModifier) {
+        details(input: input, fingers: fingers, modifier: modifier, system: system, overviewFingers: overviewFingers)
+      }
+    }
+  }
+
+  @ViewBuilder private func details(
+    input: InputConfig, fingers: Int, modifier: String, system: (horizontal: Bool, vertical: Bool), overviewFingers: Int?
+  ) -> some View {
       GestureFingersMenu(
         title: SettingsOption.scrollGestureFingers.title,
         choices: [(2, "Two"), (3, "Three"), (4, "Four")],
@@ -2171,7 +2604,7 @@ private struct ScrollGestureSettings: View {
         select: model.setScrollGestureFingers
       )
         .settingsSearchTarget(.scrollGestureFingers)
-      Toggle(SettingsOption.scrollGestureModifier.title, isOn: Binding(
+      Toggle(isOn: Binding(
         get: { modifier != "none" },
         set: { held in
           if held {
@@ -2180,12 +2613,11 @@ private struct ScrollGestureSettings: View {
             model.set(table: "input", key: "scroll_gesture_modifier", value: tomlString("none"))
           }
         }
-      ))
+      )) {
+        SettingsInfoLabel(SettingsOption.scrollGestureModifier.title, caption(fingers: fingers, modifier: modifier, system: system))
+      }
         .settingsSearchTarget(.scrollGestureModifier)
         .disabled(!input.scrollGestures || fingers == 2)
-      Text(caption(fingers: fingers, modifier: modifier, system: system))
-        .font(.caption)
-        .foregroundStyle(.secondary)
       if let conflict = conflict(fingers: fingers, system: system) {
         HStack(alignment: .firstTextBaseline) {
           Label(conflict, systemImage: "exclamationmark.triangle")
@@ -2194,7 +2626,6 @@ private struct ScrollGestureSettings: View {
           MoreGesturesButton()
         }
       }
-    }
   }
 
   private func caption(fingers: Int, modifier: String, system: (horizontal: Bool, vertical: Bool)) -> String {
@@ -2278,7 +2709,9 @@ private struct OverviewGestureSettings: View {
       select: { model.setOverviewGestureFingers($0 == 0 ? nil : $0) }
     )
       .settingsSearchTarget(.overviewGesture)
-    if input.overviewGesture { caption(input) }
+    if input.overviewGesture, input.overviewSwipesMoveStrip || systemTrackpadSwipes(fingers: input.overviewGestureFingers).vertical {
+      caption(input)
+    }
   }
 
   @ViewBuilder
@@ -2296,10 +2729,6 @@ private struct OverviewGestureSettings: View {
         Spacer()
         MoreGesturesButton()
       }
-    } else {
-      Text("\(count) fingers up open the Overview, down close it.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
     }
   }
 }
@@ -2416,7 +2845,31 @@ private struct SettingsReorderContainer<Item, ID: Hashable & Sendable>: ViewModi
   }
 }
 
-private struct RuleInfoLabel: View {
+/// Shows fine-tuning a card keeps folded by default. One preference for every card, so opening it once
+/// keeps it open everywhere.
+let settingsShowAdvancedKey = "DefiSettingsShowAdvanced"
+
+struct SettingsAdvancedButton: View {
+  @Binding var expanded: Bool
+
+  var body: some View {
+    Button { expanded.toggle() } label: {
+      HStack {
+        Text("Advanced").foregroundStyle(.secondary)
+        Spacer()
+        Image(systemName: "chevron.forward")
+          .font(.footnote.weight(.semibold))
+          .foregroundStyle(.tertiary)
+          .rotationEffect(.degrees(expanded ? 90 : 0))
+      }
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(expanded ? "Hide advanced settings" : "Show advanced settings")
+  }
+}
+
+struct SettingsInfoLabel: View {
   let title: String
   let text: String
   let note: String?
@@ -2430,11 +2883,11 @@ private struct RuleInfoLabel: View {
 
   var body: some View {
     HStack(spacing: 4) {
-      Text(title)
+      if !title.isEmpty { Text(title) }
       Button { isPresented = true } label: { Image(systemName: "info.circle") }
         .buttonStyle(.borderless)
         .foregroundStyle(.secondary)
-        .accessibilityLabel("About \(title)")
+        .accessibilityLabel(title.isEmpty ? "More information" : "About \(title)")
         .popover(isPresented: $isPresented, arrowEdge: .trailing) {
           VStack(alignment: .leading, spacing: 8) {
             Text(text)
@@ -2469,7 +2922,7 @@ private struct AutomaticUpdatesToggle: View {
 }
 
 @MainActor
-private struct TriageRow: View {
+private struct TriageButton: View {
   @State private var failure: String?
 
   private var cliURL: URL? {
@@ -2478,11 +2931,8 @@ private struct TriageRow: View {
 
   var body: some View {
     if let cliURL, FileManager.default.isExecutableFile(atPath: cliURL.path) {
-      HStack(spacing: 12) {
-        Text(failure ?? "Let your own coding agent investigate a problem in Terminal and draft an issue. It asks before it fixes or posts anything.")
-          .foregroundStyle(.secondary)
-        Spacer(minLength: 12)
-        Button("Start Triage") {
+      HStack(spacing: 6) {
+        Button {
           do {
             let launcher = try writeTriageLauncher(
               cli: cliURL, directory: FileManager.default.temporaryDirectory)
@@ -2495,9 +2945,52 @@ private struct TriageRow: View {
           } catch {
             failure = "Could not start triage: \(error.localizedDescription)"
           }
+        } label: {
+          Label("Start Triage", systemImage: "sparkle.magnifyingglass")
+        }
+        SettingsInfoLabel("", failure ?? "Your own coding agent investigates a problem in Terminal and drafts an issue. It asks before it fixes or posts anything.")
+        if let failure {
+          Text(failure).font(.caption).foregroundStyle(.red).lineLimit(2)
         }
       }
     }
+  }
+}
+
+/// One permission at a glance: what it is for, and a check or a way to grant it.
+private struct PermissionTile: View {
+  let title: String
+  let symbol: String
+  let purpose: String
+  let granted: Bool
+  let grant: () -> Void
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: symbol)
+        .font(.title2)
+        .foregroundStyle(granted ? Color.green : .orange)
+        .frame(width: 30)
+      VStack(alignment: .leading, spacing: 1) {
+        Text(title).fontWeight(.medium)
+        Text(purpose).font(.caption).foregroundStyle(.secondary)
+      }
+      Spacer(minLength: 6)
+      if granted {
+        Image(systemName: "checkmark.circle.fill")
+          .font(.title3)
+          .foregroundStyle(.green)
+          .accessibilityLabel("Granted")
+      } else {
+        Button("Grant…", action: grant)
+          .buttonStyle(.borderedProminent)
+          .controlSize(.small)
+      }
+    }
+    .padding(10)
+    .frame(maxWidth: .infinity)
+    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    .accessibilityElement(children: .combine)
   }
 }
 

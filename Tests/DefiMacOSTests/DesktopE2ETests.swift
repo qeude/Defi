@@ -933,8 +933,8 @@ final class DesktopE2ETests: XCTestCase {
     }
     func targetIsVisible() -> Bool {
       guard let target = reservedTopField(), !target.isHiddenOrHasHiddenAncestor,
-        !target.visibleRect.isEmpty, let scroll = target.enclosingScrollView else { return false }
-      return !target.convert(target.visibleRect, to: scroll.contentView).intersection(scroll.contentView.bounds).isEmpty
+        let scroll = target.enclosingScrollView else { return false }
+      return !target.convert(target.bounds, to: nil).intersection(scroll.convert(scroll.bounds, to: nil)).isEmpty
     }
     XCTAssertTrue(pumpApplicationEvents(until: { window.isKeyWindow && descendants().contains { $0 is NSTableView } }, timeout: 2))
     let sidebar = try XCTUnwrap(descendants().compactMap { $0 as? NSTableView }.first)
@@ -953,11 +953,13 @@ final class DesktopE2ETests: XCTestCase {
     editor.insertText("RESERVED_TOP", replacementRange: NSRange(location: 0, length: 0))
     XCTAssertTrue(pumpRunLoop(until: { sidebar.numberOfRows == 1 }, timeout: 2))
     NSApplication.shared.sendEvent(down)
-    XCTAssertTrue(pumpRunLoop(until: targetIsVisible, timeout: 2), "Selecting RESERVED_TOP must reveal its control in the viewport")
+    // SwiftUI scrolls a ScrollView from the application's event loop, not from a bare run loop.
+    XCTAssertTrue(pumpApplicationEvents(until: targetIsVisible, timeout: 2),
+      "Selecting RESERVED_TOP must reveal its control in the viewport")
     let scroll = try XCTUnwrap(reservedTopField()?.enclosingScrollView)
     try XCTUnwrap(scroll.documentView).scroll(.zero)
     scroll.reflectScrolledClipView(scroll.contentView)
-    XCTAssertTrue(pumpRunLoop(until: { !targetIsVisible() }, timeout: 2),
+    XCTAssertTrue(pumpApplicationEvents(until: { !targetIsVisible() }, timeout: 2),
       "Scrolling to the top must move the reserved-area control out of the viewport")
     XCTAssertEqual(sidebar.selectedRow, 0)
     let row = sidebar.rect(ofRow: 0)
@@ -967,7 +969,7 @@ final class DesktopE2ETests: XCTestCase {
         with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
         windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
     }
-    XCTAssertTrue(pumpRunLoop(until: targetIsVisible, timeout: 2),
+    XCTAssertTrue(pumpApplicationEvents(until: targetIsVisible, timeout: 2),
       "Clicking the already-selected result must reveal the reserved-area control again")
     XCTAssertEqual(sidebar.selectedRow, 0)
   }

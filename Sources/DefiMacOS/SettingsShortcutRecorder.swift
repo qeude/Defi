@@ -35,18 +35,170 @@ func recordedAccelerator(
   return nil
 }
 
+/// A shortcut pill that morphs into a tinted "Type keys…" capsule while it records, then settles on the
+/// new keys. The AppKit recorder that captures the keys sits invisibly over it only while needed: the
+/// Keyboard page lists one per action, and an AppKit view in every row made the page slow to open.
+struct SettingsShortcutField: View {
+  let label: String
+  let command: String
+  /// Keeps the recorder itself in place, for the action a search just revealed.
+  var live = false
+  /// The action has no shortcut yet; a quiet outline invites one instead of a full pill.
+  var unset = false
+  let onRecord: (String) -> Void
+  @State private var recording = false
+  /// Keys were pressed and saved; the capsule stays lit until the new label arrives, then folds onto it.
+  @State private var saving = false
+  /// The face the content currently shows; trails `face` by the fade-out, so old and new never overlap.
+  @State private var shown: Face?
+  @State private var contentVisible = true
+
+  private static let morph = Animation.spring(duration: 0.5, bounce: 0.3)
+
+  private enum Face: Hashable {
+    case label(String), unset, recording, saved
+  }
+
+  private var face: Face { saving ? .saved : recording ? .recording : unset ? .unset : .label(label) }
+  private var lit: Bool { recording || saving }
+
+  var body: some View {
+    Button { withAnimation(Self.morph) { recording = true } } label: { pill }
+      .buttonStyle(.plain)
+      .overlay {
+        if live || recording {
+          SettingsShortcutRecorder(
+            label: label, command: command, startsRecording: recording, transparent: true,
+            onRecord: { accelerator in
+              withAnimation(Self.morph) { saving = true }
+              onRecord(accelerator)
+              // The label may not change, such as for the same keys; never stay lit.
+              Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.9))
+                if saving { withAnimation(Self.morph) { saving = false } }
+              }
+            },
+            onStart: { Task { @MainActor in if !recording { withAnimation(Self.morph) { recording = true } } } },
+            onStop: { Task { @MainActor in withAnimation(Self.morph) { recording = false } } })
+        }
+      }
+      .frame(maxWidth: .infinity, alignment: .trailing)
+      .onChange(of: label) {
+        if saving {
+          Task { @MainActor in
+            // Let "Saved" read for a moment before the capsule folds onto the new keys.
+            try? await Task.sleep(for: .seconds(0.45))
+            if saving { withAnimation(Self.morph) { saving = false } }
+          }
+        }
+      }
+      .animation(Self.morph, value: label)
+      .accessibilityLabel("Record shortcut for \(command)")
+      .accessibilityValue(recording ? "Recording" : label)
+  }
+
+  /// An invisible copy of the target content sizes the capsule, so its width springs to the new face at
+  /// once, while the content it shows fades out and only then blooms in as the new face: the two never
+  /// overlap.
+  private var pill: some View {
+    content(face)
+      .hidden()
+      .padding(.horizontal, lit ? 12 : 10)
+      .padding(.vertical, 4)
+      .overlay {
+        content(shown ?? face)
+          .fixedSize()
+          .opacity(contentVisible ? 1 : 0)
+          .blur(radius: contentVisible ? 0 : 3)
+          .scaleEffect(contentVisible ? 1 : 0.85)
+      }
+      .background { ShortcutCapsule(lit: lit, unset: unset && !lit) }
+      .clipShape(Capsule())
+      .scaleEffect(lit ? 1.05 : 1)
+      .contentShape(Capsule())
+      .onChange(of: face) { old, _ in
+        if shown == nil { shown = old }
+        withAnimation(.easeOut(duration: 0.1)) {
+          contentVisible = false
+        } completion: {
+          shown = face
+          withAnimation(.spring(duration: 0.3, bounce: 0.2)) { contentVisible = true }
+        }
+      }
+  }
+
+  private func content(_ face: Face) -> some View {
+    HStack(spacing: 5) {
+      switch face {
+      case .recording:
+        Image(systemName: "keyboard").symbolEffect(.pulse, options: .repeating)
+        Text("Type keys…")
+      case .saved:
+        Image(systemName: "checkmark")
+        Text("Saved")
+      case .unset:
+        Text("Add")
+      case .label(let label):
+        Text(label).font(.system(size: NSFont.systemFontSize, weight: .medium, design: .monospaced))
+      }
+    }
+    .font(.callout.weight(face == .recording || face == .saved ? .semibold : .regular))
+    .lineLimit(1)
+    .foregroundStyle(face == .recording || face == .saved ? AnyShapeStyle(.white)
+      : face == .unset ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+  }
+}
+
+/// One capsule for every state, so recording morphs its fill and outline instead of swapping views:
+/// an accent fill with a glassy sheen while lit, a quiet fill for a shortcut, a dashed outline when there
+/// is none. Plain fills keep a page with a pill per action cheap to scroll.
+private struct ShortcutCapsule: View {
+  let lit: Bool
+  let unset: Bool
+
+  var body: some View {
+    Capsule()
+      .fill(lit ? Color.accentColor : unset ? Color.accentColor.opacity(0) : Color.primary.opacity(0.1))
+      .overlay {
+        if lit {
+          Capsule().fill(LinearGradient(colors: [.white.opacity(0.28), .white.opacity(0)],
+            startPoint: .top, endPoint: .center))
+            .transition(.opacity)
+        }
+      }
+      .overlay {
+        if unset {
+          Capsule().strokeBorder(Color.secondary.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
+            .transition(.opacity)
+        }
+      }
+  }
+}
+
 struct SettingsShortcutRecorder: NSViewRepresentable {
   let label: String
   let command: String
+  var startsRecording = false
+  /// Draws nothing, for a SwiftUI pill that shows the state itself.
+  var transparent = false
   let onRecord: (String) -> Void
+  var onStart: (() -> Void)?
+  var onStop: (() -> Void)?
 
   func makeNSView(context: Context) -> ShortcutRecorderButton {
-    ShortcutRecorderButton()
+    let button = ShortcutRecorderButton()
+    button.drawsNothing = transparent
+    if startsRecording {
+      DispatchQueue.main.async { button.beginRecording() }
+    }
+    return button
   }
 
   func updateNSView(_ button: ShortcutRecorderButton, context: Context) {
     button.shortcutLabel = label
     button.onRecord = onRecord
+    button.onStart = onStart
+    button.onStop = onStop
     button.setAccessibilityLabel("Record shortcut for \(command)")
     button.refreshTitle()
   }
@@ -63,7 +215,16 @@ final class ShortcutRecorderButton: NSButton {
   private var keyMonitor: Any?
   var shortcutLabel = ""
   var onRecord: ((String) -> Void)?
+  var onStart: (() -> Void)?
+  var onStop: (() -> Void)?
   private(set) var isRecording = false
+  /// Draws nothing; a SwiftUI view underneath shows the shortcut and the recording state.
+  var drawsNothing = false {
+    didSet {
+      isBordered = !drawsNothing
+      refreshTitle()
+    }
+  }
 
   init() {
     super.init(frame: .zero)
@@ -96,6 +257,10 @@ final class ShortcutRecorderButton: NSButton {
     }
   }
 
+  func beginRecording() {
+    if !isRecording { startRecording() }
+  }
+
   @objc private func startRecording() {
     guard window?.makeFirstResponder(self) == true else { return }
     if isRecording {
@@ -121,6 +286,7 @@ final class ShortcutRecorderButton: NSButton {
       return nil
     }
     refreshTitle()
+    onStart?()
   }
 
   @objc func stopRecording() {
@@ -133,11 +299,13 @@ final class ShortcutRecorderButton: NSButton {
       self.keyMonitor = nil
     }
     refreshTitle()
+    onStop?()
   }
 
   func refreshTitle() {
-    title = isRecording ? "Press shortcut…" : shortcutLabel
-    setAccessibilityValue(title)
+    let text = isRecording ? "Press shortcut…" : shortcutLabel
+    title = drawsNothing ? "" : text
+    setAccessibilityValue(text)
   }
 
   override func resignFirstResponder() -> Bool {
@@ -172,8 +340,8 @@ final class ShortcutRecorderButton: NSButton {
         keyCode: keyCode, modifiers: modifiers, layout: currentKeyboardLayout()
       )
     else {
-      title = "Use ⌃, ⌥ or ⌘ + key"
-      setAccessibilityValue(title)
+      setAccessibilityValue("Use ⌃, ⌥ or ⌘ + key")
+      if !drawsNothing { title = "Use ⌃, ⌥ or ⌘ + key" }
       NSSound.beep()
       return
     }

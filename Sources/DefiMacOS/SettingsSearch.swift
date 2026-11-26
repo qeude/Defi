@@ -4,7 +4,8 @@ import Foundation
 enum SettingsPage: String, CaseIterable, Identifiable, Sendable {
   case general = "General"
   case layout = "Layout"
-  case input = "Input"
+  case keyboard = "Keyboard"
+  case input = "Mouse & Trackpad"
   case appearance = "Appearance"
   case menuBar = "Menu Bar"
   case workspaces = "Workspaces"
@@ -85,7 +86,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .menuBarIndicator: (.menuBar, "Workspace indicator", "menu_bar.indicator dots pills boxes circles rectangles spaces")
     case .menuBarInactiveStyle: (.menuBar, "Inactive workspaces", "menu_bar.inactive_style filled outlined dimmed bordered")
     case .menuBarEqualWidth: (.menuBar, "Equal workspace widths", "menu_bar.equal_width same width")
-    case .menuBarDisplays: (.menuBar, "Show", "menu_bar.show all displays focused display monitors active workspace only")
+    case .menuBarDisplays: (.menuBar, "Displays", "menu_bar.show all displays focused display monitors active workspace only")
     case .menuBarColumns: (.menuBar, "Show the columns of the active workspace", "menu_bar.columns minimap overview strip windows map")
     case .menuBarColumnsWidth: (.menuBar, "Columns width", "menu_bar.columns_width minimap size maximum")
     case .configurationFile: (.general, "Open Configuration File…", "configuration file config toml path")
@@ -112,7 +113,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .animationDamping: (.appearance, "Damping ratio", "animation.damping_ratio spring overshoot bounce")
     case .reservedTop: (.layout, "Reserved top area", "layout.reserved_top")
     case .reservedBottom: (.layout, "Reserved bottom area", "layout.reserved_bottom")
-    case .modSymbol: (.input, "Show mod as ✧", "mod hyper symbol shortcut display")
+    case .modSymbol: (.keyboard, "Show mod as ✧", "mod hyper symbol shortcut display")
     case .focusFollowsPointer: (.input, "Focus follows pointer", "input.focus_follows_mouse mouse")
     case .pointerFollowsFocus: (.input, "Move pointer to keyboard focus", "input.mouse_follows_focus mouse")
     case .pointerFocusScroll: (.input, "Maximum pointer-focus scroll", "input.focus_follows_mouse_max_scroll_amount mouse")
@@ -123,10 +124,10 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .scrollGestureSnap: (.input, "Snap to columns", "input.scroll_gesture_snap trackpad swipe free position center")
     case .scrollGestureSpeed: (.input, "Swipe speed", "input.scroll_gesture_speed trackpad swipe gesture faster slower")
     case .overviewGesture: (.input, "Overview swipe", "input.overview_gesture input.overview_gesture_fingers trackpad swipe gesture three four fingers mission control")
-    case .modKey: (.input, "Mod key", "mod modifier keyboard hyper prefix")
-    case .customShortcut: (.input, "Add Custom Shortcut…", "custom command keybinding keyboard binding")
-    case .cheatsheet: (.input, "Show cheatsheet when holding the main modifier", "show_cheatsheet_on_modifier_hold shortcut guide cheatsheet")
-    case .keyboardShortcuts: (.input, "Keyboard shortcuts", "keys keybinding bindings record reset actions")
+    case .modKey: (.keyboard, "Mod key", "mod modifier keyboard hyper prefix")
+    case .customShortcut: (.keyboard, "Add Custom Shortcut", "custom command keybinding keyboard binding")
+    case .cheatsheet: (.keyboard, "Show cheatsheet when holding the main modifier", "show_cheatsheet_on_modifier_hold shortcut guide cheatsheet")
+    case .keyboardShortcuts: (.keyboard, "Keyboard shortcuts", "keys keybinding bindings record reset actions")
     case .focusedBorder: (.appearance, "Show focused window border", "decorations.borders.enabled")
     case .borderWidth: (.appearance, "Border width", "decorations.borders.width")
     case .focusedBorderColor: (.appearance, "Focused border color", "decorations.borders.color")
@@ -140,7 +141,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .windowPreviews: (.appearance, "Show optional window previews", "overview.window_previews screen recording")
     case .namedWorkspaces: (.workspaces, "Named workspaces", "workspaces.names workspace name rename reorder add delete")
     case .defaultWorkspace: (.workspaces, "Default workspace", "workspaces.default startup workspace")
-    case .addAppRule: (.appRules, "Add App Rule…", "rules application rule add")
+    case .addAppRule: (.appRules, "Add App Rule", "rules application rule add")
     case .appRules: (.appRules, "Application rules", "rules app rules add edit reorder remove")
     }
   }
@@ -188,7 +189,7 @@ enum SettingsDestination: Hashable {
     switch self {
     case .page(let page): page
     case .option(let option): option.page
-    case .shortcut: .input
+    case .shortcut: .keyboard
     case .workspace: .workspaces
     }
   }
@@ -318,6 +319,13 @@ enum SettingsShortcutFilter: Equatable {
     switch self {
     case .query(let query): SettingsSearchCatalog.matches(query, in: command)
     case .command(let target): command == target
+    }
+  }
+  /// A query or a revealed command narrows the list; otherwise it shows grouped by category.
+  var isActive: Bool {
+    switch self {
+    case .query(let query): !query.trimmingCharacters(in: .whitespaces).isEmpty
+    case .command: true
     }
   }
 }

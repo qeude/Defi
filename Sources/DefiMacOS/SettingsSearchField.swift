@@ -3,14 +3,20 @@ import SwiftUI
 
 struct SettingsSearchField: NSViewRepresentable {
   @Binding var text: String
+  var prompt = "Search settings"
+  var large = false
   var moveToResults: (() -> Void)?
 
   func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
   func makeNSView(context: Context) -> NSSearchField {
     let field = Field()
-    field.placeholderString = "Search settings"
-    field.setAccessibilityLabel("Search settings")
+    field.placeholderString = prompt
+    field.setAccessibilityLabel(prompt)
+    if large {
+      field.controlSize = .large
+      field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .large))
+    }
     field.sendsSearchStringImmediately = true
     field.delegate = context.coordinator
     field.target = context.coordinator

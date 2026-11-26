@@ -11,7 +11,7 @@ struct AboutSettingsView: View {
         AboutSettingsHeader()
           .id(SettingsSearchAnchor.option(.about))
       }
-      Section("Links") {
+      Section("Links", symbol: "link", color: .blue) {
         AboutSettingsLink(
           title: "Website", symbol: "globe", detail: "qeude.github.io/Defi",
           url: "https://qeude.github.io/Defi/")
@@ -53,7 +53,7 @@ struct AboutSettingsView: View {
         .padding(.vertical, 4)
       }
     }
-    .formStyle(.grouped)
+    .formStyle(.settingsCards)
     .modifier(SettingsRevealModifier(request: request))
   }
 }
