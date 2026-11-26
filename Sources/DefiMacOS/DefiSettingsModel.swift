@@ -82,7 +82,11 @@ public final class DefiSettingsModel {
   private(set) var keyboardLayout: KeyboardLayout? {
     didSet { refreshShortcutResolution() }
   }
-  private(set) var shortcutResolution = ShortcutResolution(config: Config(), layout: nil)
+  private(set) var shortcutResolution = ShortcutResolution(config: Config(), layout: nil) {
+    didSet { shortcutResolutionVersion += 1 }
+  }
+  /// Bumped with each resolution, which is not Equatable, so caches can tell it changed.
+  private(set) var shortcutResolutionVersion = 0
   public private(set) var ruleRows: [SettingsRuleRow] = []
   /// Cached: every shortcut row in Settings reads it on each render.
   public private(set) var shortcutRows: [SettingsShortcutRow] = []
@@ -1104,11 +1108,15 @@ public enum ScreenEdge: CaseIterable, Sendable {
 
 /// Rules naming an app by its exact bundle identifier that `isInstalled` does not find. A suffix or a
 /// rule without an app never counts: nothing says which app it means.
-func uninstalledRuleIndices(_ rules: [Rule], isInstalled: (String) -> Bool) -> [Int] {
-  rules.indices.filter { index in
+/// A rule also matches by suffix either way, as `Rule.matches` does, so one found that way in `known`
+/// is installed too.
+func uninstalledRuleIndices(_ rules: [Rule], known: [String] = [], isInstalled: (String) -> Bool) -> [Int] {
+  let known = known.map { $0.lowercased() }
+  return rules.indices.filter { index in
     guard let appID = rules[index].appID, appID.contains("."), !appID.hasPrefix("."), !appID.hasSuffix(".")
     else { return false }
-    return !isInstalled(appID)
+    let candidate = appID.lowercased()
+    return !known.contains { $0.hasSuffix(candidate) || candidate.hasSuffix($0) } && !isInstalled(appID)
   }
 }
 

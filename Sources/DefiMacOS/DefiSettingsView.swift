@@ -1042,7 +1042,8 @@ private struct KeyboardSettingsView: View {
       SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows).contains(command)
     {
       search.set(.command(command))
-    } else if case .command = search.filter {
+    } else if search.filter.isActive {
+      // Any shortcut filter hides the full list that holds the target.
       search.set(.query(""))
     }
   }
@@ -1231,15 +1232,16 @@ private struct SettingsIsolatedHost<Content: View>: NSViewRepresentable {
 /// Keeps the slots between keystrokes of a search: labels are parsed once per change of the shortcuts.
 @MainActor
 private final class SettingsShortcutSlotsCache {
-  private var key: (config: Config, rows: [SettingsShortcutRow], displayMod: Bool)?
+  private var key: (config: Config, rows: [SettingsShortcutRow], resolution: Int, displayMod: Bool)?
   private var slots: SettingsShortcutSlots?
 
   func slots(model: DefiSettingsModel, displayMod: Bool) -> SettingsShortcutSlots {
-    if let key, let slots, key.config == model.config, key.rows == model.shortcutRows, key.displayMod == displayMod {
+    if let key, let slots, key.config == model.config, key.rows == model.shortcutRows,
+      key.resolution == model.shortcutResolutionVersion, key.displayMod == displayMod {
       return slots
     }
     let slots = SettingsShortcutSlots(model: model, displayMod: displayMod)
-    key = (model.config, model.shortcutRows, displayMod)
+    key = (model.config, model.shortcutRows, model.shortcutResolutionVersion, displayMod)
     self.slots = slots
     return slots
   }
@@ -1784,7 +1786,8 @@ private struct AppRulesSettingsView: View {
           SettingsSectionTitle("Application rules", symbol: "app.badge", color: .orange,
             info: "Rules apply only to new windows when an app opens them. Saving a rule does not change existing windows. Matching rules combine in list order: the last workspace or display, window placement, opening focus, or initial width wins, while enabled behavior flags accumulate.")
           Spacer()
-          let uninstalled = uninstalledRuleIndices(model.config.rules, isInstalled: applicationIsInstalled)
+          let uninstalled = uninstalledRuleIndices(model.config.rules, known: model.applications.map(\.bundleIdentifier),
+            isInstalled: applicationIsInstalled)
           if !uninstalled.isEmpty {
             Button { uninstalledToRemove = uninstalled.compactMap { model.config.rules[$0].appID } } label: {
               Label("\(uninstalled.count) uninstalled", systemImage: "trash")
@@ -1811,7 +1814,9 @@ private struct AppRulesSettingsView: View {
       Button("Remove", role: .destructive) {
         // The config can reload while the dialog is open: remove what is still uninstalled now, never stale indices.
         if let shown = uninstalledToRemove {
-          model.removeRules(at: uninstalledRuleIndices(model.config.rules) { !shown.contains($0) || applicationIsInstalled($0) })
+          model.removeRules(at: uninstalledRuleIndices(model.config.rules, known: model.applications.map(\.bundleIdentifier)) {
+            !shown.contains($0) || applicationIsInstalled($0)
+          })
         }
         uninstalledToRemove = nil
       }

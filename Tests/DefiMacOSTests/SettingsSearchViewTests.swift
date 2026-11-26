@@ -118,6 +118,13 @@ final class SettingsSearchViewTests: XCTestCase {
     }
     XCTAssertEqual(search.stringValue, "cen")
     XCTAssertNotNil(search.currentEditor(), "The results appearing must not take focus from the search field")
+
+    let settings = try XCTUnwrap(descendants(window).compactMap { $0 as? NSSearchField }.first { $0.placeholderString == "Search settings" })
+    XCTAssertTrue(window.makeFirstResponder(settings))
+    try XCTUnwrap(settings.currentEditor() as? NSTextView).insertText("holding the main modifier", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(converge { sidebar.numberOfRows == 1 })
+    window.sendEvent(try arrowDown(window))
+    XCTAssertTrue(converge { search.stringValue.isEmpty }, "Revealing a Keyboard option must clear the shortcut search that hides it")
   }
 
   func testKeyboardShortcutsResultScrollsTheShortcutListBackToItsSection() throws {
