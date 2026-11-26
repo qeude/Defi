@@ -1193,7 +1193,7 @@ final class DesktopE2ETests: XCTestCase {
     }
     let view = try XCTUnwrap(NSApp.windows.compactMap { $0.contentView.flatMap(findView) }.first)
     func minY() -> CGFloat? {
-      (view.accessibilityChildren() as? [NSAccessibilityElement])?
+      view.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement }
         .first { $0.accessibilityLabel() == "Swiped window 1" }?.accessibilityFrame().minY
     }
     let faded = await waitUntil(timeout: 1) { view.window?.alphaValue == 1 }
@@ -1201,7 +1201,7 @@ final class DesktopE2ETests: XCTestCase {
     let before = try XCTUnwrap(minY())
     // One workspace of travel upward: the workspace below comes into view.
     controller.handleSwipe(.scrolled(dx: 0, dy: -scrollPanWorkspaceTravel))
-    let stride = overviewWorkspaceStride(boundsHeight: view.bounds.height, zoom: 0.5)
+    let stride = overviewWorkspaceStride(boundsHeight: view.projectionBounds.height, zoom: 0.5)
     let moved = await waitUntil(timeout: 1) { minY().map { abs($0 - before - stride) <= 1 } == true }
     XCTAssertTrue(moved, "A workspace of travel must scroll one workspace, from \(before) by \(stride), now \(String(describing: minY()))")
   }
@@ -1234,7 +1234,7 @@ final class DesktopE2ETests: XCTestCase {
     }
     let input = try XCTUnwrap(NSApp.windows.compactMap { $0.contentView.flatMap(findView) }.first)
     func minY() -> CGFloat? {
-      (input.accessibilityChildren() as? [NSAccessibilityElement])?
+      input.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement }
         .first { $0.accessibilityLabel() == "Vertical window 2" }?.accessibilityFrame().minY
     }
     func moved(from origin: CGFloat) -> Bool { minY().map { abs($0 - origin) > 1 } == true }
@@ -1271,8 +1271,9 @@ final class DesktopE2ETests: XCTestCase {
     let started = await waitUntil(timeout: 0.2) { moved(from: before) }
     XCTAssertTrue(started)
     controller.update(snapshot: snapshot(1), layout: LayoutSettings())
+    let bounds = input.projectionBounds
     let target = projectOverview(snapshot: snapshot(1), monitorID: monitorID,
-      bounds: Rect(x: 0, y: 0, width: input.bounds.width, height: input.bounds.height),
+      bounds: Rect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bounds.height),
       viewport: OverviewViewport(), layout: LayoutSettings(), zoom: 0.5)
     let card = try XCTUnwrap(target.workspaces.flatMap(\.windows).first { $0.windowID == windows[2].id }).frame
     let expected = try XCTUnwrap(input.window).convertToScreen(input.convert(
@@ -1284,15 +1285,16 @@ final class DesktopE2ETests: XCTestCase {
       ((input.accessibilityChildren() ?? []).compactMap { $0 as? NSAccessibilityElement })
         .filter { $0.accessibilityRole() == .button }
     }
-    func field() -> NSView? {
-      (input.accessibilityChildren() ?? []).compactMap { $0 as? OverviewFilterField }.first
+    func query(_ view: NSView) -> String? {
+      (view.accessibilityChildren() ?? []).compactMap { $0 as? OverviewFilterField }.first?.accessibilityValue() as? String
     }
+    XCTAssertEqual(query(input), "", "The filter field must invite typing before the first key")
+    let field = try XCTUnwrap((input.accessibilityChildren() ?? []).compactMap { $0 as? OverviewFilterField }.first)
+    XCTAssertLessThanOrEqual(field.frame.maxY, input.projectionBounds.minY, "The field must sit in the band above the cards")
     controller.handleKey(.filter(.text("window")))
     controller.handleKey(.filter(.text(" 4")))
-    let shown = await waitUntil(timeout: 1) {
-      field().map { $0.alphaValue == 1 && $0.accessibilityValue() as? String == "window 4" } == true
-    }
-    XCTAssertTrue(shown, "The filter field must fade in with the query")
+    let shown = await waitUntil(timeout: 1) { query(input) == "window 4" }
+    XCTAssertTrue(shown, "The filter field must show the query")
     let glided = await waitUntil(timeout: 1) {
       cards().first { $0.isAccessibilitySelected() }?.accessibilityLabel() == "Vertical window 4"
     }
@@ -1300,19 +1302,18 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(cards().filter { $0.accessibilityHelp()?.contains("does not match") == true }.count,
       cards().count - 1, "Every other card must dim")
     controller.handleKey(.escape)
-    let cleared = await waitUntil(timeout: 1) { field() == nil }
+    let cleared = await waitUntil(timeout: 1) { query(input) == "" }
     XCTAssertTrue(cleared, "Escape must clear the filter first")
     XCTAssertTrue(controller.isOpen, "The first Escape must keep the Overview open")
     XCTAssertTrue(nativeSelections.isEmpty, "Filtering must not move native windows")
 
     controller.handleKey(.filter(.text("window")))
-    let refiltered = await waitUntil(timeout: 1) { field()?.alphaValue == 1 }
+    let refiltered = await waitUntil(timeout: 1) { query(input) == "window" }
     XCTAssertTrue(refiltered)
     controller.close()
     controller.open(snapshot: snapshot(2), layout: LayoutSettings(), windowPreviewsEnabled: false)
     let reopened = try XCTUnwrap(NSApp.windows.compactMap { $0.contentView.flatMap(findView) }.first)
-    XCTAssertFalse((reopened.accessibilityChildren() ?? []).contains { $0 is OverviewFilterField },
-      "A new Overview session must not show the last session's filter")
+    XCTAssertEqual(query(reopened), "", "A new Overview session must not show the last session's filter")
   }
 
   // MARK: Two-display lane
@@ -1525,7 +1526,8 @@ final class DesktopE2ETests: XCTestCase {
     var costs: [Double] = []
     for index in 0..<160 {
       let projection = projectOverview(snapshot: snapshot, monitorID: monitorID,
-        bounds: Rect(x: 0, y: 0, width: panel.view.bounds.width, height: panel.view.bounds.height),
+        bounds: Rect(x: 0, y: panel.view.projectionBounds.minY, width: panel.view.bounds.width,
+          height: panel.view.projectionBounds.height),
         viewport: OverviewViewport(workspaceOffset: sin(Double(index) / 20) * 0.6),
         layout: LayoutSettings(), zoom: 0.5)
       let started = CACurrentMediaTime()
@@ -1550,7 +1552,7 @@ final class DesktopE2ETests: XCTestCase {
       guard window !== panel.window, let root = window.contentView else { return nil }
       return findView(root)
     }.first)
-    let group = try XCTUnwrap((input.accessibilityChildren() as? [NSAccessibilityElement])?.first { $0.accessibilityRole() == .group })
+    let group = try XCTUnwrap(input.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement }.first { $0.accessibilityRole() == .group })
     let label = group.accessibilityLabel()
     let before = group.accessibilityFrame()
     let updates = input.presentationUpdateCount
@@ -1559,7 +1561,7 @@ final class DesktopE2ETests: XCTestCase {
     }
     XCTAssertLessThan(input.presentationUpdateCount - updates, 5, "Precise events must coalesce rather than project every input event")
     let scrolled = await waitUntil(timeout: 1) {
-      (input.accessibilityChildren() as? [NSAccessibilityElement])?.first { $0.accessibilityLabel() == label }
+      input.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement }.first { $0.accessibilityLabel() == label }
         .map { abs($0.accessibilityFrame().minY - before.minY - 100) <= 0.5 } == true
     }
     XCTAssertTrue(scrolled, "The last pending frame must preserve all trackpad deltas")

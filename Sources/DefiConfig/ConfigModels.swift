@@ -233,21 +233,25 @@ public struct OverviewConfig: Codable, Equatable, Sendable {
   public var zoom: Double
   public var windowPreviews: Bool
   public var windowCornerRadius: Double
+  public var searchBar: Bool
 
   public init(
     zoom: Double = 0.5,
     windowPreviews: Bool = true,
-    windowCornerRadius: Double = 12
+    windowCornerRadius: Double = 12,
+    searchBar: Bool = true
   ) {
     self.zoom = zoom
     self.windowPreviews = windowPreviews
     self.windowCornerRadius = windowCornerRadius
+    self.searchBar = searchBar
   }
 
   enum CodingKeys: String, CodingKey {
     case zoom
     case windowPreviews = "window_previews"
     case windowCornerRadius = "window_corner_radius"
+    case searchBar = "search_bar"
   }
 
   public init(from decoder: Decoder) throws {
@@ -258,6 +262,7 @@ public struct OverviewConfig: Codable, Equatable, Sendable {
       try values.decodeIfPresent(Bool.self, forKey: .windowPreviews) ?? defaults.windowPreviews
     windowCornerRadius =
       try values.decodeIfPresent(Double.self, forKey: .windowCornerRadius) ?? defaults.windowCornerRadius
+    searchBar = try values.decodeIfPresent(Bool.self, forKey: .searchBar) ?? defaults.searchBar
   }
 }
 

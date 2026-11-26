@@ -142,6 +142,7 @@ extension Daemon {
       guard overviewToggleState.beginApplying(request) else { return }
       let controller = overviewController ?? makeOverviewController()
       overviewController = controller
+      controller.showsSearchBar = config.overview.searchBar
       if request.isOpen {
         if controller.isOpen {
           controller.update(snapshot: snapshot, layout: layout,
@@ -169,6 +170,7 @@ extension Daemon {
     DispatchQueue.main.async { [self] in
       let controller = overviewController ?? makeOverviewController()
       overviewController = controller
+      controller.showsSearchBar = config.overview.searchBar
       if controller.isOpen {
         controller.update(snapshot: snapshot, layout: layout,
           borders: config.decorations.borders, animation: config.animation,

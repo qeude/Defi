@@ -190,6 +190,24 @@ struct OverviewPreviewTests {
     #expect(update(radius: 14))
   }
 
+  @Test @MainActor
+  func searchBarReservesABandOnlyWhenEnabled() {
+    let controller = OverviewController(
+      focusWindow: { _, _, _, _ in }, focusWorkspace: { _, _ in },
+      drop: { _, _, _, _, _ in }, activateMonitor: { _ in },
+      openStateChanged: { _ in }, commitScrollOffsets: { _ in }
+    )
+    let view = OverviewView(monitorID: MonitorID(rawValue: 1), delegate: controller)
+    view.frame = NSRect(x: 0, y: 0, width: 1_200, height: 800)
+    #expect(view.projectionBounds.minY > 0)
+    #expect(!view.filterField.isHidden, "The bar invites typing before the first key")
+    view.showsSearchBar = false
+    #expect(view.projectionBounds == view.bounds)
+    #expect(view.filterField.isHidden)
+    view.filter = OverviewFilterPresentation(query: "mail", matchCount: 1)
+    #expect(!view.filterField.isHidden, "Without the bar, the field still shows the query")
+  }
+
   @Test("Without previews or Screen Recording the Overview parks windows; permission is requested once")
   func overviewDegradesWithoutCapturePermission() {
     #expect(overviewUsesWorkspaceParking(windowPreviewsEnabled: false, screenCaptureAccessGranted: true))

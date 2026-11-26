@@ -122,6 +122,30 @@ final class OverviewSurfaceScene {
 
   // Compact/placeholder layers only bridge the opening. The regular card owns
   // progressive image delivery afterward; never keep a stale fallback on top.
+  /// Dims the windows the filter leaves out, as their cards beneath would be.
+  func setFilterDimmed(_ ids: Set<WindowID>, animated: Bool) {
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    for (id, item, _, _) in entries {
+      fadeOpacity(item, to: ids.contains(id) ? overviewFilterDimmedOpacity : 1,
+        duration: animated ? overviewTransitionDuration : 0)
+    }
+    CATransaction.commit()
+  }
+
+  private func fadeOpacity(_ item: CALayer, to opacity: Float, duration: TimeInterval) {
+    guard item.opacity != opacity else { return }
+    if duration > 0 {
+      let fade = CABasicAnimation(keyPath: "opacity")
+      fade.fromValue = (item.presentation() ?? item).opacity
+      fade.duration = duration
+      fade.timingFunction = overviewEaseOut
+      fade.preferredFrameRateRange = overviewAnimationFrameRate
+      item.add(fade, forKey: "filter")
+    }
+    item.opacity = opacity
+  }
+
   func finishOpening() -> Set<WindowID> {
     let released = fallbackIDs
     for (id, item, _, _) in entries where released.contains(id) { item.removeFromSuperlayer() }
@@ -187,6 +211,8 @@ final class OverviewSurfaceScene {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     for (_, item, source, target) in entries {
+      // A closing zoom lands on the real window, which the filter never dims.
+      if !opening { fadeOpacity(item, to: 1, duration: duration) }
       let start = opening ? source : target
       let end = opening ? target : source
       let presented = item.presentation()

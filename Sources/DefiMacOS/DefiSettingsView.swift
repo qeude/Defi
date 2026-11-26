@@ -1394,6 +1394,11 @@ private struct AppearanceSettingsView: View {
           key: "window_previews", value: model.config.overview.windowPreviews
         )
           .settingsSearchTarget(.windowPreviews)
+        settingsToggle(
+          model, title: SettingsOption.overviewSearchBar.title, table: "overview",
+          key: "search_bar", value: model.config.overview.searchBar
+        )
+          .settingsSearchTarget(.overviewSearchBar)
         SettingsAdvancedButton(expanded: $advanced)
         if advanced || request.reveals(.overviewScale, .overviewCornerRadius) {
           SettingsNumberRow(

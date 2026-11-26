@@ -249,6 +249,10 @@ public final class OverviewController: NSObject {
   private var alignSelectionOnNextUpdate = false
   private var animationsEnabled = true
   private var overviewZoom = OverviewStyle.standard.zoom
+  /// `[overview].search_bar`; set before opening or updating.
+  public var showsSearchBar = OverviewConfig().searchBar {
+    didSet { for panel in panels.values { panel.view.showsSearchBar = showsSearchBar } }
+  }
   private var windowCornerRadius = OverviewStyle.standard.cornerRadius
   private var viewportAnimations: [MonitorID: OverviewViewportAnimation] = [:]
   private var projectionAnimations: [MonitorID: OverviewProjectionAnimation] = [:]
@@ -477,6 +481,7 @@ public final class OverviewController: NSObject {
         usesCapturedDesktop: !usesWorkspaceParking, delegate: self
       )
       panel.view.animatesSelection = animationsEnabled
+      panel.view.showsSearchBar = showsSearchBar
       panel.openingTransitionChanged = { [weak self] event in
         self?.recordOpeningTransition(event, monitorID: monitorID)
       }
@@ -857,7 +862,7 @@ public final class OverviewController: NSObject {
       guard let panel = panels.values.first(where: { $0.window.frame.contains(mouse) }) else { return }
       let view = panel.view
       overviewView(view,
-        scrolled: overviewScrollDelta(travelX: dx, travelY: dy, viewSize: view.bounds.size, zoom: overviewZoom),
+        scrolled: overviewScrollDelta(travelX: dx, travelY: dy, viewSize: view.projectionBounds.size, zoom: overviewZoom),
         hasPreciseScrollingDeltas: true,
         at: view.convert(panel.window.convertPoint(fromScreen: mouse), from: nil))
     case .began(let opening):
@@ -1205,14 +1210,13 @@ public final class OverviewController: NSObject {
     return name
   }
 
-  private func filterPresentation(on monitorID: MonitorID, snapshot: OverviewSnapshot) -> OverviewFilterPresentation {
+  private func filterPresentation(snapshot: OverviewSnapshot) -> OverviewFilterPresentation {
     guard !filterQuery.isEmpty else { return OverviewFilterPresentation() }
     let matched = Set(filterMatches.compactMap(\.windowID))
     return OverviewFilterPresentation(
       query: filterQuery,
       matchCount: filterMatches.count,
-      dimmedWindowIDs: Set(snapshot.windows.keys).subtracting(matched),
-      showsField: monitorID == filterMonitorID
+      dimmedWindowIDs: Set(snapshot.windows.keys).subtracting(matched)
     )
   }
 
@@ -1553,7 +1557,8 @@ public final class OverviewController: NSObject {
       )
       projections[monitorID] = projection
       panel.view.surfaceWindowIDs = surfaceWindowIDs
-      panel.view.filter = filterPresentation(on: monitorID, snapshot: snapshot)
+      panel.view.filter = filterPresentation(snapshot: snapshot)
+      panel.setFilterDimmed(panel.view.filter.dimmedWindowIDs, animated: panel.view.animatesSelection && !reduceMotion)
       panel.view.update(
         snapshot: snapshot,
         projection: projection,
@@ -1580,15 +1585,11 @@ public final class OverviewController: NSObject {
     for panel: OverviewPanel,
     snapshot: OverviewSnapshot
   ) -> OverviewProjection {
-    projectOverview(
+    let bounds = panel.view.projectionBounds
+    return projectOverview(
       snapshot: snapshot,
       monitorID: panel.monitorID,
-      bounds: Rect(
-        x: 0,
-        y: 0,
-        width: panel.view.bounds.width,
-        height: panel.view.bounds.height
-      ),
+      bounds: Rect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bounds.height),
       viewport: viewports[panel.monitorID] ?? OverviewViewport(),
       layout: layout,
       zoom: overviewZoom
@@ -2156,7 +2157,7 @@ extension OverviewController: OverviewViewDelegate {
       viewport,
       delta: delta,
       hasPreciseScrollingDeltas: hasPreciseScrollingDeltas,
-      viewSize: view.bounds.size,
+      viewSize: view.projectionBounds.size,
       zoom: overviewZoom,
       activeWorkspaceIndex: activeIndex,
       workspaceCount: monitor.workspaces.count,
@@ -2197,7 +2198,7 @@ extension OverviewController: OverviewViewDelegate {
       viewport,
       delta: NSPoint(x: deltaX, y: 0),
       hasPreciseScrollingDeltas: true,
-      viewSize: view.bounds.size,
+      viewSize: view.projectionBounds.size,
       zoom: overviewZoom,
       activeWorkspaceIndex: activeIndex,
       workspaceCount: monitor.workspaces.count,
@@ -2281,7 +2282,8 @@ extension OverviewController: OverviewViewDelegate {
   private func activateEdgeScroll(for panel: OverviewPanel, localY: Double) {
     let margin = 56.0
     let direction: Double
-    if localY < margin {
+    // The band above the cards scrolls up too.
+    if localY < max(margin, panel.view.projectionBounds.minY) {
       direction = -1
     } else if localY > panel.view.bounds.height - margin {
       direction = 1

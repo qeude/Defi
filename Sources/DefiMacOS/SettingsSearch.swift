@@ -70,6 +70,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case overviewScale
   case overviewCornerRadius
   case windowPreviews
+  case overviewSearchBar
   case namedWorkspaces
   case defaultWorkspace
   case addAppRule
@@ -139,6 +140,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .overviewScale: (.appearance, "Scale", "overview.zoom scale")
     case .overviewCornerRadius: (.appearance, "Corner radius", "overview.window_corner_radius")
     case .windowPreviews: (.appearance, "Show optional window previews", "overview.window_previews screen recording")
+    case .overviewSearchBar: (.appearance, "Show search bar", "overview.search_bar filter type to filter")
     case .namedWorkspaces: (.workspaces, "Named workspaces", "workspaces.names workspace name rename reorder add delete")
     case .defaultWorkspace: (.workspaces, "Default workspace", "workspaces.default startup workspace")
     case .addAppRule: (.appRules, "Add App Rule", "rules application rule add")
