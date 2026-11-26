@@ -16,6 +16,7 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
   case layout(LayoutError)
   case stackConstraint(StackRejection)
   case pinnedColumnStays
+  case scratchpadWindowStays
 
   public var description: String {
     switch self {
@@ -27,6 +28,8 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
     case .layout(let error): "layout error: \(error)"
     case .stackConstraint(let rejection): "cannot join: \(rejection)"
     case .pinnedColumnStays: "the pinned column shows on every workspace; unpin it to move it"
+    case .scratchpadWindowStays:
+      "scratchpad windows follow you to every workspace; take the window out of the scratchpad to move it"
     }
   }
 }
@@ -512,6 +515,10 @@ public func reduce(
       }
     case .toggleFloating:
       try toggleFocusedFloating(monitorIndex: monitorIndex, state: &state)
+    case .toggleScratchpadWindow:
+      try toggleScratchpadWindow(monitorIndex: monitorIndex, state: &state)
+    case .toggleScratchpad:
+      try toggleScratchpad(monitorIndex: monitorIndex, state: &state)
     case .focusFloating(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       focusFloating(direction, workspace: &state.monitors[monitorIndex].workspaces[index])
@@ -700,13 +707,13 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .reorderWorkspace, .moveWorkspaceToMonitor,
     .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn, .centerVisibleColumns,
     .pinColumn,
-    .toggleFloating, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
-    .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
+    .toggleFloating, .toggleScratchpadWindow, .joinWindow, .unjoinWindows, .consumeOrExpelWindow,
+    .swapWindow, .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
     true
   case .focusColumn, .focusColumnOrMonitor, .focusFloating, .focusWindow, .focusWindowOrWorkspace,
     .focusWindowPrevious, .focusWindowID, .switchWorkspace, .focusWorkspace, .focusMonitor,
     .activateFloating, .activateWindow, .toggleOverview, .toggleCheatsheet, .openSettings,
-    .recentWindows, .spawnShell, .closeWindow:
+    .recentWindows, .spawnShell, .closeWindow, .toggleScratchpad:
     false
   }
 }

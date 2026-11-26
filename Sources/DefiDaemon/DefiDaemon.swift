@@ -201,6 +201,8 @@ final class Daemon {
   var floatingWindowFrames: [WindowID: Rect] = [:]
   /// Floating windows Defi moved to another display as they opened, until the move lands.
   var displayMovedFloatingWindowIDs: Set<WindowID> = []
+  /// Scratchpad windows the last layout showed, so a newly shown scratchpad is raised once.
+  var shownScratchpadWindowIDs: Set<WindowID> = []
   var scrollAnimations: [ScrollAnimationKey: ScrollAnimation] = [:]
   var scrollPan: ScrollPan?
   var lastCommandDurationMS = 0.0

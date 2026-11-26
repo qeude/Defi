@@ -409,6 +409,9 @@ extension Daemon {
       if overviewState.isOpen, parsedCommand == .activateWindow {
         return .failure("the overview is open; choose a window there instead")
       }
+      if overviewState.isOpen, parsedCommand == .toggleScratchpad || parsedCommand == .toggleScratchpadWindow {
+        return .failure("the overview is open; close it to use the scratchpad")
+      }
       if overviewState.isOpen, parsedCommand.editsSelectedLayout || parsedCommand == .closeWindow(nil),
         monitorIndex == nil
       {
@@ -667,6 +670,8 @@ extension Daemon {
         })?.activeWorkspace
       }
       let preCommandWindowMonitorIDs = state.windowLocationMap()
+      let preCommandScratchpadWindowIDs = Set(state.scratchpadWindowIDs)
+      let preCommandFloatingWindowIDs = Set(state.windows.filter(\.value.floating).keys)
       let inFlightAnimationMonitorIDs = Set(scrollAnimations.keys.map(\.monitorID))
       if rebasesPendingFrame {
         var rebaseMonitorIDs = inFlightAnimationMonitorIDs
@@ -742,6 +747,15 @@ extension Daemon {
           }
         }
       }
+      let joinedScratchpadWindowIDs = Set(state.scratchpadWindowIDs).subtracting(preCommandScratchpadWindowIDs)
+        .subtracting(preCommandFloatingWindowIDs)
+      for windowID in joinedScratchpadWindowIDs {
+        floatingWindowFrames[windowID] = nextWindowMonitorIDsMap[windowID]
+          .flatMap { commandViewports[$0.monitorID] }
+          .map { scratchpadFloatingFrame(in: $0, cascade: state.scratchpadWindowIDs.count - 1) }
+          ?? state.windows[windowID]?.frame
+      }
+      let forcedFloatingWindowIDs = movedFloatingWindowIDs.union(joinedScratchpadWindowIDs)
       let commandTransfersFocus: Bool
       if switchesWorkspace {
         commandTransfersFocus = true
@@ -815,12 +829,12 @@ extension Daemon {
         animatedManagedLayout
         ? dispatchManagedLayoutAnimation(
           monitorIDs: affectedMonitorIDs,
-          forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
+          forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
           commandPerformance: commandPerformance
         )
         : dispatchScrollAnimationIfNeeded(
           monitorIDs: affectedMonitorIDs,
-          forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
+          forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
           commandPerformance: commandPerformance
         )
       let workspaceFocusRequest: PendingWorkspaceFocus?
@@ -938,7 +952,7 @@ extension Daemon {
             positionsOnly: speculativeRibbonNavigation,
             stagesVisibleBeforeParking: switchesWorkspace,
             postCommitFocus: postCommitFocus,
-            forcingFloatingFrameWritesFor: movedFloatingWindowIDs,
+            forcingFloatingFrameWritesFor: forcedFloatingWindowIDs,
             commandPerformance: commandPerformance,
             source: switchesWorkspace ? "workspace-command" : "command"
           )

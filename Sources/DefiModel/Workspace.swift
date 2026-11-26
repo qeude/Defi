@@ -84,6 +84,9 @@ public struct Workspace: Equatable, Codable, Sendable {
   public var scrollFocus: ScrollFocus? = nil
   /// Closing `opened` before the selection leaves it selects `previous` again.
   public var focusReturn: FocusReturn? = nil
+  /// Scratchpad windows parked while the scratchpad is hidden; the shown ones are floating
+  /// windows. Optional so stores written before it existed still decode.
+  public var scratchpadWindows: [WindowID]? = nil
 
   public init(
     id: WorkspaceID,

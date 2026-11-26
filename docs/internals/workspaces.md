@@ -62,3 +62,27 @@ resizing them, so no width write lands on a window whose picture the overlay is
 sliding in. During motion the overlay
 draws it above the strip, so columns slide beneath it as in a compositor.
 `ScrollFocus.pinned` is unrelated: it records `center-column`.
+
+## Scratchpad
+
+Scratchpad windows reuse the floating machinery: a shown one is an ordinary
+entry of `Workspace.floatingWindows`, and a parked one moves to
+`Workspace.scratchpadWindows`, which the layout parks on every workspace,
+active or not. Parked windows stay in a workspace so location, removal,
+persistence, and display migration need no second path, while selection,
+floating focus, and the Overview never see them. Membership lives in
+`RuntimeState.scratchpadWindowIDs`, since a shown scratchpad window is otherwise
+indistinguishable from a floating one.
+
+Like a pinned column, a shown scratchpad belongs to no workspace:
+`maintainWorkspaceLifecycle` carries its windows into the monitor's active
+workspace, and a trailing workspace holding only them stays trailing. Parked
+windows are parked wherever they live, so they stay where they were parked and
+move only off a workspace about to go; a workspace switch never writes them. A move to
+another workspace would be carried straight back, so the reducer refuses it.
+
+macOS raises only the window it focuses, so the daemon raises every newly shown
+scratchpad window through Accessibility, the selected one last; otherwise the
+others stay behind the strip. Overview edits copy back a single workspace and would lose
+membership changes, so the daemon refuses both scratchpad commands while the
+Overview is open.

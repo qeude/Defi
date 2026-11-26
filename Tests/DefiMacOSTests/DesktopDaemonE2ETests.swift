@@ -379,6 +379,54 @@ extension DesktopE2ETests {
     XCTAssertEqual(Set(try members("a")), Set(all.map(\.windowID)))
   }
 
+  func testScratchpadShowsParksAndFollowsWorkspaces() throws {
+    let lane = try daemonLane()
+    let daemon = try lane.startDaemon(config: "[workspaces]\nnames = [\"a\", \"b\"]\n")
+    defer { daemon.stop() }
+    try daemon.run("workspace a")
+    let tiled = try lane.openWindow(daemon: daemon)
+    defer { tiled.close() }
+    let scratch = try lane.openWindow(daemon: daemon)
+    defer { scratch.close() }
+    let all = [tiled, scratch]
+    XCTAssertTrue(daemon.settle(all))
+    let display = CGDisplayBounds(CGMainDisplayID())
+    func parked() throws -> Bool {
+      let frame = try scratch.frame()
+      return frame.minX >= display.maxX - 2 || frame.maxX <= display.minX + 2
+    }
+
+    try daemon.run("focus-window-id \(scratch.windowID)")
+    try daemon.run("toggle-scratchpad-window")
+    XCTAssertTrue(daemon.settle(all))
+    XCTAssertTrue(try parked(), "A window added to a hidden scratchpad must park: \(String(describing: try? scratch.frame()))")
+    XCTAssertEqual(try daemon.status("focused"), "\(tiled.windowID)")
+
+    try daemon.run("toggle-scratchpad")
+    XCTAssertTrue(daemon.settle(all))
+    XCTAssertFalse(try parked(), "toggle-scratchpad must show the window")
+    XCTAssertEqual(try daemon.status("focused"), "\(scratch.windowID)")
+    let shownFrame = try scratch.frame()
+
+    try daemon.run("workspace b")
+    XCTAssertTrue(daemon.settle(all))
+    XCTAssertEqual(try scratch.frame(), shownFrame, "A shown scratchpad must follow the workspace switch")
+
+    // On an empty workspace nothing takes focus from the parked window: it must stay parked.
+    try daemon.run("toggle-scratchpad")
+    XCTAssertTrue(daemon.settle(all))
+    _ = pumpRunLoop(until: { false }, timeout: 1)
+    XCTAssertTrue(try parked(), "The scratchpad must stay parked: \(daemon.diagnostics("b"))")
+
+    // Native focus may linger on the parked window; it must not undo the switch.
+    try daemon.run("workspace a")
+    XCTAssertTrue(daemon.settle(all))
+    XCTAssertEqual(try daemon.status("workspace"), "a")
+    try daemon.run("toggle-scratchpad")
+    XCTAssertTrue(daemon.settle(all))
+    XCTAssertEqual(try scratch.frame(), shownFrame, "The scratchpad must show where it was")
+  }
+
   /// Posts one two-finger swipe with the gesture modifier held, over the display's centre.
   private func postSwipe(steps: Int, dx: Int32 = 0, dy: Int32 = 0, every interval: TimeInterval = 0.016) {
     let display = CGDisplayBounds(CGMainDisplayID())

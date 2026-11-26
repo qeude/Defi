@@ -8,12 +8,6 @@ public func pinnedColumnIndices(_ columns: [Column]) -> [ColumnPin: Int] {
   return [columns[index].pin!: index]
 }
 
-/// True when the workspace holds nothing but its pinned column, which belongs to the monitor
-/// and rides whichever workspace is active: the lifecycle counts such a workspace as empty.
-public func holdsOnlyPinnedColumn(_ workspace: Workspace) -> Bool {
-  workspace.floatingWindows.isEmpty && workspace.columns.allSatisfy { $0.pin != nil }
-}
-
 /// Removes the pinned column, keeping the focused column where it is when possible.
 public func removePinnedColumn(from workspace: inout Workspace) -> Column? {
   guard let index = pinnedColumnIndices(workspace.columns).values.first else { return nil }

@@ -161,6 +161,12 @@ extension Daemon {
           monitorAssignments.append(contentsOf: parked)
           monitorBorderAssignments.append(contentsOf: parked)
         }
+        let parkedScratchpad = floatingAssignments(for: workspace.scratchpadWindows ?? []).map {
+          FrameAssignment(windowID: $0.windowID, frame: park($0))
+        }
+        monitorHiddenWindowIDs.formUnion(parkedScratchpad.map(\.windowID))
+        monitorAssignments.append(contentsOf: parkedScratchpad)
+        monitorBorderAssignments.append(contentsOf: parkedScratchpad)
       }
       let plan = MonitorLayoutPlan(
         assignments: monitorAssignments,
@@ -196,6 +202,17 @@ extension Daemon {
     let selectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
+    // macOS raises only the window it focuses; the rest of a shown scratchpad would stay behind the strip.
+    let shownScratchpad = state.scratchpadWindowIDs.filter { windowID in
+      state.monitors.contains { monitor in
+        monitor.workspaces.contains { $0.id == monitor.activeWorkspace && $0.floatingWindows.contains(windowID) }
+      }
+    }
+    if !Set(shownScratchpad).isSubset(of: shownScratchpadWindowIDs) {
+      platform.raiseWindows(
+        shownScratchpad.filter { $0 != selectedWindowID } + shownScratchpad.filter { $0 == selectedWindowID })
+    }
+    shownScratchpadWindowIDs = Set(shownScratchpad)
     let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
     let borderStartedAt = ProcessInfo.processInfo.systemUptime
     let layoutMS =
@@ -218,7 +235,9 @@ extension Daemon {
     platform.windowProxyMonitors = state.monitors.compactMap { monitor in
       viewports[monitor.id].map { viewport in
         WindowProxyMonitor(viewport: viewport,
-          windowIDs: Set(monitor.workspaces.flatMap { $0.columns.flatMap(\.windows) + $0.floatingWindows }),
+          windowIDs: Set(monitor.workspaces.flatMap {
+            $0.columns.flatMap(\.windows) + $0.floatingWindows + ($0.scratchpadWindows ?? [])
+          }),
           workspaceShift: shifts ? workspaceShifts[monitor.id] : nil,
           laidOut: !cachedMonitorIDs.contains(monitor.id))
       }

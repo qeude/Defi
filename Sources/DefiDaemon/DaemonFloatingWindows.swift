@@ -18,7 +18,7 @@ func updateFloatingWindowFrames(
   ) -> [WindowID: MonitorID] {
     var reassignedMonitorIDs: [WindowID: MonitorID] = [:]
     let trackedFloatingIDs = Set(
-      state.monitors.flatMap(\.workspaces).flatMap(\.floatingWindows)
+      state.monitors.flatMap(\.workspaces).flatMap { $0.floatingWindows + ($0.scratchpadWindows ?? []) }
     )
     floatingWindowFrames = floatingWindowFrames.filter {
       trackedFloatingIDs.contains($0.key)
@@ -102,7 +102,11 @@ func updateFloatingWindowFrames(
   }
 
   func floatingAssignments(in workspace: Workspace) -> [FrameAssignment] {
-    workspace.floatingWindows.compactMap { windowID in
+    floatingAssignments(for: workspace.floatingWindows)
+  }
+
+  func floatingAssignments(for windowIDs: [WindowID]) -> [FrameAssignment] {
+    windowIDs.compactMap { windowID in
       guard let frame = floatingFrame(for: windowID) else { return nil }
       return FrameAssignment(windowID: windowID, frame: frame)
     }

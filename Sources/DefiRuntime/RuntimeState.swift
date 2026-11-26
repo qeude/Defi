@@ -31,6 +31,8 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
   public var latestWindowID: WindowID?
   /// Written only by a restart's handoff: parked floating windows keep their frames across it.
   public var floatingWindowFrames: [WindowID: Rect]?
+  // A new key: stores written before the scratchpad decode and start without one.
+  public var scratchpadWindowIDs: [WindowID]?
 
   public init(state: RuntimeState) {
     monitorStableIDs = state.monitorStableIDs
@@ -48,6 +50,7 @@ public struct WorkspaceTopology: Equatable, Codable, Sendable {
     suspendedTiledPlacements = state.suspendedTiledPlacements
     recentWindowIDs = state.recentWindowIDs
     latestWindowID = state.latestWindowID
+    scratchpadWindowIDs = state.scratchpadWindowIDs
   }
 }
 
@@ -80,6 +83,8 @@ public struct RuntimeState: Equatable, Sendable {
   /// The highest window ID discovered this login session. WindowServer numbers windows in
   /// increasing order, so a window returning from minimize, hide, or a restart is never above it.
   public var latestWindowID: WindowID?
+  /// The scratchpad's windows, shown as floating windows or parked in `Workspace.scratchpadWindows`.
+  public var scratchpadWindowIDs: [WindowID] = []
 
   public init(config: Config) {
     let names = config.workspaces.names.map(WorkspaceID.init(rawValue:))
@@ -128,6 +133,7 @@ public struct RuntimeState: Equatable, Sendable {
     suspendedTiledPlacements = topology.suspendedTiledPlacements
     recentWindowIDs = topology.recentWindowIDs ?? []
     latestWindowID = topology.latestWindowID
+    scratchpadWindowIDs = topology.scratchpadWindowIDs ?? []
     clearChangedWorkspaceAffinities(
       previousIDs: topology.workspaceMonitorIDs ?? workspaceMonitorIDs,
       nextIDs: workspaceMonitorIDs,
@@ -380,7 +386,9 @@ public struct RuntimeState: Equatable, Sendable {
         )
       }
       for var workspace in monitor.workspaces {
-        if workspace.kind == .trailing && workspace.isEmpty { continue }
+        if workspace.kind == .trailing && workspace.isEmpty && workspace.scratchpadWindows == nil {
+          continue
+        }
         if workspace.affinity == nil && workspaceMonitorIDs[workspace.id] == nil {
           workspace.affinity = monitor.id
         }
@@ -422,8 +430,11 @@ public struct RuntimeState: Equatable, Sendable {
   }
 
   public mutating func maintainWorkspaceLifecycle() {
+    // A window tiled again, by `toggle-floating` or a rule, leaves the scratchpad.
+    scratchpadWindowIDs.removeAll { windows[$0]?.floating != true }
     for monitorIndex in monitors.indices {
       carryPinnedColumn(on: monitorIndex)
+      carryScratchpadWindows(on: monitorIndex)
       for workspaceIndex in monitors[monitorIndex].workspaces.indices {
         normalizeColumnPins(&monitors[monitorIndex].workspaces[workspaceIndex])
         let workspace = monitors[monitorIndex].workspaces[workspaceIndex]
@@ -433,7 +444,7 @@ public struct RuntimeState: Equatable, Sendable {
       }
       for workspaceIndex in monitors[monitorIndex].workspaces.indices
       where monitors[monitorIndex].workspaces[workspaceIndex].kind == .trailing
-        && !holdsOnlyPinnedColumn(monitors[monitorIndex].workspaces[workspaceIndex])
+        && !holdsOnlyCarriedWindows(monitors[monitorIndex].workspaces[workspaceIndex])
       {
         monitors[monitorIndex].workspaces[workspaceIndex].kind = .ordinary
       }
@@ -488,6 +499,48 @@ public struct RuntimeState: Equatable, Sendable {
         monitors[monitorIndex].workspaces[workspaceIndex].columns[columnIndex].pin = nil
       }
     }
+  }
+
+  /// A shown scratchpad belongs to no workspace either, so it rides the active one. Parked
+  /// windows are parked wherever they live: they leave only a workspace about to go.
+  private mutating func carryScratchpadWindows(on monitorIndex: Int) {
+    guard !scratchpadWindowIDs.isEmpty,
+      let activeIndex = monitors[monitorIndex].workspaces.firstIndex(where: {
+        $0.id == monitors[monitorIndex].activeWorkspace
+      })
+    else { return }
+    let lastTrailingIndex = monitors[monitorIndex].workspaces.lastIndex { $0.kind == .trailing }
+    for workspaceIndex in monitors[monitorIndex].workspaces.indices where workspaceIndex != activeIndex {
+      let workspace = monitors[monitorIndex].workspaces[workspaceIndex]
+      let shown = workspace.floatingWindows.filter(scratchpadWindowIDs.contains)
+      let leaving =
+        (workspace.kind == .ordinary && workspace.columns.isEmpty && workspace.floatingWindows == shown)
+        || (workspace.kind == .trailing && workspaceIndex != lastTrailingIndex)
+      let hidden = leaving ? workspace.scratchpadWindows ?? [] : []
+      for windowID in shown + hidden {
+        removeWindow(windowID, from: &monitors[monitorIndex].workspaces[workspaceIndex], settings: layout)
+      }
+      let ownsNoWindow = monitors[monitorIndex].workspaces[activeIndex].columns.isEmpty
+        && monitors[monitorIndex].workspaces[activeIndex].floatingWindows.allSatisfy(scratchpadWindowIDs.contains)
+      monitors[monitorIndex].workspaces[activeIndex].floatingWindows += shown
+      // On a workspace of its own windows the switch selects one of them; else the selection rides along.
+      if ownsNoWindow, let selected = workspace.selectedWindowID, shown.contains(selected) {
+        monitors[monitorIndex].workspaces[activeIndex].focusedFloatingWindow =
+          monitors[monitorIndex].workspaces[activeIndex].floatingWindows.firstIndex(of: selected)!
+        monitors[monitorIndex].workspaces[activeIndex].focusedLayer = .floating
+      }
+      if !hidden.isEmpty {
+        monitors[monitorIndex].workspaces[activeIndex].scratchpadWindows =
+          (monitors[monitorIndex].workspaces[activeIndex].scratchpadWindows ?? []) + hidden
+      }
+    }
+  }
+
+  /// True when the workspace holds nothing but what rides the active workspace: its monitor's
+  /// pinned column and scratchpad windows. The lifecycle counts such a workspace as empty.
+  public func holdsOnlyCarriedWindows(_ workspace: Workspace) -> Bool {
+    workspace.columns.allSatisfy { $0.pin != nil }
+      && workspace.floatingWindows.allSatisfy(scratchpadWindowIDs.contains)
   }
 
   public func workspaceLocation(
@@ -817,6 +870,7 @@ public struct RuntimeState: Equatable, Sendable {
       for workspace in monitor.workspaces
       where workspace.columns.contains(where: { $0.windows.contains(windowID) })
         || workspace.floatingWindows.contains(windowID)
+        || workspace.scratchpadWindows?.contains(windowID) == true
       {
         return (monitor.id, workspace.id)
       }
@@ -834,7 +888,8 @@ public struct RuntimeState: Equatable, Sendable {
             locations[windowID] = (monitor.id, workspace.id)
           }
         }
-        for windowID in workspace.floatingWindows where locations[windowID] == nil {
+        for windowID in workspace.floatingWindows + (workspace.scratchpadWindows ?? [])
+        where locations[windowID] == nil {
           locations[windowID] = (monitor.id, workspace.id)
         }
       }

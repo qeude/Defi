@@ -238,7 +238,7 @@ extension Daemon {
           workspaces: monitor.workspaces.enumerated().map { offset, workspace in
             MenuWorkspace(id: workspace.id.rawValue, label: workspace.name ?? String(offset + 1),
               icon: workspace.name.map { config.workspaces.icons[$0] ?? "square.grid.2x2" },
-              position: offset + 1, isEmpty: holdsOnlyPinnedColumn(workspace))
+              position: offset + 1, isEmpty: state.holdsOnlyCarriedWindows(workspace))
           },
           columns: strip?.columns ?? [], focusedColumn: strip?.focused, stripWidth: strip?.width ?? 0)
       }
@@ -515,7 +515,7 @@ func windowRestorationAssignments(
         workspace: workspace, viewport: viewport, windows: windows,
         settings: state.layout, excludingWindowIDs: state.nativeFullscreenWindowIDs
       ))
-      for windowID in workspace.floatingWindows {
+      for windowID in workspace.floatingWindows + (workspace.scratchpadWindows ?? []) {
         guard !state.nativeFullscreenWindowIDs.contains(windowID),
           let frame = floatingFrames[windowID] ?? state.windows[windowID]?.frame
         else { continue }

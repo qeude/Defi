@@ -207,6 +207,26 @@ shortcut again returns the column to the strip of the workspace you are on.
 - `move-column` refuses the pinned column. Dragging it into the strip with the
   mouse unpins it.
 
+### Scratchpad
+
+The scratchpad holds floating windows you call up and put away together.
+`toggle-scratchpad-window` adds the focused window to it and parks it off
+screen unless the scratchpad is showing. A tiled window floats first, centered
+over the strip at 60% of the screen, each later one a little offset.
+`toggle-scratchpad` brings all of its windows forward over the focused screen,
+and parks them again when they all show there.
+
+- The scratchpad follows you: shown, its windows move along when you switch
+  workspaces, and `toggle-scratchpad` on another screen brings them to that
+  screen.
+- Focusing a parked scratchpad window, with Command-Tab, the Dock, or
+  `focus-window-previous`, shows the scratchpad.
+- `toggle-scratchpad-window` on a scratchpad window takes it out of the
+  scratchpad; it stays where it is as an ordinary floating window.
+  `toggle-floating` then tiles it.
+- Moving a scratchpad window to another workspace is refused, and both
+  commands are refused while the Overview is open.
+
 ## `[workspaces]`
 
 Persistent named workspaces. Other workspaces come and go on their own.
@@ -647,6 +667,8 @@ that window alone.
 | `consume-or-expel-window left\|right` | Alone in its column, the focused window joins the stack on that side, like `join-window`. In a stack, it leaves as a new column on that side. | `mod-leftbracket` / `mod-rightbracket` |
 | `swap-window left\|right` | Swap the focused window with the one at the same row of the adjacent column, or its last window when that column is shorter. Columns keep their widths. | unset |
 | `toggle-floating` | Switch the focused window between tiled and floating. | `mod-v` |
+| `toggle-scratchpad` | Show the scratchpad's windows on the focused screen, or park them. See [Scratchpad](#scratchpad). | `mod-s` |
+| `toggle-scratchpad-window` | Add the focused window to the scratchpad, or take it out. | `mod-shift-s` |
 | `close-window` | Close the focused window, tiled, stacked, or floating, as its close button does. An app that asks to save first keeps the window, and Defi keeps it in place. | unset |
 
 **Other**
@@ -1454,6 +1476,8 @@ names = []
 "mod-shift-p" = "pin-column right"
 "mod-v" = "toggle-floating"
 "mod-shift-v" = "activate-floating"
+"mod-s" = "toggle-scratchpad"
+"mod-shift-s" = "toggle-scratchpad-window"
 "mod-return" = "activate-window"
 "mod-shift-comma" = "focus-floating previous"
 "mod-shift-period" = "focus-floating next"

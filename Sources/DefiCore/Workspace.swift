@@ -164,6 +164,11 @@ public func removeWindow(
   viewport: Rect = Rect(x: 0, y: 0, width: 1_000, height: 1),
   windowsByID: [WindowID: Window] = [:]
 ) -> Bool {
+  if let index = workspace.scratchpadWindows?.firstIndex(of: windowID) {
+    workspace.scratchpadWindows?.remove(at: index)
+    if workspace.scratchpadWindows?.isEmpty == true { workspace.scratchpadWindows = nil }
+    return true
+  }
   if let index = workspace.floatingWindows.firstIndex(of: windowID) {
     workspace.floatingWindows.remove(at: index)
     if index < workspace.focusedFloatingWindow { workspace.focusedFloatingWindow -= 1 }

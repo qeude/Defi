@@ -6,6 +6,14 @@ public func focusWindow(
   _ windowID: WindowID,
   state: inout RuntimeState
 ) -> Bool {
+  // Focusing a parked scratchpad window, as Command-Tab does, shows the scratchpad.
+  if state.scratchpadWindowIDs.contains(windowID),
+    let monitorIndex = state.monitors.firstIndex(where: {
+      $0.workspaces.contains { $0.scratchpadWindows?.contains(windowID) == true }
+    })
+  {
+    showScratchpad(on: monitorIndex, focusing: windowID, state: &state)
+  }
   for monitorIndex in state.monitors.indices {
     for workspaceIndex in state.monitors[monitorIndex].workspaces.indices {
       if let floatingIndex = state.monitors[monitorIndex]
