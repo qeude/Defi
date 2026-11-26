@@ -112,6 +112,14 @@ struct MenuBarTests {
     #expect(interpolate(from, to, 1) == to)
     let middle = interpolate(from, to, 0.5)
     #expect(middle.marks[1].rect.width > to.marks[0].rect.width && middle.marks[1].rect.width < to.marks[1].rect.width)
+
+    // A renamed workspace fades its old label out before the new one fades in, never both at full strength.
+    let renamed = menuBarLayout([MenuMonitor(id: 1, isFocused: true, activeWorkspace: "1",
+      workspaces: [MenuWorkspace(id: "1", label: "web"), workspaces[1]])], config: config)
+    let early = interpolate(from, renamed, 0.1).marks[0]
+    #expect(early.outgoing?.label == "1" && early.outgoing!.alpha > 0 && early.contentAlpha == 0)
+    let late = interpolate(from, renamed, 0.9).marks[0]
+    #expect(late.label == "web" && late.outgoing?.alpha == 0 && late.contentAlpha > 0)
   }
 
   @Test

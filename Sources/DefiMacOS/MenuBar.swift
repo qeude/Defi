@@ -117,6 +117,15 @@ struct MenuBarMark: Equatable {
   var contentAlpha: CGFloat
   /// The active workspace cuts its label out of the filled capsule.
   var knockout: Bool
+  /// Content the mark had before a morph, fading out while the new content fades in.
+  var outgoing: Outgoing? = nil
+
+  struct Outgoing: Equatable {
+    var label: String?
+    var icon: String?
+    var alpha: CGFloat
+    var knockout: Bool
+  }
 }
 
 struct MenuBarLayout: Equatable {
@@ -210,18 +219,29 @@ func interpolate(_ from: MenuBarLayout, _ to: MenuBarLayout, _ t: CGFloat) -> Me
   let sources = Dictionary(from.marks.map { ($0.workspaceID, $0) }, uniquingKeysWith: { a, _ in a })
   let marks = to.marks.map { target -> MenuBarMark in
     guard let source = sources[target.workspaceID] else { return target }
+    var contentAlpha = target.contentAlpha < source.contentAlpha
+      // A shrinking capsule hides its label before it gets narrower than the text.
+      ? source.contentAlpha + (target.contentAlpha - source.contentAlpha) * min(1, t * 2)
+      : mix(source.contentAlpha, target.contentAlpha)
+    var outgoing: MenuBarMark.Outgoing?
+    if source.label != target.label || source.icon != target.icon {
+      // New content crossfades in place of the old one instead of swapping inside a moving capsule.
+      let fade = min(1, t / 0.35)
+      outgoing = MenuBarMark.Outgoing(label: source.label, icon: source.icon,
+        alpha: source.contentAlpha * (1 - fade), knockout: source.knockout)
+      contentAlpha = target.contentAlpha * max(0, min(1, (t - 0.25) / 0.6))
+    }
     return MenuBarMark(
       workspaceID: target.workspaceID,
       rect: CGRect(x: mix(source.rect.minX, target.rect.minX), y: mix(source.rect.minY, target.rect.minY),
         width: mix(source.rect.width, target.rect.width), height: mix(source.rect.height, target.rect.height)),
       radius: mix(source.radius, target.radius),
       fill: mix(source.fill, target.fill), stroke: mix(source.stroke, target.stroke),
-      label: target.label ?? source.label, icon: target.icon ?? source.icon,
-      // A shrinking capsule hides its label before it gets narrower than the text.
-      contentAlpha: target.contentAlpha < source.contentAlpha
-        ? source.contentAlpha + (target.contentAlpha - source.contentAlpha) * min(1, t * 2)
-        : mix(source.contentAlpha, target.contentAlpha),
-      knockout: source.contentAlpha > 0 && (t < 0.5 || target.contentAlpha == 0) ? source.knockout : target.knockout)
+      label: target.label, icon: target.icon,
+      contentAlpha: contentAlpha,
+      knockout: outgoing == nil && source.contentAlpha > 0 && (t < 0.5 || target.contentAlpha == 0)
+        ? source.knockout : target.knockout,
+      outgoing: outgoing)
   }
   let dividers = from.dividers.count == to.dividers.count
     ? zip(from.dividers, to.dividers).map { mix($0, $1) } : to.dividers
@@ -276,12 +296,18 @@ func menuBarImage(_ layout: MenuBarLayout) -> NSImage {
         path.lineWidth = 1
         path.stroke()
       }
-      guard mark.contentAlpha > 0.01 else { continue }
-      context.saveGState()
-      context.clip(to: mark.rect)
-      context.setBlendMode(mark.knockout ? .destinationOut : .normal)
-      drawMenuBarContent(mark)
-      context.restoreGState()
+      var contents = [(label: mark.label, icon: mark.icon, alpha: mark.contentAlpha, knockout: mark.knockout)]
+      if let outgoing = mark.outgoing {
+        contents.insert((outgoing.label, outgoing.icon, outgoing.alpha, outgoing.knockout), at: 0)
+      }
+      for content in contents where content.alpha > 0.01 {
+        context.saveGState()
+        context.clip(to: mark.rect)
+        context.setBlendMode(content.knockout ? .destinationOut : .normal)
+        drawMenuBarContent(label: content.label, icon: content.icon, alpha: content.alpha,
+          knockout: content.knockout, in: mark.rect)
+        context.restoreGState()
+      }
     }
     return true
   }
@@ -290,21 +316,20 @@ func menuBarImage(_ layout: MenuBarLayout) -> NSImage {
 }
 
 @MainActor
-private func drawMenuBarContent(_ mark: MenuBarMark) {
-  let icon = mark.icon.flatMap(menuBarSymbol)
-  let width = menuBarContentWidth(label: mark.label, icon: mark.icon)
-  var x = mark.rect.midX - width / 2
+private func drawMenuBarContent(label: String?, icon name: String?, alpha: CGFloat, knockout: Bool, in rect: CGRect) {
+  let icon = name.flatMap(menuBarSymbol)
+  let width = menuBarContentWidth(label: label, icon: name)
+  var x = rect.midX - width / 2
   if let icon {
-    let rect = CGRect(x: x, y: mark.rect.midY - icon.size.height / 2, width: icon.size.width, height: icon.size.height)
-    icon.draw(in: rect, from: .zero, operation: mark.knockout ? .destinationOut : .sourceOver,
-      fraction: mark.contentAlpha)
+    let iconRect = CGRect(x: x, y: rect.midY - icon.size.height / 2, width: icon.size.width, height: icon.size.height)
+    icon.draw(in: iconRect, from: .zero, operation: knockout ? .destinationOut : .sourceOver, fraction: alpha)
     x += icon.size.width + 3
   }
-  if let label = mark.label {
+  if let label {
     let text = NSAttributedString(string: label, attributes: [
-      .font: menuBarFont, .foregroundColor: NSColor.black.withAlphaComponent(mark.contentAlpha),
+      .font: menuBarFont, .foregroundColor: NSColor.black.withAlphaComponent(alpha),
     ])
     let size = text.size()
-    text.draw(at: CGPoint(x: x, y: mark.rect.midY - size.height / 2))
+    text.draw(at: CGPoint(x: x, y: rect.midY - size.height / 2))
   }
 }

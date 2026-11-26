@@ -55,10 +55,11 @@ final class SettingsSearchViewTests: XCTestCase {
       NSApplication.shared.setActivationPolicy(policy)
       try? FileManager.default.removeItem(at: directory)
     }
+    let sidebarRowCount = SettingsPage.allCases.count + SettingsPage.sidebarGroups.filter { $0.title != nil }.count
     func rows() -> Int? { descendants(window).compactMap { $0 as? NSTableView }.first?.numberOfRows }
     func shortcutFilter() -> String? {
       descendants(window).compactMap { $0 as? NSTextField }
-        .first { $0.placeholderString == "Search actions" }?.stringValue
+        .first { $0.placeholderString == "Search shortcuts" }?.stringValue
     }
     XCTAssertTrue(converge { descendants(window).contains { $0 is NSSearchField } })
     let search = try XCTUnwrap(descendants(window).compactMap { $0 as? NSSearchField }.first)
@@ -79,7 +80,7 @@ final class SettingsSearchViewTests: XCTestCase {
     let cancel = try XCTUnwrap((search.cell as? NSSearchFieldCell)?.cancelButtonCell)
     cancel.performClick(search)
     XCTAssertEqual(search.stringValue, "")
-    XCTAssertTrue(converge { rows() == SettingsPage.allCases.count }, "Native cancel must restore the settings pages after keyboard selection")
+    XCTAssertTrue(converge { rows() == sidebarRowCount }, "Native cancel must restore the settings pages after keyboard selection")
     XCTAssertEqual(shortcutFilter() ?? "", "", "Native cancel must remove the exact shortcut filter")
     XCTAssertTrue(window.makeFirstResponder(search))
     let focusedEditor = try XCTUnwrap(search.currentEditor() as? NSTextView)
@@ -87,6 +88,82 @@ final class SettingsSearchViewTests: XCTestCase {
     XCTAssertTrue(converge { rows() == 1 })
     XCTAssertTrue(search.currentEditor() === focusedEditor, "Typing must retain search focus")
     cancel.performClick(search)
-    XCTAssertTrue(converge { rows() == SettingsPage.allCases.count }, "Cancel must also restore pages while search remains focused")
+    XCTAssertTrue(converge { rows() == sidebarRowCount }, "Cancel must also restore pages while search remains focused")
+  }
+
+  func testTypingInTheShortcutSearchKeepsFocus() throws {
+    let policy = NSApplication.shared.activationPolicy()
+    let (window, directory) = try hostSettings()
+    defer {
+      window.close()
+      NSApplication.shared.setActivationPolicy(policy)
+      try? FileManager.default.removeItem(at: directory)
+    }
+    let sidebar = try XCTUnwrap({ () -> NSTableView? in
+      _ = converge { descendants(window).contains { $0 is NSTableView } }
+      return descendants(window).compactMap { $0 as? NSTableView }.first
+    }())
+    let keyboard = try XCTUnwrap(SettingsPage.sidebarRowIndex(of: .keyboard))
+    sidebar.selectRowIndexes([keyboard], byExtendingSelection: false)
+    func field() -> NSTextField? {
+      descendants(window).compactMap { $0 as? NSTextField }.first { $0.placeholderString == "Search shortcuts" }
+    }
+    XCTAssertTrue(converge { field() != nil })
+    let search = try XCTUnwrap(field())
+    XCTAssertTrue(window.makeFirstResponder(search))
+    for (offset, character) in "cen".enumerated() {
+      let editor = try XCTUnwrap(search.currentEditor() as? NSTextView, "Focus left the field before character \(offset + 1)")
+      editor.insertText(String(character), replacementRange: NSRange(location: offset, length: 0))
+      _ = converge({ false }, timeout: 0.2)
+    }
+    XCTAssertEqual(search.stringValue, "cen")
+    XCTAssertNotNil(search.currentEditor(), "The results appearing must not take focus from the search field")
+    sidebar.selectRowIndexes([0], byExtendingSelection: false)
+    _ = converge({ false }, timeout: 0.3)
+    sidebar.selectRowIndexes([keyboard], byExtendingSelection: false)
+    _ = converge({ false }, timeout: 0.3)
+    XCTAssertEqual(search.stringValue, "cen", "Switching pages must keep a typed shortcut search")
+
+    let settings = try XCTUnwrap(descendants(window).compactMap { $0 as? NSSearchField }.first { $0.placeholderString == "Search settings" })
+    XCTAssertTrue(window.makeFirstResponder(settings))
+    try XCTUnwrap(settings.currentEditor() as? NSTextView).insertText("holding the main modifier", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(converge { sidebar.numberOfRows == 1 })
+    window.sendEvent(try arrowDown(window))
+    XCTAssertTrue(converge { search.stringValue.isEmpty }, "Revealing a Keyboard option must clear the shortcut search that hides it")
+  }
+
+  func testKeyboardShortcutsResultScrollsTheShortcutListBackToItsSection() throws {
+    let policy = NSApplication.shared.activationPolicy()
+    let (window, directory) = try hostSettings()
+    defer {
+      window.close()
+      NSApplication.shared.setActivationPolicy(policy)
+      try? FileManager.default.removeItem(at: directory)
+    }
+    func rows() -> Int? { descendants(window).compactMap { $0 as? NSTableView }.first?.numberOfRows }
+    // The full shortcut list is the tallest visible scroll view on the Keyboard page.
+    func list() -> NSScrollView? {
+      descendants(window).compactMap { $0 as? NSScrollView }
+        .filter { !$0.isHiddenOrHasHiddenAncestor && !($0.documentView is NSTableView) }
+        .max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }
+    }
+    XCTAssertTrue(converge { descendants(window).contains { $0 is NSTableView } })
+    let sidebar = try XCTUnwrap(descendants(window).compactMap { $0 as? NSTableView }.first)
+    sidebar.selectRowIndexes([try XCTUnwrap(SettingsPage.sidebarRowIndex(of: .keyboard))], byExtendingSelection: false)
+    XCTAssertTrue(converge { (list()?.documentView?.frame.height ?? 0) > 3000 })
+    let scroll = try XCTUnwrap(list())
+    let document = try XCTUnwrap(scroll.documentView)
+    document.scroll(NSPoint(x: 0, y: document.isFlipped ? document.bounds.maxY : 0))
+    scroll.reflectScrolledClipView(scroll.contentView)
+    XCTAssertTrue(converge { scroll.contentView.bounds.minY > 2000 }, "The list must start scrolled far past its first sections")
+    let pages = sidebar.numberOfRows
+    let search = try XCTUnwrap(descendants(window).compactMap { $0 as? NSSearchField }
+      .first { $0.placeholderString == "Search settings" })
+    XCTAssertTrue(window.makeFirstResponder(search))
+    try XCTUnwrap(search.currentEditor() as? NSTextView).insertText("Keyboard shortcuts", replacementRange: NSRange(location: 0, length: 0))
+    XCTAssertTrue(converge { (rows() ?? 0) > 0 && rows() != pages })
+    window.sendEvent(try arrowDown(window))
+    XCTAssertTrue(converge { scroll.contentView.bounds.minY < 600 },
+      "Choosing Keyboard shortcuts must scroll the full list back to that section")
   }
 }

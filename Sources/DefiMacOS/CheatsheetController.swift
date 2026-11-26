@@ -161,7 +161,8 @@ struct ShiftedShortcut: Hashable {
   let action: String
 }
 
-private func sectionTitle(for category: CommandCategory?) -> String {
+/// Shared with Settings, which groups its shortcut list the same way.
+func shortcutSectionTitle(for category: CommandCategory?) -> String {
   switch category {
   case .column: "Columns"
   case .window: "Windows in a column"
@@ -173,7 +174,7 @@ private func sectionTitle(for category: CommandCategory?) -> String {
   }
 }
 
-private let shortcutSections = CommandCategory.allCases.map(sectionTitle)
+private let shortcutSections = CommandCategory.allCases.map(shortcutSectionTitle)
 
 // Order defines row order inside a section. Entries without an argument label the
 // whole command family, which also names merged rows such as 1–9 or arrows.
@@ -235,7 +236,7 @@ private struct ShortcutBinding {
     let words = command.split(maxSplits: 1, whereSeparator: \.isWhitespace)
     return words.count > 1 ? String(words[1]) : nil
   }
-  var section: String { sectionTitle(for: commandSpec(named: verb)?.category) }
+  var section: String { shortcutSectionTitle(for: commandSpec(named: verb)?.category) }
   var rank: Int {
     shortcutLabels.firstIndex { $0.command == command }
       ?? shortcutLabels.firstIndex { $0.command == verb } ?? shortcutLabels.count

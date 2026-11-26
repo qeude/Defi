@@ -5,6 +5,10 @@ import Testing
 @testable import DefiMacOS
 
 struct SettingsSearchTests {
+  @Test func sidebarGroupsListEveryPageOnceInOrder() {
+    #expect(SettingsPage.sidebarGroups.flatMap(\.pages) == SettingsPage.allCases)
+  }
+
   @Test(arguments: [
     ("version", .option(.about)), ("github", .option(.about)), ("updates", .option(.automaticUpdates)),
     ("sponsor", .option(.about)), ("triage", .option(.logs)),
@@ -133,7 +137,7 @@ struct SettingsSearchTests {
     #expect(SettingsSearchCatalog.contains(custom, config: config,
       shortcuts: [binding("ctrl-a", "focus-workspace-position 12")]))
     #expect(!SettingsSearchCatalog.contains(custom, config: config, shortcuts: []))
-    #expect(custom.page == .input)
+    #expect(custom.page == .keyboard)
   }
 
   private func binding(_ accelerator: String, _ command: String, enabled: Bool = true) -> SettingsShortcutRow {

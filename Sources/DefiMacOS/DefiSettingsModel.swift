@@ -82,7 +82,11 @@ public final class DefiSettingsModel {
   private(set) var keyboardLayout: KeyboardLayout? {
     didSet { refreshShortcutResolution() }
   }
-  private(set) var shortcutResolution = ShortcutResolution(config: Config(), layout: nil)
+  private(set) var shortcutResolution = ShortcutResolution(config: Config(), layout: nil) {
+    didSet { shortcutResolutionVersion += 1 }
+  }
+  /// Bumped with each resolution, which is not Equatable, so caches can tell it changed.
+  private(set) var shortcutResolutionVersion = 0
   public private(set) var ruleRows: [SettingsRuleRow] = []
   /// Cached: every shortcut row in Settings reads it on each render.
   public private(set) var shortcutRows: [SettingsShortcutRow] = []
@@ -100,6 +104,7 @@ public final class DefiSettingsModel {
   @ObservationIgnored private var textInputObserver: CFRunLoopObserver?
   @ObservationIgnored private var directoryWatcher: DispatchSourceFileSystemObject?
   @ObservationIgnored private var layoutObserver: KeyboardLayoutObserver?
+  @ObservationIgnored private var systemStatusGeneration = 0
 
   public init(configURL: URL = Config.defaultURL) {
     self.configURL = configURL
@@ -113,7 +118,13 @@ public final class DefiSettingsModel {
     refreshRuleRows()
     shortcutRows = makeShortcutRows()
     refreshShortcutResolution()
-    refreshSystemStatus()
+    // A reopened window starts from the last reading, so nothing flips while the new one arrives.
+    if let status = Self.lastSystemStatus {
+      apply(status)
+      refreshSystemStatusInBackground()
+    } else {
+      refreshSystemStatus()
+    }
     refreshDisplays()
   }
 
@@ -150,9 +161,38 @@ public final class DefiSettingsModel {
   public var configurationPath: String { configURL.path }
 
   public func refreshSystemStatus() {
-    accessibilityGranted = AXIsProcessTrusted()
-    screenCaptureAvailable = CGPreflightScreenCaptureAccess()
-    switch SMAppService.mainApp.status {
+    systemStatusGeneration += 1
+    apply(Self.readSystemStatus())
+  }
+
+  /// The same reads off the main thread: Launch at Login asks a service over XPC, which took 60 ms.
+  public func refreshSystemStatusInBackground() {
+    systemStatusGeneration += 1
+    let generation = systemStatusGeneration
+    Task {
+      let status = await Task.detached { Self.readSystemStatus() }.value
+      if generation == systemStatusGeneration { apply(status) }
+    }
+  }
+
+  private struct SystemStatus: Sendable {
+    let accessibility: Bool
+    let screenCapture: Bool
+    let launchAtLogin: SMAppService.Status
+  }
+
+  private static var lastSystemStatus: SystemStatus?
+
+  private nonisolated static func readSystemStatus() -> SystemStatus {
+    SystemStatus(accessibility: AXIsProcessTrusted(), screenCapture: CGPreflightScreenCaptureAccess(),
+      launchAtLogin: SMAppService.mainApp.status)
+  }
+
+  private func apply(_ status: SystemStatus) {
+    Self.lastSystemStatus = status
+    accessibilityGranted = status.accessibility
+    screenCaptureAvailable = status.screenCapture
+    switch status.launchAtLogin {
     case .enabled:
       launchAtLoginEnabled = true
       launchAtLoginNotice = nil
@@ -420,6 +460,13 @@ public final class DefiSettingsModel {
   public func removeRule(at index: Int) {
     guard config.rules.indices.contains(index) else { return }
     save([.removeRule(index)])
+  }
+
+  public func removeRules(at indices: [Int]) {
+    let valid = Set(indices.filter(config.rules.indices.contains))
+    guard !valid.isEmpty else { return }
+    // Last first, so each removal leaves the earlier indices in place.
+    save(valid.sorted(by: >).map { .removeRule($0) })
   }
 
   public func moveRule(from source: Int, to destination: Int) {
@@ -1057,4 +1104,23 @@ public enum ScreenEdge: CaseIterable, Sendable {
   func value(in layout: LayoutConfig) -> Double {
     override(in: layout) ?? layout.gaps
   }
+}
+
+/// Rules naming an app by its exact bundle identifier that `isInstalled` does not find. A suffix or a
+/// rule without an app never counts: nothing says which app it means.
+/// A rule also matches by suffix either way, as `Rule.matches` does, so one found that way in `known`
+/// is installed too.
+func uninstalledRuleIndices(_ rules: [Rule], known: [String] = [], isInstalled: (String) -> Bool) -> [Int] {
+  let known = known.map { $0.lowercased() }
+  return rules.indices.filter { index in
+    guard let appID = rules[index].appID, appID.contains("."), !appID.hasPrefix("."), !appID.hasSuffix(".")
+    else { return false }
+    let candidate = appID.lowercased()
+    return !known.contains { $0.hasSuffix(candidate) || candidate.hasSuffix($0) } && !isInstalled(appID)
+  }
+}
+
+@MainActor
+func applicationIsInstalled(_ bundleIdentifier: String) -> Bool {
+  NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
 }

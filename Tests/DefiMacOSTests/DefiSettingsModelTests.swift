@@ -9,6 +9,17 @@ import Testing
 @MainActor
 struct DefiSettingsModelTests {
   @Test
+  func onlyExactBundleIdentifiersOfMissingAppsCountAsUninstalled() {
+    let rules = [
+      Rule(appID: "com.example.gone"), Rule(appID: "com.example.here"), Rule(appID: ".suffix"),
+      Rule(appID: "noDot"), Rule(title: "Untitled"),
+    ]
+    #expect(uninstalledRuleIndices(rules) { $0 == "com.example.here" } == [0])
+    // A rule naming a suffix of an installed app still matches it.
+    #expect(uninstalledRuleIndices([Rule(appID: "apple.Notes")], known: ["com.apple.Notes"]) { _ in false }.isEmpty)
+  }
+
+  @Test
   func windowGapKeepsScreenEdgesWhereTheyWere() throws {
     let url = try configFile()
     defer { removeConfig(url) }
