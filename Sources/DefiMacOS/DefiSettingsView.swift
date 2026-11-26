@@ -1042,8 +1042,10 @@ private struct KeyboardSettingsView: View {
       SettingsShortcutActions.commands(workspaces: model.config.workspaces.names, rows: model.shortcutRows).contains(command)
     {
       search.set(.command(command))
-    } else if search.filter.isActive {
-      // Any shortcut filter hides the full list that holds the target.
+    } else if case .command = search.filter {
+      search.set(.query(""))
+    } else if case .option = request.destination, search.filter.isActive {
+      // A typed shortcut search hides the full list that holds the option; a plain page switch keeps it.
       search.set(.query(""))
     }
   }

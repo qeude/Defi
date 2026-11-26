@@ -118,6 +118,11 @@ final class SettingsSearchViewTests: XCTestCase {
     }
     XCTAssertEqual(search.stringValue, "cen")
     XCTAssertNotNil(search.currentEditor(), "The results appearing must not take focus from the search field")
+    sidebar.selectRowIndexes([0], byExtendingSelection: false)
+    _ = converge({ false }, timeout: 0.3)
+    sidebar.selectRowIndexes([keyboard], byExtendingSelection: false)
+    _ = converge({ false }, timeout: 0.3)
+    XCTAssertEqual(search.stringValue, "cen", "Switching pages must keep a typed shortcut search")
 
     let settings = try XCTUnwrap(descendants(window).compactMap { $0 as? NSSearchField }.first { $0.placeholderString == "Search settings" })
     XCTAssertTrue(window.makeFirstResponder(settings))
