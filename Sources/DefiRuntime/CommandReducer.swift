@@ -157,6 +157,10 @@ public func reduce(
     return index
   }
 
+  // macOS orders the focused window of another app above a shown scratchpad, so a focused one
+  // keeps the focus as it rides a workspace switch.
+  let focusedScratchpadWindowID = state.selectedWindowID(on: state.monitors[monitorIndex].id)
+    .flatMap { state.scratchpadWindowIDs.contains($0) ? $0 : nil }
   do {
     switch command {
     case .focusColumn(let direction):
@@ -538,6 +542,18 @@ public func reduce(
     throw ReducerError.stackConstraint(rejection)
   }
   state.maintainWorkspaceLifecycle()
+  switch command {
+  case .switchWorkspace, .focusWorkspace:
+    // Only when it rode along: a switch to another monitor's workspace leaves it behind.
+    if let focusedScratchpadWindowID,
+      state.monitors[monitorIndex].workspaces.contains(where: {
+        $0.id == state.monitors[monitorIndex].activeWorkspace && $0.floatingWindows.contains(focusedScratchpadWindowID)
+      })
+    {
+      focusWindow(focusedScratchpadWindowID, state: &state)
+    }
+  default: break
+  }
   normalizeNativeFullscreenColumns(state: &state)
 }
 

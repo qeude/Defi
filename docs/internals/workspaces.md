@@ -81,8 +81,14 @@ windows are parked wherever they live, so they stay where they were parked and
 move only off a workspace about to go; a workspace switch never writes them. A move to
 another workspace would be carried straight back, so the reducer refuses it.
 
-macOS raises only the window it focuses, so the daemon raises every newly shown
-scratchpad window through Accessibility, the selected one last; otherwise the
-others stay behind the strip. Overview edits copy back a single workspace and would lose
+macOS raises only the window it focuses, so the daemon raises every scratchpad
+window through Accessibility, the selected one last, each time the scratchpad
+comes forward; otherwise the others stay behind the strip. Accessibility cannot
+order a window above the active app's windows: a raise stops just below them. So
+the scratchpad stays in front only while it has the focus, which is why a focused
+scratchpad keeps it across a workspace switch, and `toggle-scratchpad` parks
+only a focused scratchpad and brings an unfocused one forward. For the same
+reason a focus write that activates an app waits for its windows to come forward
+before raising the floating windows above it. Overview edits copy back a single workspace and would lose
 membership changes, so the daemon refuses both scratchpad commands while the
 Overview is open.

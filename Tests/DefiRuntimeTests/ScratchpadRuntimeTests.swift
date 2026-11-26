@@ -68,6 +68,28 @@ struct ScratchpadRuntimeTests {
   }
 
   @Test
+  func `A focused scratchpad keeps the focus across a switch, and toggling an unfocused one focuses it`()
+    throws
+  {
+    var state = try makeState(windowCount: 3)
+    try reduce(.toggleScratchpadWindow, on: monitorID, state: &state)
+    try reduce(.moveColumnToWorkspace(.relative(.down), follow: false), on: monitorID, state: &state)
+    try reduce(.toggleScratchpad, on: monitorID, state: &state)
+    try reduce(.focusWorkspace(.relative(.down)), on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[1].columns.flatMap(\.windows) == [terminal])
+    #expect(state.selectedWindowID(on: monitorID) == notes)
+
+    try reduce(.focusColumn(.first), on: monitorID, state: &state)
+    #expect(state.selectedWindowID(on: monitorID) == terminal)
+    try reduce(.toggleScratchpad, on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[1].floatingWindows == [notes])
+    #expect(state.selectedWindowID(on: monitorID) == notes)
+    try reduce(.toggleScratchpad, on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[1].scratchpadWindows == [notes])
+    #expect(state.selectedWindowID(on: monitorID) == terminal)
+  }
+
+  @Test
   func `A shown scratchpad rides the active workspace, a parked one stays, and the trailing one stays empty`()
     throws
   {

@@ -442,6 +442,7 @@ extension MacOSPlatform {
   private func foregroundFloatingWindowElements(
     above targetWindowID: WindowID
   ) -> [AXUIElement] {
+    let floatingWindowIDs = floatingWindowIDs.union(layoutFloatingWindowIDs)
     guard !floatingWindowIDs.contains(targetWindowID),
       let targetFrame = lastSnapshotWindows.first(where: {
         $0.id == targetWindowID

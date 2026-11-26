@@ -202,7 +202,8 @@ extension Daemon {
     let selectedWindowID = activeMonitorID.flatMap {
       state.selectedWindowID(on: $0)
     }
-    // macOS raises only the window it focuses; the rest of a shown scratchpad would stay behind the strip.
+    // macOS raises only the window it focuses; the rest of a scratchpad brought forward would stay
+    // behind the strip.
     let shownScratchpad = state.scratchpadWindowIDs.filter { windowID in
       state.monitors.contains { monitor in
         monitor.workspaces.contains { $0.id == monitor.activeWorkspace && $0.floatingWindows.contains(windowID) }
@@ -212,7 +213,7 @@ extension Daemon {
       platform.raiseWindows(
         shownScratchpad.filter { $0 != selectedWindowID } + shownScratchpad.filter { $0 == selectedWindowID })
     }
-    shownScratchpadWindowIDs = Set(shownScratchpad)
+    shownScratchpadWindowIDs = selectedWindowID.map(shownScratchpad.contains) == true ? Set(shownScratchpad) : []
     let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
     let borderStartedAt = ProcessInfo.processInfo.systemUptime
     let layoutMS =
@@ -232,6 +233,7 @@ extension Daemon {
     // Motion or `enabled = false`) the switch is immediate.
     let workspaceShifts = consumeWorkspaceSwitchShifts(source: source)
     let shifts = animationsEnabled
+    platform.layoutFloatingWindowIDs = Set(state.windows.filter(\.value.floating).keys)
     platform.windowProxyMonitors = state.monitors.compactMap { monitor in
       viewports[monitor.id].map { viewport in
         WindowProxyMonitor(viewport: viewport,

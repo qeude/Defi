@@ -520,15 +520,7 @@ public struct RuntimeState: Equatable, Sendable {
       for windowID in shown + hidden {
         removeWindow(windowID, from: &monitors[monitorIndex].workspaces[workspaceIndex], settings: layout)
       }
-      let ownsNoWindow = monitors[monitorIndex].workspaces[activeIndex].columns.isEmpty
-        && monitors[monitorIndex].workspaces[activeIndex].floatingWindows.allSatisfy(scratchpadWindowIDs.contains)
       monitors[monitorIndex].workspaces[activeIndex].floatingWindows += shown
-      // On a workspace of its own windows the switch selects one of them; else the selection rides along.
-      if ownsNoWindow, let selected = workspace.selectedWindowID, shown.contains(selected) {
-        monitors[monitorIndex].workspaces[activeIndex].focusedFloatingWindow =
-          monitors[monitorIndex].workspaces[activeIndex].floatingWindows.firstIndex(of: selected)!
-        monitors[monitorIndex].workspaces[activeIndex].focusedLayer = .floating
-      }
       if !hidden.isEmpty {
         monitors[monitorIndex].workspaces[activeIndex].scratchpadWindows =
           (monitors[monitorIndex].workspaces[activeIndex].scratchpadWindows ?? []) + hidden

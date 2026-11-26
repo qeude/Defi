@@ -41,15 +41,17 @@ func toggleScratchpadWindow(monitorIndex: Int, state: inout RuntimeState) throws
   state.monitors[monitorIndex].workspaces[workspaceIndex] = workspace
 }
 
-/// Parks the scratchpad when all of it shows on this monitor's active workspace; otherwise
-/// shows all of it there, from wherever it is.
+/// Parks the scratchpad when all of it shows on this monitor's active workspace and has the
+/// focus; otherwise shows all of it there, from wherever it is, and focuses it.
 func toggleScratchpad(monitorIndex: Int, state: inout RuntimeState) throws {
   guard !state.scratchpadWindowIDs.isEmpty else { return }
   guard let workspaceIndex = activeWorkspaceIndex(monitorIndex, state: state) else {
     throw ReducerError.noMonitor
   }
   let workspace = state.monitors[monitorIndex].workspaces[workspaceIndex]
-  if state.scratchpadWindowIDs.allSatisfy(workspace.floatingWindows.contains) {
+  if state.scratchpadWindowIDs.allSatisfy(workspace.floatingWindows.contains),
+    workspace.selectedWindowID.map(state.scratchpadWindowIDs.contains) == true
+  {
     hideScratchpadWindows(
       state.scratchpadWindowIDs, in: &state.monitors[monitorIndex].workspaces[workspaceIndex],
       settings: state.layout)
