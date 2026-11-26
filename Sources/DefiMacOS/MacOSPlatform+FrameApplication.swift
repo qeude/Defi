@@ -114,7 +114,9 @@ extension MacOSPlatform {
           for: assignment.windowID
         ),
         previousTarget: previousTargetFrames[assignment.windowID],
-        prefersCompletedPosition: horizontalRibbonNavigation,
+        // A slow app can apply a write after it timed out: its completed position is then stale.
+        prefersCompletedPosition: horizontalRibbonNavigation
+          && frameCoordinator.latestWriteSucceeded(for: assignment.windowID) != false,
         // Only a kept target: a new target already differs from the previous one.
         previousTargetUnwritten: unwrittenWindowIDs.contains(assignment.windowID)
           && previousTargetFrames[assignment.windowID] == assignment.frame,

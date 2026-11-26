@@ -11,7 +11,11 @@ struct FrameSettlementVerificationTests {
   private let target = Rect(x: 2, y: 37, width: 752, height: 902)
   private let rollback = Rect(x: 25, y: 37, width: 752, height: 902)
 
-  private nonisolated func accessibilityWriter(reads: DiscoveryReadFixture) -> AXFrameAccessibilityWriter {
+  /// A slow app past the messaging timeout: the write reports failure, yet the app moves.
+  private final class MessagingTimeout: Sendable { let active = Mutex(false) }
+
+  private nonisolated func accessibilityWriter(reads: DiscoveryReadFixture,
+    timeout: MessagingTimeout = MessagingTimeout()) -> AXFrameAccessibilityWriter {
     AXFrameAccessibilityWriter(
       positionWriter: { @Sendable write, point in
         reads.state.withLock { state in
@@ -20,7 +24,7 @@ struct FrameSettlementVerificationTests {
           window.frame.x = point.x
           window.frame.y = point.y
           state.windowsByHash[hash] = window
-          return true
+          return !timeout.active.withLock { $0 }
         }
       },
       sizeWriter: { @Sendable write, size in
@@ -48,11 +52,12 @@ struct FrameSettlementVerificationTests {
     )
   }
 
-  @MainActor private func fixture() async -> (MacOSPlatform, DiscoveryReadFixture, WindowID, Double) {
+  @MainActor private func fixture(timeout: MessagingTimeout = MessagingTimeout()) async
+    -> (MacOSPlatform, DiscoveryReadFixture, WindowID, Double) {
     let reads = DiscoveryReadFixture()
     reads.revealsNewWindow = false
     reads.failsProcess = nil
-    let coordinator = AXFrameCoordinator(accessibilityWriter: accessibilityWriter(reads: reads))
+    let coordinator = AXFrameCoordinator(accessibilityWriter: accessibilityWriter(reads: reads, timeout: timeout))
     let platform = NavigationActor.shared.queue.sync {
       NavigationActor.assumeIsolated { MacOSPlatform(frameCoordinator: coordinator) }
     }
@@ -419,6 +424,30 @@ struct FrameSettlementVerificationTests {
     #expect(final.windows.first { $0.id == id }?.frame == nextTarget)
     #expect(engine.frameCommitExpectations[id] == nil)
     #expect(!engine.pendingFrameDebtWindowIDs.contains(id))
+  }
+
+  /// A slow app moves its window after the write timed out: the next horizontal move must
+  /// not diff against the place the window left and skip parking it on screen.
+  @MainActor @Test func timedOutWriteDoesNotHideTheNextMove() async {
+    let timeout = MessagingTimeout()
+    let (platform, reads, id, _) = await fixture(timeout: timeout)
+    defer { withExtendedLifetime(platform) {} }
+    let parked = Rect(x: 3999, y: 37, width: 752, height: 902)
+    let shown = Rect(x: 760, y: 37, width: 752, height: 902)
+    func move(_ frame: Rect) async {
+      platform.frameCoordinator.running = true
+      await platform.apply([FrameAssignment(windowID: id, frame: frame)],
+        ribbonFrames: [FrameAssignment(windowID: id, frame: frame)], positionsOnly: true,
+        updateVisibility: false, source: "command-animation")
+      platform.frameCoordinator.drain()
+    }
+    await move(parked)
+    timeout.active.withLock { $0 = true }
+    await move(shown)
+    timeout.active.withLock { $0 = false }
+    #expect(reads.windowsByHash.values.first { $0.id == id }?.frame == shown)
+    await move(parked)
+    #expect(reads.windowsByHash.values.first { $0.id == id }?.frame == parked)
   }
 
   /// A window entering the strip whose queued write a newer layout superseded keeps
