@@ -391,9 +391,10 @@ extension DesktopE2ETests {
     let all = [tiled, scratch]
     XCTAssertTrue(daemon.settle(all))
     let display = CGDisplayBounds(CGMainDisplayID())
+    // Parking leaves a one-point sliver on an edge or a corner clear of any other display.
     func parked() throws -> Bool {
-      let frame = try scratch.frame()
-      return frame.minX >= display.maxX - 2 || frame.maxX <= display.minX + 2
+      let visible = try scratch.frame().intersection(display)
+      return visible.width <= 2 || visible.height <= 2
     }
 
     try daemon.run("focus-window-id \(scratch.windowID)")
@@ -416,7 +417,8 @@ extension DesktopE2ETests {
     try daemon.run("toggle-scratchpad")
     XCTAssertTrue(daemon.settle(all))
     _ = pumpRunLoop(until: { false }, timeout: 1)
-    XCTAssertTrue(try parked(), "The scratchpad must stay parked: \(daemon.diagnostics("b"))")
+    XCTAssertTrue(try parked(),
+      "The scratchpad must stay parked: \(String(describing: try? scratch.frame())) \(daemon.diagnostics("b"))")
 
     // Native focus may linger on the parked window; it must not undo the switch.
     try daemon.run("workspace a")
