@@ -12,7 +12,7 @@ and chunking bounded single sections but could not remove the shared thread.
   native events, and Accessibility completions enter it as messages, in arrival
   order. Enqueue callbacks directly; an `await` that splits a state transition
   lets another message interleave.
-- [`SnapshotEngine`](../../Sources/DefiMacOS/SnapshotEngine.swift) runs snapshot
+- [`SnapshotEngine`](../../Sources/DefiMacOS/Discovery/SnapshotEngine.swift) runs snapshot
   passes on a serial queue; its shared state is lock-guarded for main-thread
   readers.
 - The main thread runs AppKit, NSScreen, event taps, observer run loops, and the
