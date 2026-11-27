@@ -9,6 +9,8 @@ public final class MenuBarController: NSObject {
   private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private let columnsItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private var columnsLayout: MenuBarColumnsLayout?
+  private var shownColumns: MenuBarColumnsLayout?
+  private var columnsAnimation: (from: MenuBarColumnsLayout, start: TimeInterval, timer: Timer)?
   private lazy var menu = NSHostingMenu(rootView: MenuBarContent(state: state, commandHandler: commandHandler))
   private var target: MenuBarLayout?
   private var shown: MenuBarLayout?
@@ -80,7 +82,32 @@ public final class MenuBarController: NSObject {
     let next = menuBarColumnsLayout(state.focusedMonitor, maxWidth: state.config.columnsWidth)
     guard next != columnsLayout else { return }
     columnsLayout = next
-    columnsItem.button?.image = menuBarColumnsImage(next)
+    columnsAnimation?.timer.invalidate()
+    columnsAnimation = nil
+    guard let shownColumns, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+      shownColumns.bars.contains(where: { bar in next.bars.contains { $0.windowID == bar.windowID } })
+    else { return showColumns(next) }
+    let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] _ in
+      MainActor.assumeIsolated { self?.stepColumns() }
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    columnsAnimation = (shownColumns, ProcessInfo.processInfo.systemUptime, timer)
+  }
+
+  private func stepColumns() {
+    guard let columnsAnimation, let columnsLayout else { return }
+    let t = min((ProcessInfo.processInfo.systemUptime - columnsAnimation.start) / 0.2, 1)
+    if t >= 1 {
+      columnsAnimation.timer.invalidate()
+      self.columnsAnimation = nil
+      return showColumns(columnsLayout)
+    }
+    showColumns(interpolate(columnsAnimation.from, columnsLayout, 1 - pow(1 - t, 3)))
+  }
+
+  private func showColumns(_ layout: MenuBarColumnsLayout) {
+    shownColumns = layout
+    columnsItem.button?.image = menuBarColumnsImage(layout)
   }
 
   @objc private func columnsClicked(_ sender: NSStatusBarButton) {

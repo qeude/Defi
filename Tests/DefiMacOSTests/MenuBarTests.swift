@@ -158,6 +158,23 @@ struct MenuBarTests {
       focusedColumn: 0, stripWidth: 1000), maxWidth: 60)
     #expect(edge.windowID(atX: edge.bars[0].rect.maxX - 0.5) == 1)
 
+    // A column half off the left edge: the frame starts in its middle, not at the focused one.
+    let partial = menuBarColumnsLayout(MenuMonitor(id: 1, isFocused: true, activeWorkspace: "1", workspaces: [],
+      columns: [MenuColumn(x: -250, width: 500, windows: 1, windowID: 1), MenuColumn(x: 250, width: 750, windows: 1, windowID: 2)],
+      focusedColumn: 1, stripWidth: 1000), maxWidth: 60)
+    #expect(abs(partial.frame.minX - (partial.bars[0].rect.midX - 1.5)) < 0.01)
+    #expect(abs(partial.frame.maxX - (partial.bars[1].rect.maxX + 1.5)) < 0.01)
+
+    // Scrolling slides the frame over the bars; a new column fades in.
+    let scrolled = menuBarColumnsLayout(MenuMonitor(id: 1, isFocused: true, activeWorkspace: "1", workspaces: [],
+      columns: columns.map { MenuColumn(x: $0.x - 500, width: $0.width, windows: $0.windows, windowID: $0.windowID) }
+        + [MenuColumn(x: 830, width: 300, windows: 1, windowID: 14)],
+      focusedColumn: 2, stripWidth: 1000), maxWidth: 60)
+    #expect(interpolate(layout, scrolled, 0) == layout && interpolate(layout, scrolled, 1) == scrolled)
+    let halfway = interpolate(layout, scrolled, 0.5)
+    #expect(abs(halfway.frame.minX - (layout.frame.minX + scrolled.frame.minX) / 2) < 0.01)
+    #expect(halfway.bars[4].alpha == scrolled.bars[4].alpha / 2)
+
     let many = (0..<40).map { MenuColumn(x: Double($0) * 500, width: 500, windows: 1, windowID: UInt64($0)) }
     let crowded = menuBarColumnsLayout(MenuMonitor(id: 1, isFocused: true, activeWorkspace: "1",
       workspaces: [], columns: Array(many.prefix(12)), focusedColumn: 0, stripWidth: 1000), maxWidth: 60)
