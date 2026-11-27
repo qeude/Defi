@@ -235,36 +235,52 @@ public final class AppUpdater {
   }
 
   func showPanel() {
-    guard panel == nil, let screen = NSScreen.main else { return }
-    let hosting = NSHostingView(rootView: AppUpdatePanelContent(updater: self))
-    // The hidden title bar reserves no space above the content.
-    hosting.safeAreaRegions = []
-    let size = hosting.fittingSize
-    let bounds = screen.visibleFrame
-    let frame = CGRect(
-      x: bounds.maxX - size.width - 16, y: bounds.maxY - size.height - 16,
-      width: size.width, height: size.height
-    )
-    // Never takes focus by appearing: a keystroke in progress must not trigger an update.
-    let panel = AppUpdatePanel(
-      contentRect: frame.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY),
-      styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel],
-      backing: .buffered, defer: false, screen: screen
-    )
-    panel.title = "Defi Update"
+    guard panel == nil else { return }
+    panel = presentFloatingPanel(title: "Defi Update", content: AppUpdatePanelContent(updater: self))
+  }
+}
+
+/// Top-right of the main screen, or centered on it like an alert for a glass panel, above other
+/// windows, and never takes focus by appearing: a keystroke in progress must not press a button.
+@MainActor
+func presentFloatingPanel(title: String, glass: Bool = false, content: some View) -> NSPanel? {
+  guard let screen = NSScreen.main else { return nil }
+  let hosting = FirstClickHostingView(rootView: content)
+  // The hidden title bar reserves no space above the content.
+  hosting.safeAreaRegions = []
+  let size = hosting.fittingSize
+  let bounds = screen.visibleFrame
+  let frame = CGRect(
+    x: bounds.maxX - size.width - 16, y: bounds.maxY - size.height - 16,
+    width: size.width, height: size.height
+  )
+  let panel = AppUpdatePanel(
+    contentRect: frame.offsetBy(dx: -screen.frame.minX, dy: -screen.frame.minY),
+    styleMask: glass ? [.borderless, .nonactivatingPanel] : [.titled, .fullSizeContentView, .nonactivatingPanel],
+    backing: .buffered, defer: false, screen: screen
+  )
+  panel.title = title
+  if glass {
+    // The content draws its own glass surface and corners. A window shadow would outline the
+    // whole rectangle in dark mode, since the panel can become key.
+    panel.isOpaque = false
+    panel.backgroundColor = .clear
+    panel.hasShadow = false
+  } else {
     panel.titleVisibility = .hidden
     panel.titlebarAppearsTransparent = true
-    panel.isMovableByWindowBackground = true
-    panel.hidesOnDeactivate = false
-    panel.isReleasedWhenClosed = false
-    panel.isExcludedFromWindowsMenu = true
-    panel.animationBehavior = .none
-    panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
-    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-    panel.contentView = hosting
-    self.panel = panel
-    panel.orderFrontRegardless()
   }
+  panel.isMovableByWindowBackground = true
+  panel.hidesOnDeactivate = false
+  panel.isReleasedWhenClosed = false
+  panel.isExcludedFromWindowsMenu = true
+  panel.animationBehavior = .none
+  panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+  panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+  panel.contentView = hosting
+  if glass { panel.center() }
+  panel.orderFrontRegardless()
+  return panel
 }
 
 private func launchAppUpdateSwap(
@@ -299,11 +315,18 @@ private func launchAppUpdateSwap(
 }
 
 private final class AppUpdatePanel: NSPanel {
+  // A borderless panel refuses key by default; after a click, Return and Escape reach its buttons.
+  override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { false }
 }
 
-/// The panel never takes focus by appearing, so its first click must already press a button.
-/// SwiftUI buttons drop that click while Defi is inactive; AppKit's tracks it directly.
+/// The panel never takes focus by appearing, so its first click must already press a button,
+/// which SwiftUI drops while Defi is inactive unless the hosting view accepts it.
+private final class FirstClickHostingView<Content: View>: NSHostingView<Content> {
+  override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// SwiftUI buttons drop the first click while Defi is inactive; AppKit's tracks it directly.
 private final class AppUpdateFirstClickButton: NSButton {
   override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
