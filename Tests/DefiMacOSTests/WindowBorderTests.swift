@@ -9,6 +9,15 @@ import Testing
 @testable import DefiMacOS
 
 struct WindowBorderTests {
+  @Test func windowsTheWindowServerDoesNotShowAreOffscreen() {
+    let frame = Rect(x: 0, y: 0, width: 800, height: 600)
+    let inventory = [
+      CGWindowRecord(id: 1, processID: 1, layer: 0, title: "", frame: frame),
+      CGWindowRecord(id: 2, processID: 2, layer: 0, title: "", frame: frame, isOnscreen: false),
+    ]
+    #expect(windowServerOffscreenWindowIDs(in: inventory) == [WindowID(rawValue: 2)])
+  }
+
   @Test func overviewReusesConstraintsWithoutBlockingMetadataReads() {
     let previous = Window(id: WindowID(rawValue: 1), appID: "test", title: "Window",
       frame: Rect(x: 0, y: 0, width: 800, height: 600),
