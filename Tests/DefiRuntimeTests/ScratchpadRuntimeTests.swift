@@ -192,6 +192,25 @@ struct ScratchpadRuntimeTests {
     #expect(restored.monitors[0].workspaces[0].scratchpadWindows == nil)
   }
 
+  @Test
+  func `A parked scratchpad window keeps its place when a native tab replaces its ID`() throws {
+    var state = try makeState(windowCount: 3)
+    try reduce(.toggleScratchpadWindow, on: monitorID, state: &state)
+    let tab = WindowID(rawValue: 4)
+    let windows = [tiled, terminal, tab].map {
+      Window(
+        id: $0, appID: "editor", title: "Window \($0.rawValue)",
+        frame: Rect(x: 0, y: 0, width: 784, height: 684), monitorID: monitorID)
+    }
+
+    reconcileWindows(windows, config: Config(), windowIDReplacements: [notes: tab], state: &state)
+
+    #expect(state.scratchpadWindowIDs == [tab])
+    #expect(state.monitors[0].workspaces[0].scratchpadWindows == [tab])
+    try reduce(.toggleScratchpad, on: monitorID, state: &state)
+    #expect(state.monitors[0].workspaces[0].floatingWindows == [tab])
+  }
+
   private func makeState(windowCount: Int) throws -> RuntimeState {
     var state = RuntimeState(config: Config())
     state.attachMonitor(monitorID)
