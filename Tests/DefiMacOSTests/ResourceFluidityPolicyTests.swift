@@ -6,6 +6,7 @@ import DefiModel
 import DefiRuntime
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct ResourceFluidityPolicyTests {
   @MainActor @Test func borderTranslationKeepsFramesAndRepairsStacking() {

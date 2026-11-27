@@ -2,6 +2,7 @@ import DefiRuntime
 import DefiMacOS
 import DefiModel
 import Foundation
+import DefiUI
 
 @NavigationActor
 extension Daemon {

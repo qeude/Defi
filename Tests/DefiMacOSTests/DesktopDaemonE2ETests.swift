@@ -3,6 +3,7 @@ import CoreGraphics
 import DefiIPC
 import Synchronization
 import XCTest
+@testable import DefiUI
 
 /// Journeys that live in the daemon, run against the real `defi-daemon` binary. That daemon
 /// manages every window on the display and drags through the HID tap, so these cases run only

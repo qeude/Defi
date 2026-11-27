@@ -6,6 +6,7 @@ import DefiModel
 import Testing
 import ScreenCaptureKit
 @testable import DefiMacOS
+@testable import DefiUI
 
 private let windowPixelsBitmapInfo = CGBitmapInfo(rawValue:
   CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue)

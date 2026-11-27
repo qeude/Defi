@@ -4,6 +4,7 @@ import Foundation
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct BudgetedFreshReadPartitionTests {
   @Test(arguments: [false, true])

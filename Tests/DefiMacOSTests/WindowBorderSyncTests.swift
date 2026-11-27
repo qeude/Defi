@@ -4,6 +4,7 @@ import DefiModel
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 @MainActor
 private final class FakeWindowEvents: WindowServerWindowEventSource {

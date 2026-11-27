@@ -12,6 +12,7 @@ import XCTest
 import class SwiftUI.NSHostingView
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 private struct DesktopPreflightFailure: Error, CustomStringConvertible {
   let description: String

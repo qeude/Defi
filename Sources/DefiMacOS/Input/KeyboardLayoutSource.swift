@@ -22,7 +22,7 @@ func inputMethodEnabled() -> Bool {
 /// The ASCII-capable layout rather than the selected source, so Romaji and kana keep the layout
 /// that shortcuts use. Main thread only: TIS is not safe on the tap thread or the navigation actor.
 @MainActor
-func currentKeyboardLayout() -> KeyboardLayout? {
+package func currentKeyboardLayout() -> KeyboardLayout? {
   guard let source = TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue() else { return nil }
   let observed = observedKeyboardType.withLock { $0 }
   return keyboardLayout(of: source, keyboardType: observed != 0 ? observed : UInt32(LMGetKbdType()))
@@ -95,10 +95,10 @@ private func printedCharacter(
 /// notification can arrive before TIS reports the new source. Callers gate on equality.
 /// The distributed centre delivers immediately even while the daemon is inactive.
 @MainActor
-final class KeyboardLayoutObserver {
+final package class KeyboardLayoutObserver {
   private let changed: @MainActor () -> Void
 
-  init(_ changed: @escaping @MainActor () -> Void) {
+  package init(_ changed: @escaping @MainActor () -> Void) {
     self.changed = changed
     CFNotificationCenterAddObserver(
       CFNotificationCenterGetDistributedCenter(), Unmanaged.passUnretained(self).toOpaque(),

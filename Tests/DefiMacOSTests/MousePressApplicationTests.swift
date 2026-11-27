@@ -3,6 +3,7 @@ import DefiModel
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct MousePressApplicationTests {
   private let frame = Rect(x: 0, y: 0, width: 100, height: 100)

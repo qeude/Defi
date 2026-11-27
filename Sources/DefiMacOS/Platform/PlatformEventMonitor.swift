@@ -5,7 +5,7 @@ import DefiModel
 import Synchronization
 
 /// Window discovery reads Defi itself only while it is a regular app, with Settings open.
-let defiActivationPolicyDidChange = Notification.Name("DefiActivationPolicyDidChange")
+package let defiActivationPolicyDidChange = Notification.Name("DefiActivationPolicyDidChange")
 
 
 /// The last left press came from a trackpad, not a mouse: drag haptics play only for it.

@@ -7,6 +7,7 @@ import Synchronization
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 private final class HeldBorderDeliveries: @unchecked Sendable {
   private let pending = Mutex<[@MainActor @Sendable () -> Void]>([])

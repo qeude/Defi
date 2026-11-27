@@ -7,6 +7,7 @@ import Foundation
 import Testing
 
 @testable import DefiDaemon
+@testable import DefiUI
 
 struct DaemonOverviewSnapshotTests {
   @Test @NavigationActor

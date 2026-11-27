@@ -5,6 +5,7 @@ import DefiRuntime
 import Synchronization
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct IncrementalDiscoveryRegressionTests {
   @MainActor private func fixture() -> (MacOSPlatform, DiscoveryReadFixture, Window, AXUIElement) {

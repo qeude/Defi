@@ -2,6 +2,7 @@ import DefiModel
 import Testing
 
 @testable import DefiDaemon
+@testable import DefiUI
 
 struct SpawnShellTests {
   @Test

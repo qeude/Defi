@@ -7,6 +7,7 @@ import Foundation
 import Testing
 
 @testable import DefiDaemon
+@testable import DefiUI
 
 struct ScrollPanTests {
   // A laptop below-left of a taller external display, as in a staircase arrangement.

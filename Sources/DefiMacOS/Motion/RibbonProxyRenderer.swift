@@ -29,7 +29,7 @@ struct RibbonProxyWindow {
 }
 
 /// Pictures stay valid only for the native size they were captured at.
-func ribbonProxyPictureMatches(captured: CGSize, native: Rect) -> Bool {
+package func ribbonProxyPictureMatches(captured: CGSize, native: Rect) -> Bool {
   abs(captured.width - native.width) < 3 && abs(captured.height - native.height) < 3
 }
 
@@ -119,34 +119,49 @@ func ribbonProxyDistance(_ frame: Rect, _ area: Rect) -> Double {
 }
 
 
-struct RibbonProxyScreen: Sendable {
-  let displayID: CGDirectDisplayID
+package struct RibbonProxyScreen: Sendable {
+  package let displayID: CGDirectDisplayID
   // Top-left global coordinates, matching Accessibility and CGWindowList.
-  let frame: Rect
-  let visibleFrame: Rect
-  let scale: Double
+  package let frame: Rect
+  package let visibleFrame: Rect
+  package let scale: Double
 
   /// The overlay's surface: the whole screen below the menu bar. No window goes under the
   /// menu bar, and a surface there turned the transparent menu bar opaque.
-  var overlayArea: Rect {
+  package var overlayArea: Rect {
     let top = max(visibleFrame.y, frame.y)
     return Rect(x: frame.x, y: top, width: frame.width, height: frame.y + frame.height - top)
   }
+
+  package init(displayID: CGDirectDisplayID, frame: Rect, visibleFrame: Rect, scale: Double) {
+    self.displayID = displayID
+    self.frame = frame
+    self.visibleFrame = visibleFrame
+    self.scale = scale
+  }
 }
 
-struct RibbonProxyRefresh: Sendable {
-  let id: WindowID
-  let appID: String
-  let processID: Int32
-  let frame: Rect
+package struct RibbonProxyRefresh: Sendable {
+  package let id: WindowID
+  package let appID: String
+  package let processID: Int32
+  package let frame: Rect
   // Distance from the viewport along the ribbon; 0 means visible.
-  let distance: Double
+  package let distance: Double
+
+  package init(id: WindowID, appID: String, processID: Int32, frame: Rect, distance: Double) {
+    self.id = id
+    self.appID = appID
+    self.processID = processID
+    self.frame = frame
+    self.distance = distance
+  }
 }
 
 /// Screen and motion state shared between the main thread and the navigation
 /// presenter, so a navigation never waits for the main thread.
-final class RibbonProxyStore: @unchecked Sendable {
-  static let shared = RibbonProxyStore()
+final package class RibbonProxyStore: @unchecked Sendable {
+  package static let shared = RibbonProxyStore()
   private let lock = NSLock()
   private var screens: [RibbonProxyScreen] = []
   private var authorized = false
@@ -191,7 +206,7 @@ final class RibbonProxyStore: @unchecked Sendable {
     locked { if moving { movingDisplays.insert(display) } else { movingDisplays.remove(display) } }
   }
   /// The Overview's opening zoom is a motion too, kept apart so neither clears the other.
-  func setOverviewZooming(_ zooming: Bool, _ monitorID: MonitorID) {
+  package func setOverviewZooming(_ zooming: Bool, _ monitorID: MonitorID) {
     locked { if zooming { zoomingOverviews.insert(monitorID) } else { zoomingOverviews.remove(monitorID) } }
   }
 
@@ -231,7 +246,7 @@ struct RibbonProxyLayers: @unchecked Sendable {
 /// Main-thread side: owns the overlay window and keeps pictures warm.
 @MainActor
 final class RibbonProxyRenderer {
-  static let shared = RibbonProxyRenderer()
+  package static let shared = RibbonProxyRenderer()
 
   var enabled = false {
     didSet {
@@ -1896,7 +1911,7 @@ func ribbonProxyImageIsBlack(_ image: CGImage) -> Bool {
   return pixels.enumerated().allSatisfy { $0.offset % 4 == 3 || $0.element < 8 }
 }
 
-func ribbonProxyWindowDescriptions(_ numbers: [CGWindowID]) -> [NSDictionary] {
+package func ribbonProxyWindowDescriptions(_ numbers: [CGWindowID]) -> [NSDictionary] {
   // Raw window numbers, not boxed objects: bridging `as CFArray` matches no window.
   var pointers = numbers.map { UnsafeRawPointer(bitPattern: UInt($0)) }
   guard let array = CFArrayCreate(nil, &pointers, pointers.count, nil) else { return [] }
@@ -2247,7 +2262,7 @@ final class RibbonProxyPointerTrack: @unchecked Sendable {
     case pan(RibbonProxyPan)
   }
 
-  static let shared = RibbonProxyPointerTrack()
+  package static let shared = RibbonProxyPointerTrack()
   private let lock = NSLock()
   private var mode: Mode?
   /// Copies of the carried window on the other displays previewing its drop.
@@ -2357,7 +2372,7 @@ func ribbonProxyTaggedImage(_ buffer: CVPixelBuffer) -> CGImage? {
 /// Reads the cursor once per frame while a window is held.
 @MainActor
 final class RibbonProxyPointerTicker: NSObject {
-  static let shared = RibbonProxyPointerTicker()
+  package static let shared = RibbonProxyPointerTicker()
   private var link: CADisplayLink?
   private var area: Rect?
 

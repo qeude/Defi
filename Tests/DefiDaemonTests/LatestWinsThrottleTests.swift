@@ -1,6 +1,7 @@
 import Testing
 
 @testable import DefiDaemon
+@testable import DefiUI
 
 @MainActor
 struct LatestWinsThrottleTests {

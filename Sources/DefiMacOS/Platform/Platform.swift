@@ -6,7 +6,7 @@ import DefiCore
 import DefiModel
 import OSLog
 
-struct CGWindowRecord: Sendable {
+package struct CGWindowRecord: Sendable {
   let id: CGWindowID
   let processID: pid_t
   let ownerName: String
@@ -144,7 +144,7 @@ func cgWindowRecordForDiscovery(
   )
 }
 
-func nativeFullscreenWindowIDs(
+package func nativeFullscreenWindowIDs(
   windows: [Window],
   cgWindows: [CGWindowRecord],
   monitors: [MonitorSnapshot],

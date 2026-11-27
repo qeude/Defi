@@ -4,7 +4,7 @@ import os
 
 // Workers may overlap image processing, but only one macOS capture/consent call
 // may be outstanding. Cancellation does not dismiss a system consent dialog.
-let overviewCaptureLimiter = OverviewCaptureLimiter(limit: 1)
+package let overviewCaptureLimiter = OverviewCaptureLimiter(limit: 1)
 private let overviewCaptureLogger = Logger(subsystem: "com.qeude.defi", category: "overview-capture")
 
 struct OverviewCaptureTimeoutError: Error {}
@@ -38,10 +38,10 @@ func withOverviewCaptureTimeout<Value>(
   return try outcome.value.get()
 }
 
-actor OverviewCaptureLimiter {
+package actor OverviewCaptureLimiter {
   private var available: Int
   private var waiters: [(UUID, CheckedContinuation<Bool, Never>)] = []
-  private(set) var authorizationDeclined = false
+  package private(set) var authorizationDeclined = false
   var waitingCount: Int { waiters.count }
 
   init(limit: Int) { available = limit }

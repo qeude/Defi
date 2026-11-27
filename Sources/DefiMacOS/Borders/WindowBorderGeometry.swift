@@ -3,14 +3,14 @@ import DefiCore
 import DefiModel
 import QuartzCore
 
-enum WindowBorderSegmentKind: CaseIterable, Sendable {
+package enum WindowBorderSegmentKind: CaseIterable, Sendable {
   case top
   case bottom
   case left
   case right
 }
 
-enum WindowBorderPlacement: Equatable, Sendable {
+package enum WindowBorderPlacement: Equatable, Sendable {
   /// The stroke hugs the window edge from the inside; segments overlap the
   /// first band of window content.
   case inside
@@ -23,7 +23,7 @@ enum WindowBorderPlacement: Equatable, Sendable {
   }
 }
 
-struct WindowBorderSegmentGeometry: Equatable, Sendable {
+package struct WindowBorderSegmentGeometry: Equatable, Sendable {
   let kind: WindowBorderSegmentKind
   let frame: Rect
   let pathOriginFromWindowBottom: CGPoint

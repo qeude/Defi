@@ -6,6 +6,7 @@ import DefiModel
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct WindowDiscoveryTests {
   private let processID: pid_t = 42

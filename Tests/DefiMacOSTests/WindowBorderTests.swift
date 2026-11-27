@@ -7,6 +7,7 @@ import Synchronization
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct WindowBorderTests {
   @Test func overviewReusesConstraintsWithoutBlockingMetadataReads() {

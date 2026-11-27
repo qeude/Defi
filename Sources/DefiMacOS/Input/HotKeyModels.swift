@@ -4,7 +4,7 @@ import DefiModel
 import Foundation
 import Synchronization
 
-let settingsTextInputFocused = Mutex(false)
+package let settingsTextInputFocused = Mutex(false)
 
 func hotKeyTargetIsCurrentApplication(
   _ targetPID: pid_t?, currentPID: pid_t, recordingShortcut: Bool = false
@@ -205,16 +205,16 @@ struct CapturedHotKeyModifierReleaseState: Equatable, Sendable {
   }
 }
 
-struct Key: Hashable, Sendable {
-  let code: CGKeyCode
-  let modifierBits: UInt64
+package struct Key: Hashable, Sendable {
+  package let code: CGKeyCode
+  package let modifierBits: UInt64
 
-  init(code: CGKeyCode, flags: UInt64) {
+  package init(code: CGKeyCode, flags: UInt64) {
     self.code = code
     modifierBits = hotKeyModifierBits(CGEventFlags(rawValue: flags))
   }
 
-  init(
+  package init(
     accelerator: String,
     aliases: [String: String]
   ) throws(HotKeyError) {
@@ -227,7 +227,7 @@ struct Key: Hashable, Sendable {
   }
 }
 
-func parseAccelerator(
+package func parseAccelerator(
   _ accelerator: String, aliases: [String: String]
 ) throws(HotKeyError) -> (modifiers: CGEventFlags, name: String) {
   guard let normalized = normalizedAccelerator(accelerator, aliases: aliases) else {
@@ -254,8 +254,9 @@ func parseAccelerator(
 }
 
 /// Modifiers that change which character a key prints. Command is chosen by the binding, never added.
-struct KeyboardLayer: OptionSet, Hashable, Sendable {
-  let rawValue: Int
+package struct KeyboardLayer: OptionSet, Hashable, Sendable {
+  package let rawValue: Int
+  package init(rawValue: Int) { self.rawValue = rawValue }
   static let shift = KeyboardLayer(rawValue: 1)
   static let option = KeyboardLayer(rawValue: 2)
   static let command = KeyboardLayer(rawValue: 4)
@@ -266,11 +267,11 @@ let layoutScannedKeyCodes: [UInt16] = Array(0...47).filter { $0 != 36 } + [50, 9
 
 /// What each key prints on one layout, lowercased and without dead keys. A key that prints
 /// nothing printable has no entry.
-struct KeyboardLayout: Equatable, Sendable {
-  let characters: [KeyboardLayer: [UInt16: String]]
+package struct KeyboardLayout: Equatable, Sendable {
+  package let characters: [KeyboardLayer: [UInt16: String]]
 
   /// Base, Shift, Option, then Option-Shift; the lowest scanned key code within a layer.
-  func position(of character: String, command: Bool) -> (code: UInt16, layer: KeyboardLayer)? {
+  package func position(of character: String, command: Bool) -> (code: UInt16, layer: KeyboardLayer)? {
     for layer: KeyboardLayer in [[], .shift, .option, [.shift, .option]] {
       let layer = command ? layer.union(.command) : layer
       if let code = layoutScannedKeyCodes.first(where: { characters[layer]?[$0] == character }) {
@@ -280,29 +281,29 @@ struct KeyboardLayout: Equatable, Sendable {
     return nil
   }
 
-  func baseCharacter(code: UInt16, command: Bool) -> String? {
+  package func baseCharacter(code: UInt16, command: Bool) -> String? {
     characters[command ? .command : []]?[code]
   }
 }
 
-enum HotKeyInactivity: Equatable, Sendable {
+package enum HotKeyInactivity: Equatable, Sendable {
   case absentFromLayout
   case held(by: String)
   /// Registered elsewhere, so Carbon refused the chord.
   case heldByAnotherApp
 }
 
-struct HotKeyResolution {
-  var keys: [Key: (accelerator: String, command: String)] = [:]
+package struct HotKeyResolution {
+  package var keys: [Key: (accelerator: String, command: String)] = [:]
   /// Bindings that hold no chord, by accelerator as configured.
-  var inactive: [String: HotKeyInactivity] = [:]
-  var closeWindowKeyCodes = CloseWindowKeyCodes()
+  package var inactive: [String: HotKeyInactivity] = [:]
+  package var closeWindowKeyCodes = CloseWindowKeyCodes()
 }
 
 /// Q and W as Command sees them on this layout; they close a window.
-struct CloseWindowKeyCodes: Equatable, Sendable {
-  var quit: CGKeyCode = 12
-  var close: CGKeyCode = 13
+package struct CloseWindowKeyCodes: Equatable, Sendable {
+  package var quit: CGKeyCode = 12
+  package var close: CGKeyCode = 13
 
   func contains(_ code: CGKeyCode) -> Bool { code == quit || code == close }
 }
@@ -326,7 +327,7 @@ func closeWindowKeyCodes(layout: KeyboardLayout?) -> CloseWindowKeyCodes {
 /// only. A nil layout is physical. A character or digit claim of a binding the user wrote
 /// (`userWritten`) sorts ahead of every generated claim; fallbacks never do. A written-Shift symbol
 /// first tries its unshifted sibling's key, once the sibling is placed.
-func resolveHotKeys(
+package func resolveHotKeys(
   _ bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?,
   userWritten: Set<String> = []
 ) throws(HotKeyError) -> HotKeyResolution {
@@ -456,7 +457,7 @@ func configuredHotKeys(
 }
 
 extension Key {
-  var modifierNames: Set<String> {
+  package var modifierNames: Set<String> {
     let flags = CGEventFlags(rawValue: modifierBits)
     return Set(
       [("ctrl", CGEventFlags.maskControl), ("alt", .maskAlternate), ("shift", .maskShift), ("cmd", .maskCommand)]
@@ -465,14 +466,14 @@ extension Key {
 }
 
 /// What labels and conflict checks need: the chord each accelerator holds on one layout, or why it holds none.
-struct ShortcutResolution {
-  let layout: KeyboardLayout?
-  let aliases: [String: String]
-  let resolution: HotKeyResolution
+package struct ShortcutResolution {
+  package let layout: KeyboardLayout?
+  package let aliases: [String: String]
+  package let resolution: HotKeyResolution
   private let chords: [String: Key]
   private let reasons: [String: HotKeyInactivity]
 
-  init(
+  package init(
     bindings: [String: String], aliases: [String: String], layout: KeyboardLayout?,
     userWritten: Set<String> = [], heldByAnotherApp: Set<String> = []
   ) {
@@ -495,17 +496,17 @@ struct ShortcutResolution {
       }, uniquingKeysWith: { first, _ in first })
   }
 
-  init(config: Config, layout: KeyboardLayout?, heldByAnotherApp: Set<String> = []) {
+  package init(config: Config, layout: KeyboardLayout?, heldByAnotherApp: Set<String> = []) {
     self.init(
       bindings: config.keys, aliases: config.modifierAliases, layout: layout,
       userWritten: Set(config.keyOverrides.keys), heldByAnotherApp: heldByAnotherApp)
   }
 
-  func key(for normalizedAccelerator: String) -> Key? { chords[normalizedAccelerator] }
-  func inactivity(for normalizedAccelerator: String) -> HotKeyInactivity? { reasons[normalizedAccelerator] }
+  package func key(for normalizedAccelerator: String) -> Key? { chords[normalizedAccelerator] }
+  package func inactivity(for normalizedAccelerator: String) -> HotKeyInactivity? { reasons[normalizedAccelerator] }
 
   /// Digits and navigation keys keep their name; any other key is named for the keycap at its resolved code.
-  func keyName(for key: Key, named name: String) -> String {
+  package func keyName(for key: Key, named name: String) -> String {
     guard let layout, Int(name) == nil, !acceleratorKeyKeepsName(acceleratorKeyCodes[name] ?? 0),
       let character = layout.baseCharacter(code: key.code, command: key.modifierNames.contains("cmd"))
     else { return name }

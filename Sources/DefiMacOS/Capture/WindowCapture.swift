@@ -9,31 +9,31 @@ import QuartzCore
 import ScreenCaptureKit
 import VideoToolbox
 
-struct WindowPicture: @unchecked Sendable {
+package struct WindowPicture: @unchecked Sendable {
   // An IOSurface or CGImage; the buffer keeps a captured surface alive.
-  let contents: AnyObject
-  var buffer: CVPixelBuffer? = nil
+  package let contents: AnyObject
+  package var buffer: CVPixelBuffer? = nil
   /// In points; `pixelScale` pixels per point (2 for Retina captures).
-  let size: CGSize
-  var capturedAt: TimeInterval
-  var pixelScale: CGFloat = 1
+  package let size: CGSize
+  package var capturedAt: TimeInterval
+  package var pixelScale: CGFloat = 1
   /// The colour along the right and bottom edges: fills a frame larger than the
   /// picture, which is never scaled up. Read only then: computing it decodes the picture.
-  var edge: CGColor? { edgeColor.value }
+  package var edge: CGColor? { edgeColor.value }
   private var edgeColor: WindowPictureEdge
 
   /// Set by the store from the capture request; consumers compare it with their window.
-  var appID = ""
-  var processID: Int32 = 0
+  package var appID = ""
+  package var processID: Int32 = 0
   /// Scaled down to fit the byte cap; restored from `full`, else recaptured once shown.
-  var isReduced = false
+  package var isReduced = false
   /// The full-resolution pixels, compressed: kept from the first reduction on.
-  var full: WindowPixels? = nil
+  package var full: WindowPixels? = nil
   /// A restored picture's own stand-in: reducing it again costs nothing until a recapture.
-  var standIn: CGImage? = nil
-  let byteCost: Int
+  package var standIn: CGImage? = nil
+  package let byteCost: Int
 
-  init(contents: AnyObject, buffer: CVPixelBuffer? = nil, size: CGSize, capturedAt: TimeInterval,
+  package init(contents: AnyObject, buffer: CVPixelBuffer? = nil, size: CGSize, capturedAt: TimeInterval,
     pixelScale: CGFloat = 1) {
     self.contents = contents
     self.buffer = buffer
@@ -47,17 +47,17 @@ struct WindowPicture: @unchecked Sendable {
       ?? Int(size.width * size.height * pixelScale * pixelScale * 4)
   }
 
-  var image: CGImage? { CFGetTypeID(contents) == CGImage.typeID ? (contents as! CGImage) : nil }
+  package var image: CGImage? { CFGetTypeID(contents) == CGImage.typeID ? (contents as! CGImage) : nil }
 
   /// The bytes left after reduction, or nil when reducing would not save anything.
-  var reducedByteCost: Int? {
+  package var reducedByteCost: Int? {
     guard !isReduced, let size = windowPictureReducedPixels(image) else { return nil }
     return size.width * size.height * 4
   }
 
   /// The same point size at a lower pixel scale: every consumer draws it unchanged.
   /// One surface holds the full pixels: the stand-in is scaled and the original compressed from it.
-  func reduced() -> WindowPicture? {
+  package func reduced() -> WindowPicture? {
     if let standIn, let full {
       var picture = WindowPicture(contents: standIn, size: size, capturedAt: capturedAt,
         pixelScale: CGFloat(standIn.width) / max(size.width, 1))
@@ -81,7 +81,7 @@ struct WindowPicture: @unchecked Sendable {
   }
 
   /// The full-resolution picture a reduced one stands in for, decompressed.
-  func restored() -> WindowPicture? {
+  package func restored() -> WindowPicture? {
     guard isReduced, let full, let buffer = full.buffer(), let image = ribbonProxyTaggedImage(buffer)
     else { return nil }
     var picture = WindowPicture(contents: image, buffer: buffer, size: size, capturedAt: capturedAt,
@@ -114,7 +114,7 @@ final class WindowPictureEdge: @unchecked Sendable {
 
 /// A full-resolution BGRA picture, LZ4-compressed: a window shrinks tens of times and
 /// decompresses in about 10 ms, straight into an IOSurface the layers display as is.
-struct WindowPixels: @unchecked Sendable {
+package struct WindowPixels: @unchecked Sendable {
   let data: Data
   let width: Int
   let height: Int
@@ -267,7 +267,7 @@ func ribbonProxyCapturedPoints(_ image: CGImage, native: Rect) -> (size: CGSize,
 }
 
 extension Notification.Name {
-  static let windowCapturesArrived = Notification.Name("com.qeude.defi.window-captures-arrived")
+  package static let windowCapturesArrived = Notification.Name("com.qeude.defi.window-captures-arrived")
 }
 
 func announceWindowCaptures() {
@@ -310,11 +310,11 @@ func windowCaptureBudgetPlan(_ entries: [WindowCaptureBudgetEntry], limit: Int)
 
 /// One picture per window for every consumer (ribbon motion, Overview cards and zoom),
 /// under one byte cap. Thread-safe so a navigation never waits for the main thread.
-final class WindowCaptureStore: @unchecked Sendable {
-  static let shared = WindowCaptureStore()
+final package class WindowCaptureStore: @unchecked Sendable {
+  static package let shared = WindowCaptureStore()
   // Full captures are WindowServer IOSurfaces: each byte held stays resident and
   // uncompressed in WindowServer. Reduced copies are ours and compressible.
-  static let byteLimit = 128 * 1_024 * 1_024
+  static package let byteLimit = 128 * 1_024 * 1_024
   private let lock = NSLock()
   private var pictures: [WindowID: WindowPicture] = [:]
   private var shown: [WindowID: TimeInterval] = [:]
@@ -329,7 +329,7 @@ final class WindowCaptureStore: @unchecked Sendable {
   private var fullLimit: Int
   private let baseLimit: Int
 
-  init(byteLimit: Int = WindowCaptureStore.byteLimit) {
+  package init(byteLimit: Int = WindowCaptureStore.byteLimit) {
     baseLimit = byteLimit
     fullLimit = byteLimit
     limit = byteLimit
@@ -338,7 +338,7 @@ final class WindowCaptureStore: @unchecked Sendable {
   /// At least three screens of the largest display stay sharp: on 5K the base cap held
   /// fewer windows than a ribbon shows and its neighbours, so every navigation reduced and
   /// restored pictures, about a tenth of a second of CPU each.
-  func fit(_ screens: [RibbonProxyScreen]) {
+  package func fit(_ screens: [RibbonProxyScreen]) {
     let largest = screens.map { Int($0.frame.width * $0.frame.height * $0.scale * $0.scale * 4) }.max() ?? 0
     let fitted = max(baseLimit, 3 * largest)
     let changed = locked { () -> Bool in
@@ -355,17 +355,17 @@ final class WindowCaptureStore: @unchecked Sendable {
     return body()
   }
 
-  func picture(_ id: WindowID) -> WindowPicture? { locked { pictures[id] } }
-  var pictureIDs: Set<WindowID> { locked { Set(pictures.keys) } }
-  var byteCount: Int { locked { pictures.values.reduce(0) { $0 + $1.byteCost + ($1.full?.data.count ?? 0) } } }
-  var reducedCount: Int { locked { pictures.values.filter(\.isReduced).count } }
-  var compressedCount: Int { locked { pictures.values.filter { $0.full != nil }.count } }
+  package func picture(_ id: WindowID) -> WindowPicture? { locked { pictures[id] } }
+  package var pictureIDs: Set<WindowID> { locked { Set(pictures.keys) } }
+  package var byteCount: Int { locked { pictures.values.reduce(0) { $0 + $1.byteCost + ($1.full?.data.count ?? 0) } } }
+  package var reducedCount: Int { locked { pictures.values.filter(\.isReduced).count } }
+  package var compressedCount: Int { locked { pictures.values.filter { $0.full != nil }.count } }
   /// Full-resolution bytes held as surfaces: what the cap bounds.
-  var fullByteCount: Int { locked { pictures.values.filter { !$0.isReduced }.reduce(0) { $0 + $1.byteCost } } }
-  var backgroundByteCount: Int { locked { backgrounds.values.reduce(0) { $0 + $1.bytesPerRow * $1.height } } }
-  var count: Int { locked { pictures.count } }
+  package var fullByteCount: Int { locked { pictures.values.filter { !$0.isReduced }.reduce(0) { $0 + $1.byteCost } } }
+  package var backgroundByteCount: Int { locked { backgrounds.values.reduce(0) { $0 + $1.bytesPerRow * $1.height } } }
+  package var count: Int { locked { pictures.count } }
 
-  func setPicture(_ picture: WindowPicture, for window: RibbonProxyRefresh) {
+  package func setPicture(_ picture: WindowPicture, for window: RibbonProxyRefresh) {
     var picture = picture
     picture.appID = window.appID; picture.processID = window.processID
     locked { pictures[window.id] = picture }
@@ -373,7 +373,7 @@ final class WindowCaptureStore: @unchecked Sendable {
   }
 
   /// A consumer displayed these windows: they keep full resolution longest.
-  func markShown(_ ids: [WindowID], at time: TimeInterval = CACurrentMediaTime()) {
+  package func markShown(_ ids: [WindowID], at time: TimeInterval = CACurrentMediaTime()) {
     locked { for id in ids { shown[id] = time } }
   }
 
@@ -381,7 +381,7 @@ final class WindowCaptureStore: @unchecked Sendable {
   /// once restored, off the caller's thread; consumers swap to them when announced.
   /// Returns the reduced pictures among `ids` that become sharp.
   @discardableResult
-  func restore(_ ids: [WindowID]) -> Set<WindowID> {
+  package func restore(_ ids: [WindowID]) -> Set<WindowID> {
     let (sharpening, work): (Set<WindowID>, [(WindowID, WindowPicture)]) = locked {
       // Planned as if every restorable picture were full: what fits is restored, and
       // the next budget pass keeps it rather than reducing it again.
@@ -420,24 +420,24 @@ final class WindowCaptureStore: @unchecked Sendable {
   }
 
   /// Every picture becomes stale (kept as a stand-in until recaptured).
-  func expirePictures() { locked { pictures = pictures.mapValues { var picture = $0; picture.capturedAt = 0; return picture } } }
-  func retainPictures(_ ids: Set<WindowID>) {
+  package func expirePictures() { locked { pictures = pictures.mapValues { var picture = $0; picture.capturedAt = 0; return picture } } }
+  package func retainPictures(_ ids: Set<WindowID>) {
     locked {
       pictures = pictures.filter { ids.contains($0.key) }
       shown = shown.filter { ids.contains($0.key) }
     }
   }
-  func background(_ id: CGDirectDisplayID) -> CGImage? { locked { backgrounds[id] } }
-  func setBackground(_ image: CGImage, for id: CGDirectDisplayID) { locked { backgrounds[id] = image } }
-  func retainBackgrounds(_ ids: Set<CGDirectDisplayID>) { locked { backgrounds = backgrounds.filter { ids.contains($0.key) } } }
-  func icon(_ processID: Int32) -> CGImage? { locked { icons[processID] } }
-  func setIcon(_ icon: CGImage, for processID: Int32) { locked { icons[processID] = icon } }
-  func clear() { locked { pictures = [:]; backgrounds = [:]; reducing = [] } }
+  package func background(_ id: CGDirectDisplayID) -> CGImage? { locked { backgrounds[id] } }
+  package func setBackground(_ image: CGImage, for id: CGDirectDisplayID) { locked { backgrounds[id] = image } }
+  package func retainBackgrounds(_ ids: Set<CGDirectDisplayID>) { locked { backgrounds = backgrounds.filter { ids.contains($0.key) } } }
+  package func icon(_ processID: Int32) -> CGImage? { locked { icons[processID] } }
+  package func setIcon(_ icon: CGImage, for processID: Int32) { locked { icons[processID] = icon } }
+  package func clear() { locked { pictures = [:]; backgrounds = [:]; reducing = [] } }
 
   /// Warning quarters the cap, but never below twice the displays' own pixels: the windows
   /// in view and those a motion brings in stay sharp. Critical drops every picture; normal
   /// restores the cap.
-  func applyMemoryPressure(_ events: DispatchSource.MemoryPressureEvent,
+  package func applyMemoryPressure(_ events: DispatchSource.MemoryPressureEvent,
     screens: [RibbonProxyScreen] = RibbonProxyStore.shared.allScreens) {
     if events.contains(.critical) { clear() }
     let screenBytes = screens.reduce(0) { $0 + Int($1.frame.width * $1.frame.height * $1.scale * $1.scale * 4) }
@@ -493,11 +493,11 @@ final class WindowCaptureStore: @unchecked Sendable {
 
 /// Main-thread side: decides what to capture and when, for every consumer.
 @MainActor
-final class WindowCaptureCache {
-  static let shared = WindowCaptureCache()
+final package class WindowCaptureCache {
+  static package let shared = WindowCaptureCache()
   private var appearanceObserver: NSObjectProtocol?
-  private(set) var failureCount = 0
-  var isCapturing: Bool { refreshing || slowCapturesRunning }
+  private(set) package var failureCount = 0
+  package var isCapturing: Bool { refreshing || slowCapturesRunning }
   private var refresh: Task<Void, Never>?
   private var warming: Task<Void, Never>?
   /// Aged pictures on screen that the next pass refreshes.
@@ -527,7 +527,7 @@ final class WindowCaptureCache {
   /// Displays showing a fullscreen Space: their desktop is off screen and captures black.
   private var fullscreenDisplays: Set<CGDirectDisplayID> = []
 
-  func setFullscreenDisplays(_ displays: Set<CGDirectDisplayID>) {
+  package func setFullscreenDisplays(_ displays: Set<CGDirectDisplayID>) {
     guard displays != fullscreenDisplays else { return }
     let returned = fullscreenDisplays.subtracting(displays)
     fullscreenDisplays = displays
@@ -559,7 +559,7 @@ final class WindowCaptureCache {
 
   /// Keeps pictures warm for the next navigation. Missing or resized pictures are
   /// captured promptly; others refresh rarely.
-  func noteWindows(_ windows: [RibbonProxyRefresh], afterLanding: Bool) {
+  package func noteWindows(_ windows: [RibbonProxyRefresh], afterLanding: Bool) {
     RibbonProxyRenderer.shared.refreshEnvironment()
     guard RibbonProxyRenderer.shared.enabled, RibbonProxyStore.shared.isAuthorized else { return }
     let store = WindowCaptureStore.shared
@@ -628,7 +628,7 @@ final class WindowCaptureCache {
   /// The Overview opening counts as a landing: the cards it shows (distance 0) are
   /// refreshed like windows in view, the others like offscreen ribbon windows.
   /// Without a landing (idle warming) only missing, resized or expired pictures are taken.
-  func refreshForOverview(_ windows: [RibbonProxyRefresh], displays: [CGDirectDisplayID], landing: Bool) {
+  package func refreshForOverview(_ windows: [RibbonProxyRefresh], displays: [CGDirectDisplayID], landing: Bool) {
     RibbonProxyRenderer.shared.refreshEnvironment()
     guard RibbonProxyStore.shared.isAuthorized else { return }
     WindowCaptureStore.shared.markShown(windows.filter { $0.distance == 0 }.map(\.id))
@@ -649,14 +649,14 @@ final class WindowCaptureCache {
   }
 
   /// Unmanaged windows shown still on the overlay; refreshed with each landing.
-  func noteStills(_ windows: [RibbonProxyRefresh]) {
+  package func noteStills(_ windows: [RibbonProxyRefresh]) {
     guard RibbonProxyRenderer.shared.enabled else { return }
     pendingStills = windows
     guard !windows.isEmpty else { return }
     scheduleRefresh(after: 0, afterLanding: true)
   }
 
-  func captureSoon(_ windows: [RibbonProxyRefresh]) {
+  package func captureSoon(_ windows: [RibbonProxyRefresh]) {
     guard RibbonProxyStore.shared.isAuthorized else { return }
     let ids = Set(windows.map(\.id))
     urgent.formUnion(ids)
@@ -668,7 +668,7 @@ final class WindowCaptureCache {
   /// The few windows a running motion shows veiled or empty, captured as soon as their
   /// native window sits fully on screen below the overlay. One small capture each,
   /// off the main thread; the usual refresh stays paused while moving.
-  func requestBackground(_ screen: RibbonProxyScreen, force: Bool = false) {
+  package func requestBackground(_ screen: RibbonProxyScreen, force: Bool = false) {
     pendingDisplays[screen.displayID] = screen
     if force { forcedBackgrounds.insert(screen.displayID) }
     scheduleRefresh(after: 0, afterLanding: false)
@@ -976,7 +976,7 @@ final class WindowCaptureCache {
 }
 
 extension WindowPicture: Equatable {
-  static func == (lhs: WindowPicture, rhs: WindowPicture) -> Bool {
+  package static func == (lhs: WindowPicture, rhs: WindowPicture) -> Bool {
     lhs.contents === rhs.contents && lhs.capturedAt == rhs.capturedAt
   }
 }

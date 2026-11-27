@@ -6,6 +6,7 @@ import Synchronization
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 func emitDiscoveryPerformance(_ name: String, operations: Int, output: [String: Int], metrics: [String: Double]) {
   guard ProcessInfo.processInfo.environment["DEFI_PERF_JSON"] == "1" else { return }

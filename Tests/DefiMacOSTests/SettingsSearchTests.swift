@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct SettingsSearchTests {
   @Test func sidebarGroupsListEveryPageOnceInOrder() {

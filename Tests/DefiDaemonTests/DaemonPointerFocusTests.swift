@@ -6,6 +6,7 @@ import Testing
 
 @testable import DefiDaemon
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct DaemonPointerFocusTests {
   @Test(arguments: [("isolated", true), ("suspended", false)])

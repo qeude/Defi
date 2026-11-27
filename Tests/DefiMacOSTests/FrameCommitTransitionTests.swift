@@ -2,6 +2,7 @@ import DefiModel
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct FrameCommitTransitionTests {
   private let expectation = FrameCommitExpectation(

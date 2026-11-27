@@ -4,6 +4,7 @@ import DefiModel
 import DefiRuntime
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct ProcessDiscoveryRetryRegressionTests {
   @MainActor @Test(arguments: [0.05, 0.095, 0.1, 0.15])

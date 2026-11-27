@@ -7,6 +7,7 @@ import DefiConfig
 import Synchronization
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 private final class HotKeyInvocationRecorder: Sendable {
   private let invocations = Mutex<[HotKeyInvocation]>([])

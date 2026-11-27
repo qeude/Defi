@@ -7,6 +7,7 @@ import DefiModel
 import DefiRuntime
 import Foundation
 import OSLog
+import DefiUI
 
 /// How many commands each queue accepts before it drops input, and how many hot keys one
 /// tick runs so a held shortcut cannot starve the run loop.

@@ -6,6 +6,7 @@ import Synchronization
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 /// Model-based check of keyboard and pointer intake: random event sequences go through the real
 /// InputMonitor taps (the active `intercept` tap, then the listen-only `handle` tap, as macOS

@@ -5,18 +5,18 @@ import DefiConfig
 import DefiCore
 import DefiModel
 
-struct WindowBorderStyle: Equatable, Sendable {
-  let enabled: Bool
-  let width: Double
-  let activeColor: UInt32
-  let inactiveEnabled: Bool
-  let inactiveColor: UInt32
+package struct WindowBorderStyle: Equatable, Sendable {
+  package let enabled: Bool
+  package let width: Double
+  package let activeColor: UInt32
+  package let inactiveEnabled: Bool
+  package let inactiveColor: UInt32
   /// Opacity of the black laid over unfocused tiled windows; 0 draws nothing.
-  let inactiveDim: Float
-  let captureEnabled: Bool
-  let placement: WindowBorderPlacement
+  package let inactiveDim: Float
+  package let captureEnabled: Bool
+  package let placement: WindowBorderPlacement
 
-  init(
+  package init(
     enabled: Bool,
     width: Double,
     activeColor: UInt32,
@@ -36,7 +36,7 @@ struct WindowBorderStyle: Equatable, Sendable {
     self.placement = placement
   }
 
-  init(config: BordersConfig) {
+  package init(config: BordersConfig) {
     self.init(
       enabled: config.enabled,
       width: config.width,
@@ -136,7 +136,7 @@ func planWindowBorders(
   return WindowBorderRenderPlan(active: active, inactive: inactive, tracked: tracked, style: style, dimmed: dimmed)
 }
 
-func overviewWindowBorderAppearance(
+package func overviewWindowBorderAppearance(
   isSelected: Bool,
   style: WindowBorderStyle,
   scale: Double
@@ -152,7 +152,7 @@ func overviewWindowBorderAppearance(
   return (style.inactiveColor, width)
 }
 
-func overviewWindowBorderGeometry(
+package func overviewWindowBorderGeometry(
   cardFrame: Rect,
   cardRadius: Double,
   width: Double,
@@ -203,7 +203,7 @@ func displayedWindowBorderFrame(
   return Rect(x: written.point.x, y: written.point.y, width: size.width, height: size.height)
 }
 
-func windowBorderAlpha(of color: UInt32) -> UInt8 {
+package func windowBorderAlpha(of color: UInt32) -> UInt8 {
   UInt8((color >> 24) & 0xff)
 }
 

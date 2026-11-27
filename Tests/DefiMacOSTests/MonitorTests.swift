@@ -3,6 +3,7 @@ import DefiModel
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 @MainActor
 struct MonitorTests {

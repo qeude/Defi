@@ -4,6 +4,7 @@ import DefiMacOS
 import DefiModel
 import DefiRuntime
 import Foundation
+import DefiUI
 
 let windowCloseRefreshDelays = [50, 150, 350, 700, 1_200, 2_000]
 
