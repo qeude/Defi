@@ -391,8 +391,8 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
       space.floats.forEach(({ win, frame }) => place(win, frame, space, { z: 20, focused: win === selected, floating: true }));
       // Columns wholly past the panel's edges, counted on the row's pills.
       const [left, right] = row.querySelectorAll('.ov-more');
-      const beyondLeft = frames.filter(f => f.x + f.w - scroll < -overviewEdge()).length;
-      const beyondRight = frames.filter(f => f.x - scroll > W + overviewEdge()).length;
+      const beyondLeft = frames.filter(f => f.x + f.w - scroll + stripX() < -overviewEdge()).length;
+      const beyondRight = frames.filter(f => f.x - scroll + stripX() > W + overviewEdge()).length;
       left.textContent = beyondLeft ? `← ${beyondLeft}` : '';
       right.textContent = beyondRight ? `${beyondRight} →` : '';
     });
