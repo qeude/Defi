@@ -111,7 +111,7 @@ final class HotKeyRegistration: @unchecked Sendable {
     guard !cancelled.withLock({ $0 }) else { return }
     // Text editing in Defi must retain native shortcuts. The recorder's active
     // interceptor remains independent of these reservations.
-    let shouldSuspend = ShortcutRecorderButton.capturesKeyboard
+    let shouldSuspend = ShortcutCapture.capturesKeyboard
       || (NSApplication.shared.isActive && settingsTextInputFocused.withLock { $0 })
     guard suspended != shouldSuspend else { return }
     suspended = shouldSuspend

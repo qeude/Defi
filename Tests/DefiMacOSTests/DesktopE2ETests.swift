@@ -1677,7 +1677,7 @@ final class DesktopE2ETests: XCTestCase {
 
   private func startHotKeys(_ manager: HotKeyManager) throws {
     try onNavigation { try manager.start() }
-    if onNavigation({ manager.bindingError == nil && manager.bindingCount > 0 }), !ShortcutRecorderButton.capturesKeyboard {
+    if onNavigation({ manager.bindingError == nil && manager.bindingCount > 0 }), !ShortcutCapture.capturesKeyboard {
       XCTAssertTrue(pumpRunLoop(until: {
         onNavigation { manager.isHotKeyCaptureEnabled || manager.bindingError != nil }
       }, timeout: 2), "Carbon hotkey registration did not complete")

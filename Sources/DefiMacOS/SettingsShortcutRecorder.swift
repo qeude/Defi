@@ -1,7 +1,6 @@
 import AppKit
 import DefiConfig
 import SwiftUI
-import Synchronization
 
 /// Without a layout, uses the same physical key codes as the global hotkey engine. With one, records
 /// the first name that resolves back to the pressed chord on that layout: a digit or arrow by name,
@@ -209,8 +208,6 @@ struct SettingsShortcutRecorder: NSViewRepresentable {
 }
 
 final class ShortcutRecorderButton: NSButton {
-  nonisolated static let captureHandler = Mutex<(@Sendable (UInt16, UInt64, Bool) -> Void)?>(nil)
-  nonisolated static var capturesKeyboard: Bool { captureHandler.withLock { $0 != nil } }
   private var recordingID: UUID?
   private var keyMonitor: Any?
   var shortcutLabel = ""
@@ -270,7 +267,7 @@ final class ShortcutRecorderButton: NSButton {
     isRecording = true
     let recordingID = UUID()
     self.recordingID = recordingID
-    Self.captureHandler.withLock { handler in
+    ShortcutCapture.captureHandler.withLock { handler in
       handler = { [weak self] keyCode, modifierBits, isRepeat in
         Task { @MainActor [weak self] in
           guard let self, self.recordingID == recordingID else { return }
@@ -293,7 +290,7 @@ final class ShortcutRecorderButton: NSButton {
     guard isRecording else { return }
     isRecording = false
     recordingID = nil
-    Self.captureHandler.withLock { $0 = nil }
+    ShortcutCapture.captureHandler.withLock { $0 = nil }
     if let keyMonitor {
       NSEvent.removeMonitor(keyMonitor)
       self.keyMonitor = nil

@@ -603,8 +603,8 @@ final class InputMonitor: @unchecked Sendable {
     let eventTargetPID = pid_t(exactly: event.getIntegerValueField(.eventTargetUnixProcessID))
     let isDefiTextInput = hotKeyTargetIsCurrentApplication(
       eventTargetPID, currentPID: getpid(),
-      recordingShortcut: ShortcutRecorderButton.capturesKeyboard
-    ) && (ShortcutRecorderButton.capturesKeyboard || textInputFocused())
+      recordingShortcut: ShortcutCapture.capturesKeyboard
+    ) && (ShortcutCapture.capturesKeyboard || textInputFocused())
     let tracksGeneralUserInput: Bool
     if type == .flagsChanged {
       tracksGeneralUserInput = capturedModifierReleaseState.shouldRecord(
@@ -751,7 +751,7 @@ final class InputMonitor: @unchecked Sendable {
       return interceptScroll(event, modifierBits: bits)
     }
     guard type == .keyDown else { return Unmanaged.passUnretained(event) }
-    if let record = ShortcutRecorderButton.captureHandler.withLock({ $0 }) {
+    if let record = ShortcutCapture.captureHandler.withLock({ $0 }) {
       capturedModifierReleaseState.reset()
       recordGeneralUserInput(type: type, event: event, isDefiTextInput: true)
       record(UInt16(truncatingIfNeeded: event.getIntegerValueField(.keyboardEventKeycode)),

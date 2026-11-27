@@ -191,9 +191,6 @@ private struct DefiSettingsPane: View {
   }
 }
 
-/// Window discovery reads Defi itself only while it is a regular app, with Settings open.
-let defiActivationPolicyDidChange = Notification.Name("DefiActivationPolicyDidChange")
-
 /// SwiftUI keeps the Settings window fixed-size; resizable, Defi tiles it as a column.
 private struct ResizableSettingsWindow: NSViewRepresentable {
   func makeNSView(context: Context) -> NSView { WindowView() }
