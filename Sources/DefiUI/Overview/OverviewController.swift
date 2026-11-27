@@ -1896,6 +1896,7 @@ public final class OverviewController: NSObject {
   }
 }
 
+@MainActor
 extension OverviewController: OverviewViewDelegate {
   func overviewView(
     _ view: OverviewView,

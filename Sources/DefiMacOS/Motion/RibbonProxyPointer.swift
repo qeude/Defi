@@ -301,4 +301,3 @@ final class RibbonProxyPointerTicker: NSObject {
     RibbonProxyPointerTrack.shared.move(to: CGPoint(x: location.x, y: top - location.y))
   }
 }
-

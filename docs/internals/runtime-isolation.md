@@ -7,7 +7,7 @@ and chunking bounded single sections but could not remove the shared thread.
 
 ## Ownership
 
-- [`NavigationActor`](../../Sources/DefiRuntime/NavigationActor.swift) owns
+- [`NavigationActor`](../../Sources/DefiModel/NavigationActor.swift) owns
   navigation and runtime state on its own serial queue. Commands, normalized
   native events, and Accessibility completions enter it as messages, in arrival
   order. Enqueue callbacks directly; an `await` that splits a state transition
