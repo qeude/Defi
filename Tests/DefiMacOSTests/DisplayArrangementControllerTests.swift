@@ -4,6 +4,7 @@ import DefiModel
 import Foundation
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 @MainActor
 struct DisplayArrangementControllerTests {

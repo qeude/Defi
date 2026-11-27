@@ -1,6 +1,8 @@
 import DefiRuntime
+import DefiModel
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct ObservationCampaignRegressionTests {
   @MainActor @Test

@@ -6,6 +6,7 @@ import DefiRuntime
 import Synchronization
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct FrameSettlementVerificationTests {
   private let target = Rect(x: 2, y: 37, width: 752, height: 902)

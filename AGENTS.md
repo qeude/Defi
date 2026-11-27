@@ -57,7 +57,8 @@ Keep Defi fast, deterministic, stable, and glitch-free.
 - `DefiConfig`: TOML parsing, defaults, validation, app rules
 - `DefiRuntime`: reducer and workspace routing
 - `DefiIPC`: Unix-socket protocol
-- `DefiMacOS`: AppKit, Accessibility, CoreGraphics, hotkeys
+- `DefiMacOS`: AppKit, Accessibility, CoreGraphics, hotkeys; never imports `DefiRuntime`
+- `DefiUI`: Defi's own windows (Overview, Settings, cheatsheet, menu bar, recent windows)
 - `DefiDaemon`: daemon wiring
 - `DefiCLI`: `defi` command
 

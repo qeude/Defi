@@ -6,6 +6,7 @@ import DefiRuntime
 import Testing
 
 @testable import DefiDaemon
+@testable import DefiUI
 
 struct DaemonCommandPolicyTests {
   @Test func onlyARequestNamingAWindowEntersItsFullscreenSpace() {

@@ -7,6 +7,7 @@ import DefiModel
 import DefiRuntime
 import Foundation
 import OSLog
+import DefiUI
 
 @NavigationActor
 extension Daemon {

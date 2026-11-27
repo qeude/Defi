@@ -3,6 +3,7 @@ import SwiftUI
 import XCTest
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 /// XCTest, not Swift Testing: a synchronous XCTest pumps the main queue between checks, so the view's
 /// reveal tasks run. A Swift Testing test holds the main actor while pumping, and they never would.

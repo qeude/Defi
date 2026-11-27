@@ -1,6 +1,7 @@
 import AppKit
 import IOKit
 @testable import DefiMacOS
+@testable import DefiUI
 
 /// Trackpad gesture events like the ones macOS sends, built with IOKit's private HID
 /// event calls. AppKit reads their touches only for a multitouch device it finds in the registry.

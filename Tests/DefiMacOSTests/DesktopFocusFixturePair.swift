@@ -4,6 +4,7 @@ import DefiModel
 import XCTest
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 @MainActor
 final class DesktopFocusFixturePair {

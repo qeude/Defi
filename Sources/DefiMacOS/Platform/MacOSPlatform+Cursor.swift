@@ -1,0 +1,414 @@
+import AppKit
+import ApplicationServices
+import CoreGraphics
+import DefiModel
+import Foundation
+
+func cursorWarpDestination(
+  frame: Rect,
+  currentLocation: CGPoint
+) -> CGPoint? {
+  guard frame.width > 0, frame.height > 0 else { return nil }
+  let containsCurrentLocation =
+    currentLocation.x >= frame.x
+    && currentLocation.x <= frame.x + frame.width
+    && currentLocation.y >= frame.y
+    && currentLocation.y <= frame.y + frame.height
+  guard !containsCurrentLocation else { return nil }
+  return CGPoint(
+    x: frame.x + frame.width / 2,
+    y: frame.y + frame.height / 2
+  )
+}
+
+func cursorWarpIsCurrent(
+  latestPointerMotionTimestamp: TimeInterval,
+  latestUserInputTimestamp: TimeInterval,
+  maximumInputTimestamp: TimeInterval,
+  mouseButtonDown: Bool
+) -> Bool {
+  !mouseButtonDown
+    && latestPointerMotionTimestamp <= maximumInputTimestamp
+    && latestUserInputTimestamp <= maximumInputTimestamp
+}
+
+func anyMouseButtonIsDown(
+  buttonState: (CGMouseButton) -> Bool
+) -> Bool {
+  (0..<32).contains { rawValue in
+    guard let button = CGMouseButton(rawValue: UInt32(rawValue)) else {
+      return false
+    }
+    return buttonState(button)
+  }
+}
+
+func cursorWarpTimestampAfterNativeFocus(
+  result: NativeFocusResult,
+  requestedTimestamp: TimeInterval?
+) -> TimeInterval? {
+  guard result == .completed || result == .completedWithoutMutation else {
+    return nil
+  }
+  return requestedTimestamp
+}
+
+func resolvedCursorWarpFrame(
+  isFloating: Bool,
+  prefersTargetFrame: Bool,
+  targetFrame: Rect?,
+  observedFrame: Rect?,
+  snapshotFrame: Rect?
+) -> Rect? {
+  if isFloating, !prefersTargetFrame {
+    return observedFrame ?? snapshotFrame ?? targetFrame
+  }
+  return targetFrame ?? observedFrame ?? snapshotFrame
+}
+
+func resolvedPointerHitTestFrame(
+  observedFrame: Rect?,
+  snapshotFrame: Rect?,
+  targetFrame: Rect?
+) -> Rect? {
+  observedFrame ?? snapshotFrame ?? targetFrame
+}
+
+enum ManagedPointerHit: Equatable {
+  case managed(WindowID)
+  case blocked
+  case none
+}
+
+public func normalizedPointerWindowID(
+  rawWindowID: WindowID?,
+  hitTestedWindowID: WindowID?
+) -> WindowID? {
+  hitTestedWindowID ?? rawWindowID
+}
+
+let pointerHitTestCacheMaximumAge: TimeInterval = 0.05
+
+public func pointerRawWindowTransitionRequiresRefresh(
+  previousRawWindowID: WindowID?,
+  currentRawWindowID: WindowID?
+) -> Bool {
+  previousRawWindowID != currentRawWindowID
+}
+
+func pointerHitTestCacheIsFresh(
+  cachedAt: TimeInterval?,
+  now: TimeInterval,
+  maximumAge: TimeInterval = pointerHitTestCacheMaximumAge
+) -> Bool {
+  guard let cachedAt, now >= cachedAt else { return false }
+  return now - cachedAt < maximumAge
+}
+
+func managedPointerHitTest(
+  at location: CGPoint,
+  records: [CGWindowRecord],
+  managedWindowIDs: Set<WindowID>,
+  nonblockingWindowIDs: Set<CGWindowID> = [],
+  frameProvider: (CGWindowRecord) -> Rect? = { $0.frame }
+) -> ManagedPointerHit {
+  for record in records {
+    guard let frame = frameProvider(record),
+      location.x >= frame.x,
+      location.x <= frame.x + frame.width,
+      location.y >= frame.y,
+      location.y <= frame.y + frame.height
+    else {
+      continue
+    }
+    let windowID = WindowID(rawValue: UInt64(record.id))
+    if managedWindowIDs.contains(windowID) {
+      return .managed(windowID)
+    }
+    if nonblockingWindowIDs.contains(record.id) {
+      continue
+    }
+    return .blocked
+  }
+  return .none
+}
+
+func transparentDockOverlayWindowIDs(
+  records: [CGWindowRecord],
+  dockProcessIDs: Set<pid_t>,
+  monitorFrames: [Rect]
+) -> Set<CGWindowID> {
+  Set(records.compactMap { record in
+    let maximumTransparentBackingBytes =
+      max(4_096, Int(record.frame.width * record.frame.height / 16))
+    let hasTransparentBacking = record.memoryUsage.map {
+      $0 <= maximumTransparentBackingBytes
+    } ?? false
+    guard record.layer > 0,
+      dockProcessIDs.contains(record.processID),
+      record.title == "Dock" || hasTransparentBacking,
+      coversMonitor(record.frame, monitorFrames: monitorFrames)
+    else {
+      return nil
+    }
+    return record.id
+  })
+}
+
+private func coversMonitor(_ frame: Rect, monitorFrames: [Rect]) -> Bool {
+  monitorFrames.contains { monitorFrame in
+    frame.x <= monitorFrame.x + 1
+      && frame.y <= monitorFrame.y + 1
+      && frame.x + frame.width >= monitorFrame.x + monitorFrame.width - 1
+      && frame.y + frame.height >= monitorFrame.y + monitorFrame.height - 1
+  }
+}
+
+// Banners and the open panel share one full-display window, so only Accessibility
+// tells their content from the empty area that lets the pointer through.
+func notificationCenterContentIsUnder(_ location: CGPoint, processIDs: Set<pid_t>) -> Bool {
+  processIDs.contains { processID in
+    let application = AXUIElementCreateApplication(processID)
+    AXUIElementSetMessagingTimeout(application, 0.1)
+    var element: AXUIElement?
+    guard AXUIElementCopyElementAtPosition(application, Float(location.x), Float(location.y), &element) == .success,
+      let element
+    else {
+      return true
+    }
+    AXUIElementSetMessagingTimeout(element, 0.1)
+    var role: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success else {
+      return true
+    }
+    // Outside its content, Notification Center answers with its menu bar element.
+    return role as? String != kAXMenuBarRole
+  }
+}
+
+func transparentNotificationCenterOverlayWindowIDs(
+  records: [CGWindowRecord],
+  notificationCenterProcessIDs: Set<pid_t>,
+  monitorFrames: [Rect]
+) -> Set<CGWindowID> {
+  Set(records.compactMap { record in
+    guard record.layer > 0,
+      notificationCenterProcessIDs.contains(record.processID),
+      coversMonitor(record.frame, monitorFrames: monitorFrames)
+    else {
+      return nil
+    }
+    return record.id
+  })
+}
+
+// Fully transparent windows draw nothing and WindowServer sends them no pointer events.
+func invisibleWindowIDs(records: [CGWindowRecord]) -> Set<CGWindowID> {
+  Set(records.filter { $0.alpha == 0 }.map(\.id))
+}
+
+func transparentPointerOverlayWindowIDs(
+  records: [CGWindowRecord]
+) -> Set<CGWindowID> {
+  let cursorWindowLevel = Int(CGWindowLevelForKey(.cursorWindow))
+  return Set(records.compactMap { record in
+    guard record.layer == cursorWindowLevel,
+      record.title == "Cursor"
+        || (record.title.isEmpty && record.ownerName == "Window Server"),
+      record.frame.width <= 64,
+      record.frame.height <= 64
+    else {
+      return nil
+    }
+    return record.id
+  })
+}
+
+@NavigationActor
+extension MacOSPlatform {
+  public func invalidatePointerHitTestCache() {
+    DispatchQueue.main.async { [self] in pointerHitTestSnapshotTimestamp = nil }
+  }
+
+  @MainActor private func pointerHitTestSnapshot() -> (
+    records: [CGWindowRecord],
+    dockProcessIDs: Set<pid_t>,
+    notificationCenterProcessIDs: Set<pid_t>
+  ) {
+    // Unresolved pointer motion can arrive at 120 Hz. Keep WindowServer and
+    // Dock enumeration out of the hot path while retaining a bounded staleness.
+    let now = ProcessInfo.processInfo.systemUptime
+    if pointerHitTestCacheIsFresh(
+      cachedAt: pointerHitTestSnapshotTimestamp,
+      now: now
+    ) {
+      return (
+        pointerHitTestRecords,
+        pointerHitTestDockProcessIDs,
+        pointerHitTestNotificationCenterProcessIDs
+      )
+    }
+
+    let records = copyCGWindows(
+      options: [.optionOnScreenOnly, .excludeDesktopElements]
+    )
+    let dockProcessIDs = Set(
+      NSRunningApplication.runningApplications(
+        withBundleIdentifier: "com.apple.dock"
+      ).map(\.processIdentifier)
+    )
+    let notificationCenterProcessIDs = Set(
+      NSRunningApplication.runningApplications(
+        withBundleIdentifier: "com.apple.notificationcenterui"
+      ).map(\.processIdentifier)
+    )
+    pointerHitTestRecords = records
+    pointerHitTestDockProcessIDs = dockProcessIDs
+    pointerHitTestNotificationCenterProcessIDs = notificationCenterProcessIDs
+    pointerHitTestSnapshotTimestamp = now
+    return (records, dockProcessIDs, notificationCenterProcessIDs)
+  }
+
+  @MainActor public func managedWindowIDUnderPointer(
+    retaining previousWindowID: WindowID? = nil
+  ) -> WindowID? {
+    guard !Task.isCancelled, let location = CGEvent(source: nil)?.location else { return nil }
+    return managedWindowID(at: location, retaining: previousWindowID)
+  }
+
+  @MainActor public func managedWindowID(
+    at location: CGPoint,
+    rawWindowID: WindowID? = nil,
+    retaining previousWindowID: WindowID? = nil
+  ) -> WindowID? {
+    guard !Task.isCancelled else { return nil }
+    let snapshot = pointerHitTestSnapshot()
+    if let ownedWindowID = borderManager.ownedSurfaceWindowID
+      ?? nativeFullscreenPlaceholderManager.ownedSurfaceWindowID
+    {
+      borderBoundsProvider.probe(ownedWindowID: ownedWindowID)
+    }
+    let notificationCenterOverlayWindowIDs = transparentNotificationCenterOverlayWindowIDs(
+      records: snapshot.records,
+      notificationCenterProcessIDs: snapshot.notificationCenterProcessIDs,
+      monitorFrames: lastMonitorFrames
+    )
+    let pointerIsOverNotificationCenterContent = !notificationCenterOverlayWindowIDs.isEmpty
+      && notificationCenterContentIsUnder(location, processIDs: snapshot.notificationCenterProcessIDs)
+    let nonblockingWindowIDs = transparentDockOverlayWindowIDs(
+      records: snapshot.records,
+      dockProcessIDs: snapshot.dockProcessIDs,
+      monitorFrames: lastMonitorFrames
+    )
+      .union(pointerIsOverNotificationCenterContent ? [] : notificationCenterOverlayWindowIDs)
+      .union(invisibleWindowIDs(records: snapshot.records))
+      .union(transparentPointerOverlayWindowIDs(records: snapshot.records))
+      .union(borderManager.transparentSurfaceWindowIDs)
+      .union(nativeFullscreenPlaceholderManager.transparentSurfaceWindowIDs)
+      .union(RibbonProxyRenderer.shared.surfaceWindowIDs)
+    if let rawWindowID,
+      let rawRecord = snapshot.records.first(where: {
+        WindowID(rawValue: UInt64($0.id)) == rawWindowID
+      }),
+      !lastSnapshotWindowIDs.contains(rawWindowID),
+      !nonblockingWindowIDs.contains(rawRecord.id)
+    {
+      return nil
+    }
+    let hit = managedPointerHitTest(
+      at: location,
+      records: snapshot.records,
+      managedWindowIDs: lastSnapshotWindowIDs,
+      nonblockingWindowIDs: nonblockingWindowIDs,
+      frameProvider: { record in
+        let windowID = WindowID(rawValue: UInt64(record.id))
+        guard lastSnapshotWindowIDs.contains(windowID) else {
+          return record.frame
+        }
+        return borderBoundsProvider.frame(for: windowID)
+          ?? resolvedPointerHitTestFrame(
+            observedFrame: latestObservedFrames[windowID],
+            snapshotFrame: lastSnapshotWindows.first { $0.id == windowID }?.frame,
+            targetFrame: targetFrames[windowID]
+          )
+      }
+    )
+    switch hit {
+    case .managed(let windowID):
+      return windowID
+    case .blocked:
+      return nil
+    case .none:
+      break
+    }
+
+    if let previousWindowID,
+      !floatingWindowIDs.contains(previousWindowID),
+      !lastHiddenWindowIDs.contains(previousWindowID),
+      let frame = cursorWarpFrame(for: previousWindowID),
+      location.x >= frame.x,
+      location.x <= frame.x + frame.width,
+      location.y >= frame.y,
+      location.y <= frame.y + frame.height
+    {
+      return previousWindowID
+    }
+    return nil
+  }
+
+  public func warpCursor(
+    to windowID: WindowID,
+    unlessUserInputAfter maximumInputTimestamp: TimeInterval,
+    preferringTargetFrame: Bool = false
+  ) {
+    let generation = cursorWarpGeneration.withLock { $0 }
+    DispatchQueue.main.async { [self] in
+      let result: CGError? = cursorWarpGeneration.withLock { currentGeneration in
+        guard currentGeneration == generation,
+          cursorWarpIsCurrent(
+            latestPointerMotionTimestamp: pointerMotionTracker.latestTimestamp,
+            latestUserInputTimestamp: userInputTracker.latestEventTimestamp,
+            maximumInputTimestamp: maximumInputTimestamp,
+            mouseButtonDown: anyMouseButtonIsDown { button in
+              CGEventSource.buttonState(.combinedSessionState, button: button)
+            }
+          ), !lastHiddenWindowIDs.contains(windowID),
+          let frame = cursorWarpFrame(for: windowID, preferringTargetFrame: preferringTargetFrame),
+          let currentLocation = CGEvent(source: nil)?.location,
+          let destination = cursorWarpDestination(frame: frame, currentLocation: currentLocation)
+        else { return nil }
+        return CGWarpMouseCursorPosition(destination)
+      }
+      NavigationActor.enqueue { [self] in
+        if result == nil { cursorWarpSkippedCount += 1 }
+        else if result == .success { cursorWarpAppliedCount += 1 }
+        else { cursorWarpFailedCount += 1 }
+      }
+    }
+  }
+
+  public var cursorWarpPerformance:
+    (applied: Int, skipped: Int, failed: Int)
+  {
+    (
+      applied: cursorWarpAppliedCount,
+      skipped: cursorWarpSkippedCount,
+      failed: cursorWarpFailedCount
+    )
+  }
+
+  nonisolated private func cursorWarpFrame(
+    for windowID: WindowID,
+    preferringTargetFrame: Bool = false
+  ) -> Rect? {
+    resolvedCursorWarpFrame(
+      isFloating: floatingWindowIDs.contains(windowID),
+      prefersTargetFrame: preferringTargetFrame,
+      targetFrame: targetFrames[windowID],
+      observedFrame: latestObservedFrames[windowID],
+      snapshotFrame: lastSnapshotWindows.first {
+        $0.id == windowID
+      }?.frame
+    )
+  }
+}

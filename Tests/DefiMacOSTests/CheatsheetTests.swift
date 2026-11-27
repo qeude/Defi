@@ -5,6 +5,7 @@ import DefiModel
 import Synchronization
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct CheatsheetHotKeyTests {
   @Test

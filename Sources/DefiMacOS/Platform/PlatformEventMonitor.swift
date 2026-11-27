@@ -1,0 +1,803 @@
+import AppKit
+import ApplicationServices
+import CoreGraphics
+import DefiModel
+import Synchronization
+
+/// Window discovery reads Defi itself only while it is a regular app, with Settings open.
+package let defiActivationPolicyDidChange = Notification.Name("DefiActivationPolicyDidChange")
+
+
+/// The last left press came from a trackpad, not a mouse: drag haptics play only for it.
+let leftDragFromTrackpad = Atomic<Bool>(false)
+/// The pointer travelled since the last left press: only it can drag a window, so a
+/// window Defi moves under a resting pointer (a click that reveals it) is no drag.
+let leftPressPointerTravelled = Atomic<Bool>(false)
+/// Farther than a click's jitter.
+let leftPressDragThreshold = 6.0
+
+func delayedApplicationActivationIsCurrent(
+  startedAt: TimeInterval,
+  input: UserInputTracker.Snapshot
+) -> Bool {
+  (input.latestFocusIntent?.timestamp ?? 0) <= startedAt
+    && input.latestCloseIntent <= startedAt
+    && input.latestCapturedCommandTimestamp <= startedAt
+}
+
+/// Bounds each main-thread subscription so a stopped app cannot hold it for the system default.
+/// Looser than reads: a timed-out subscription counts toward the attempts that mark an app unobservable.
+let observerSubscriptionTimeoutSeconds: Float = 0.25
+
+@MainActor
+final class PlatformEventMonitor {
+  let handler: (PlatformEventKind, pid_t?) -> Void
+  private let userInputTracker: UserInputTracker
+  private let desktopSessionHandler: (DesktopSessionActivityChange) -> Void
+  private let desktopSessionStateProvider: () -> DesktopSessionState
+  private let windowEventHandler: (PlatformEventKind, pid_t?, AXUIElement) -> Void
+  /// Left-button events, with the window the button went down on.
+  private let liveFrameHandler:
+    (_ pressedWindowID: WindowID?, _ type: NSEvent.EventType, _ pointer: CGPoint?) -> Void
+  private var pressedWindowID: WindowID?
+  private var leftPressLocation: CGPoint?
+  private let borderStackingHandler: () -> Void
+  /// A left press: with the window a plain click pressed, nil under a modifier.
+  private let mouseGestureStartedHandler: (_ clickedWindowID: WindowID?) -> Void
+  private let now: () -> TimeInterval
+  private let addNotification: (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError
+  private let removeNotification: (AXObserver, AXUIElement, CFString) -> AXError
+  private let messagingTimeoutAccess: AXMessagingTimeoutAccess
+  private var workspaceTokens: [NSObjectProtocol] = []
+  private var ownActivationToken: NSObjectProtocol?
+  private var ownActivationPolicyToken: NSObjectProtocol?
+  private var sessionTokens: [NSObjectProtocol] = []
+  private var screenTokens: [NSObjectProtocol] = []
+  private var mouseMonitor: Any?
+  private var mouseGestureNormalizer = MouseGestureEventNormalizer()
+  private var activationGeneration: UInt64 = 0
+  private var observers: [pid_t: AXObserver] = [:]
+  private var topologyObservedProcessIDs = Set<pid_t>()
+  private var notificationFailures: [NotificationObservationKind: [AXUIElement: NotificationObservationFailure]] = [:]
+  private var observedWindows: [pid_t: [AXUIElement]] = [:]
+  private var topologyRequiredWindows: [pid_t: [AXUIElement]] = [:]
+  private var frameRequiredWindows: [pid_t: [AXUIElement]] = [:]
+  private var topologyObservedWindows: [pid_t: [AXUIElement]] = [:]
+  private var frameObservedWindows: [pid_t: [AXUIElement]] = [:]
+  private var frameNotificationsEnabled = true
+  private var suppressedFrameProcessIDs = Set<pid_t>()
+  private var suppressedFrameRequiresFullSnapshot = false
+  private var displayCallbackRegistered = false
+  private var desktopSessionNormalizer = DesktopSessionEventNormalizer()
+  private var desktopSessionActive = true
+
+  init(
+    handler: @escaping (PlatformEventKind, pid_t?) -> Void,
+    userInputTracker: UserInputTracker = UserInputTracker(),
+    desktopSessionHandler: @escaping (DesktopSessionActivityChange) -> Void = { _ in },
+    desktopSessionStateProvider: @escaping () -> DesktopSessionState =
+      currentDesktopSessionState,
+    windowEventHandler: ((PlatformEventKind, pid_t?, AXUIElement) -> Void)? = nil,
+    liveFrameHandler: @escaping (WindowID?, NSEvent.EventType, CGPoint?) -> Void = { _, _, _ in },
+    borderStackingHandler: @escaping () -> Void = {},
+    mouseGestureStartedHandler: @escaping (WindowID?) -> Void = { _ in },
+    now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+    addNotification: @escaping (AXObserver, AXUIElement, CFString, UnsafeMutableRawPointer?) -> AXError = AXObserverAddNotification,
+    removeNotification: @escaping (AXObserver, AXUIElement, CFString) -> AXError = AXObserverRemoveNotification,
+    messagingTimeoutAccess: AXMessagingTimeoutAccess = .shared
+  ) {
+    self.handler = handler
+    self.userInputTracker = userInputTracker
+    self.desktopSessionHandler = desktopSessionHandler
+    self.desktopSessionStateProvider = desktopSessionStateProvider
+    self.windowEventHandler =
+      windowEventHandler ?? { kind, processID, _ in
+        handler(kind, processID)
+      }
+    self.liveFrameHandler = liveFrameHandler
+    self.borderStackingHandler = borderStackingHandler
+    self.mouseGestureStartedHandler = mouseGestureStartedHandler
+    self.now = now
+    self.addNotification = addNotification
+    self.removeNotification = removeNotification
+    self.messagingTimeoutAccess = messagingTimeoutAccess
+  }
+
+  func start() {
+    let center = NSWorkspace.shared.notificationCenter
+    workspaceTokens.append(
+      center.addObserver(
+        forName: NSWorkspace.didActivateApplicationNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] notification in
+        let application = notification.userInfo?[
+          NSWorkspace.applicationUserInfoKey
+        ] as? NSRunningApplication
+        MainActor.assumeIsolated {
+          guard let self else { return }
+          self.activationGeneration &+= 1
+          let generation = self.activationGeneration
+          // The notification PID is authoritative. For an invalid PID, match
+          // the notification's bundle against CG or AX; AppKit's frontmost app
+          // may still describe the previous activation.
+          let notificationBundleID = application?.bundleIdentifier
+          if let processID = positiveProcessID(application?.processIdentifier) {
+            self.userInputTracker.recordApplicationActivation(processID: processID)
+            self.handler(.focus, processID)
+            return
+          }
+          guard let notificationBundleID else {
+            self.handler(.focus, nil)
+            return
+          }
+          let timestamp = ProcessInfo.processInfo.systemUptime
+          Task.detached(priority: .userInitiated) { [weak self] in
+            let processID = currentFrontmostProcessID(
+              matchingBundleID: notificationBundleID
+            )
+            await MainActor.run {
+              guard let self, self.desktopSessionActive,
+                self.activationGeneration == generation,
+                delayedApplicationActivationIsCurrent(
+                  startedAt: timestamp,
+                  input: self.userInputTracker.snapshot
+                )
+              else { return }
+              if let processID {
+                let resolvedAt = ProcessInfo.processInfo.systemUptime
+                self.userInputTracker.recordApplicationActivation(
+                  processID: processID, at: resolvedAt
+                )
+                guard self.userInputTracker.snapshot.applicationActivation
+                  == .init(processID: processID, timestamp: resolvedAt)
+                else { return }
+              }
+              self.handler(.focus, processID)
+            }
+          }
+        }
+      }
+    )
+    for (name, event) in [
+      (NSWorkspace.willSleepNotification, DesktopSessionEvent.willSleep),
+      (NSWorkspace.didWakeNotification, .didWake),
+      (NSWorkspace.screensDidSleepNotification, .screensDidSleep),
+      (NSWorkspace.screensDidWakeNotification, .screensDidWake),
+      (NSWorkspace.sessionDidResignActiveNotification, .sessionDidResignActive),
+      (NSWorkspace.sessionDidBecomeActiveNotification, .sessionDidBecomeActive),
+    ] {
+      sessionTokens.append(
+        center.addObserver(forName: name, object: nil, queue: .main) {
+          [weak self] _ in
+          MainActor.assumeIsolated {
+            guard let self,
+              let change = self.desktopSessionNormalizer.consume(event)
+            else { return }
+            self.desktopSessionActive = change == .becameActive
+            if !self.desktopSessionActive {
+              self.activationGeneration &+= 1
+              self.resetAccessibilityObservers()
+            }
+            self.desktopSessionHandler(change)
+          }
+        }
+      )
+    }
+    let initialDesktopSessionState = desktopSessionStateProvider()
+    desktopSessionNormalizer = DesktopSessionEventNormalizer(
+      initialState: initialDesktopSessionState
+    )
+    desktopSessionActive = initialDesktopSessionState.isActive
+    if !desktopSessionActive {
+      resetAccessibilityObservers()
+      desktopSessionHandler(.becameInactive)
+    }
+    workspaceTokens.append(
+      center.addObserver(
+        forName: NSWorkspace.activeSpaceDidChangeNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        MainActor.assumeIsolated {
+          self?.handler(.space, nil)
+        }
+      }
+    )
+    // NSWorkspace does not report Defi's own activation, as when its Settings window opens.
+    ownActivationToken = NotificationCenter.default.addObserver(
+      forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, NSApplication.shared.activationPolicy() == .regular else { return }
+        self.activationGeneration &+= 1
+        let processID = ProcessInfo.processInfo.processIdentifier
+        self.userInputTracker.recordApplicationActivation(processID: processID)
+        self.handler(.focus, processID)
+      }
+    }
+    // Defi turns regular while its Settings window is open; read it at once, and drop it once closed.
+    ownActivationPolicyToken = NotificationCenter.default.addObserver(
+      forName: defiActivationPolicyDidChange, object: nil, queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.handler(.application, ProcessInfo.processInfo.processIdentifier) }
+    }
+    for name in [
+      NSWorkspace.didLaunchApplicationNotification,
+      NSWorkspace.didHideApplicationNotification,
+      NSWorkspace.didUnhideApplicationNotification,
+    ] {
+      workspaceTokens.append(
+        center.addObserver(forName: name, object: nil, queue: .main) {
+          [weak self] notification in
+          let processID = name == NSWorkspace.didLaunchApplicationNotification
+            ? (notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+              as? NSRunningApplication)?.processIdentifier
+            : nil
+          MainActor.assumeIsolated {
+            self?.handler(.application, processID)
+          }
+        }
+      )
+    }
+    workspaceTokens.append(
+      center.addObserver(
+        forName: NSWorkspace.didTerminateApplicationNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] notification in
+        let processID =
+          (notification.userInfo?[
+            NSWorkspace.applicationUserInfoKey
+          ] as? NSRunningApplication)?.processIdentifier
+        MainActor.assumeIsolated {
+          self?.handler(.applicationTerminated, processID)
+        }
+      }
+    )
+    screenTokens.append(
+      NotificationCenter.default.addObserver(
+        forName: NSApplication.didChangeScreenParametersNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        MainActor.assumeIsolated {
+          self?.handler(.screens, nil)
+        }
+      }
+    )
+    let displayResult = CGDisplayRegisterReconfigurationCallback(
+      displayReconfigurationCallback,
+      Unmanaged.passUnretained(self).toOpaque()
+    )
+    displayCallbackRegistered = displayResult == .success
+
+    mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+      matching: [
+        .leftMouseDown,
+        .leftMouseDragged,
+        .leftMouseUp,
+        .rightMouseDown,
+        .rightMouseUp,
+        .otherMouseDown,
+        .otherMouseUp,
+      ]
+    ) { [weak self] event in
+      MainActor.assumeIsolated {
+        self?.handleMouseEvent(event)
+      }
+    }
+  }
+
+  func handleMouseEvent(_ event: NSEvent) {
+    guard desktopSessionActive else { return }
+    if eventStartsMouseFocusInteraction(event.type) {
+      // Only a left click interrupts the motion: lifting the overlay reveals late windows.
+      if event.type == .leftMouseDown { NavigationActor.enqueue { RibbonProxyPresenter.cancelAllFading() } }
+      let rawWindowID =
+        event.cgEvent?.getIntegerValueField(
+          .mouseEventWindowUnderMousePointerThatCanHandleThisEvent
+        ) ?? Int64(event.windowNumber)
+      if event.type == .leftMouseDown {
+        leftDragFromTrackpad.store(event.subtype == .touch, ordering: .relaxed)
+        leftPressLocation = event.cgEvent?.location
+        leftPressPointerTravelled.store(false, ordering: .relaxed)
+        pressedWindowID = mouseFocusIntentWindowID(rawWindowID: rawWindowID)
+        liveFrameHandler(pressedWindowID, event.type, event.cgEvent?.location)
+      }
+      userInputTracker.record(
+        timestamp: event.timestamp,
+        focusIntent: event.type == .leftMouseDown
+          ? .mouse(
+            windowID: mouseFocusIntentWindowID(rawWindowID: rawWindowID)
+          )
+          : nil
+      )
+    }
+    if event.type == .leftMouseDragged, let start = leftPressLocation, let location = event.cgEvent?.location,
+      hypot(location.x - start.x, location.y - start.y) > leftPressDragThreshold
+    {
+      leftPressPointerTravelled.store(true, ordering: .relaxed)
+    }
+    if event.type == .leftMouseDragged || event.type == .leftMouseUp {
+      liveFrameHandler(pressedWindowID, event.type, event.cgEvent?.location)
+    }
+    if event.type == .leftMouseUp {
+      NavigationActor.enqueue { RibbonProxyPresenter.endDrag() }
+    }
+    let actions = mouseGestureNormalizer.actions(
+      for: event.type,
+      buttonNumber: event.buttonNumber
+    )
+    if actions.refreshBorderStacking {
+      borderStackingHandler()
+    }
+    if actions.startsGesture {
+      // A modified click (Command keeps the app in the background) is not a focus.
+      let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+      mouseGestureStartedHandler(modifiers.isEmpty ? pressedWindowID : nil)
+    }
+    if actions.needsGestureSynchronization {
+      handler(.mouse, nil)
+    }
+    if actions.endsFocusInteraction {
+      handler(.mouseRelease, nil)
+    }
+  }
+
+  func resetMouseGestureState() -> Bool {
+    mouseGestureNormalizer.reset()
+  }
+
+  func refresh(
+    applications: [pid_t: [AXUIElement]],
+    requiredTopologyWindows: [pid_t: [AXUIElement]]? = nil,
+    requiredFrameWindows: [pid_t: [AXUIElement]]? = nil,
+    transientGeometryWindows: [pid_t: [AXUIElement]] = [:]
+  ) {
+    guard desktopSessionActive else { return }
+    let activeProcessIDs = Set(applications.keys)
+    let liveElements = Set(applications.values.flatMap { $0 })
+    for kind in NotificationObservationKind.allCases {
+      notificationFailures[kind] = notificationFailures[kind]?.filter {
+        activeProcessIDs.contains($0.value.processID)
+          && (kind == .applicationTopology || liveElements.contains($0.key))
+      }
+    }
+    for processID in observers.keys where !activeProcessIDs.contains(processID) {
+      observers[processID] = nil
+      topologyObservedProcessIDs.remove(processID)
+      observedWindows[processID] = nil
+      topologyRequiredWindows[processID] = nil
+      frameRequiredWindows[processID] = nil
+      topologyObservedWindows[processID] = nil
+      frameObservedWindows[processID] = nil
+    }
+
+    for (processID, windows) in applications {
+      guard let observer = observer(for: processID) else { continue }
+      prepareForWindowDiscovery(
+        processID: processID,
+        application: AXUIElementCreateApplication(processID),
+        observer: observer
+      )
+
+      var known = observedWindows[processID] ?? []
+      var topologyObserved = topologyObservedWindows[processID] ?? []
+      var frameObserved = frameObservedWindows[processID] ?? []
+      let requiredTopology = topologyWindowsRequiringCoverage(
+        requested: requiredTopologyWindows?[processID] ?? windows,
+        previouslyRequired: topologyRequiredWindows[processID] ?? [],
+        observed: topologyObserved,
+        applicationWindows: windows
+      )
+      let requiredFrames = frameWindowsRequiringCoverage(
+        requested: requiredFrameWindows?[processID] ?? windows,
+        transientGeometry: transientGeometryWindows[processID] ?? [],
+        applicationWindows: windows
+      )
+      for window in requiredTopology
+      where !notificationObservationIsDeferred(
+        .windowTopology,
+        processID: processID,
+        element: window
+      ) {
+        if !topologyObserved.contains(where: { CFEqual($0, window) }),
+          subscribe(
+            observer,
+            processID: processID,
+            kind: .windowTopology,
+            element: window,
+            notifications: [
+              kAXUIElementDestroyedNotification,
+              kAXWindowMiniaturizedNotification,
+              kAXWindowDeminiaturizedNotification,
+            ]
+          )
+        {
+          topologyObserved.append(window)
+        }
+      }
+      for window in windows {
+        if !notificationObservationIsDeferred(
+          .frame,
+          processID: processID,
+          element: window
+        ),
+          frameNotificationsEnabled,
+          requiredFrames.contains(where: { CFEqual($0, window) }),
+          !frameObserved.contains(where: { CFEqual($0, window) }),
+          subscribe(
+            observer,
+            processID: processID,
+            kind: .frame,
+            element: window,
+            notifications: [kAXMovedNotification, kAXResizedNotification]
+          )
+        {
+          frameObserved.append(window)
+        }
+        if !known.contains(where: { CFEqual($0, window) }) {
+          known.append(window)
+        }
+      }
+      let obsoleteFrameWindows = frameObserved.filter { candidate in
+        !requiredFrames.contains(where: { CFEqual($0, candidate) })
+      }
+      for window in obsoleteFrameWindows {
+        messagingTimeoutAccess.withTimeout(observerSubscriptionTimeoutSeconds, elements: [window]) {
+          for notification in [kAXMovedNotification, kAXResizedNotification] {
+            _ = removeNotification(observer, window, notification as CFString)
+          }
+        }
+      }
+      observedWindows[processID] = known.filter { candidate in
+        windows.contains(where: { CFEqual($0, candidate) })
+      }
+      topologyRequiredWindows[processID] = requiredTopology
+      frameRequiredWindows[processID] = requiredFrames
+      topologyObservedWindows[processID] = topologyObserved.filter { candidate in
+        windows.contains(where: { CFEqual($0, candidate) })
+      }
+      frameObservedWindows[processID] = frameObserved.filter { candidate in
+        requiredFrames.contains(where: { CFEqual($0, candidate) })
+      }
+    }
+  }
+
+  func prepareForWindowDiscovery(
+    processID: pid_t,
+    application: AXUIElement
+  ) {
+    guard
+      !notificationObservationIsDeferred(
+        .applicationTopology,
+        processID: processID
+      )
+    else { return }
+    guard let observer = observer(for: processID) else { return }
+    prepareForWindowDiscovery(
+      processID: processID,
+      application: application,
+      observer: observer
+    )
+  }
+
+  func hasReliableWindowTopologyCoverage(
+    for processIDs: Set<pid_t>
+  ) -> Bool {
+    let requiredProcessIDs =
+      processIDs.subtracting(
+        incompatibleNotificationProcessIDs(for: .applicationTopology)
+      )
+    guard requiredProcessIDs.isSubset(of: topologyObservedProcessIDs) else {
+      return false
+    }
+    let incompatibleWindowProcessIDs = incompatibleNotificationProcessIDs(
+      for: .windowTopology
+    )
+    return topologyRequiredWindows.allSatisfy { processID, windows in
+      guard requiredProcessIDs.contains(processID),
+        !incompatibleWindowProcessIDs.contains(processID)
+      else { return true }
+      let topologyObserved = topologyObservedWindows[processID] ?? []
+      return windows.allSatisfy { window in
+        topologyObserved.contains(where: { CFEqual($0, window) })
+      }
+    }
+  }
+
+  func processIDsWithoutReliableTopologyCoverage(
+    activeProcessIDs: Set<pid_t>
+  ) -> Set<pid_t> {
+    var uncovered = activeProcessIDs.subtracting(topologyObservedProcessIDs)
+    for (processID, windows) in topologyRequiredWindows {
+      let observed = topologyObservedWindows[processID] ?? []
+      if !windows.allSatisfy({ window in
+        observed.contains(where: { CFEqual($0, window) })
+      }) {
+        uncovered.insert(processID)
+      }
+    }
+    return uncovered
+  }
+
+  var incompatibleNotificationProcessIDs: Set<pid_t> {
+    NotificationObservationKind.allCases.reduce(into: Set<pid_t>()) {
+      $0.formUnion(incompatibleNotificationProcessIDs(for: $1))
+    }
+  }
+
+  var notificationObservationFailureCountsValue: NotificationObservationFailureCounts {
+    notificationFailures.mapValues { failures in
+      failures.values.reduce(into: [pid_t: Int]()) {
+        $0[$1.processID, default: 0] += $1.attempts
+      }
+    }.filter { !$0.value.isEmpty }
+  }
+
+  func notificationObservationErrors(kind: NotificationObservationKind, processID: pid_t) -> [Int32] {
+    Set((notificationFailures[kind] ?? [:]).values.compactMap {
+      $0.processID == processID ? $0.error.rawValue : nil
+    }).sorted()
+  }
+
+  private func notificationObservationIsDeferred(
+    _ kind: NotificationObservationKind,
+    processID: pid_t,
+    element: AXUIElement? = nil
+  ) -> Bool {
+    let element = element ?? AXUIElementCreateApplication(processID)
+    return notificationFailures[kind]?[element].map { now() < $0.retryAfter } ?? false
+  }
+
+  private func incompatibleNotificationProcessIDs(
+    for kind: NotificationObservationKind
+  ) -> Set<pid_t> {
+    Set((notificationFailures[kind] ?? [:]).values.compactMap {
+      $0.attempts >= notificationObservationMaxAttempts(for: kind) ? $0.processID : nil
+    })
+  }
+
+  func hasReliableFrameCoverage() -> Bool {
+    guard frameNotificationsEnabled else { return false }
+    return frameRequiredWindows.allSatisfy { processID, windows in
+      let frameObserved = frameObservedWindows[processID] ?? []
+      return windows.allSatisfy { window in
+        frameObserved.contains(where: { CFEqual($0, window) })
+      }
+    }
+  }
+
+  var processIDsWithoutReliableFrameCoverage: Set<pid_t> {
+    Set(
+      frameRequiredWindows.compactMap { processID, windows in
+        let observed = frameObservedWindows[processID] ?? []
+        return windows.allSatisfy { window in
+          observed.contains(where: { CFEqual($0, window) })
+        } ? nil : processID
+      })
+  }
+
+  var observationCoverage:
+    (
+      applicationObservers: Int,
+      applications: Int,
+      topologyWindows: Int,
+      requiredTopologyWindows: Int,
+      frameWindows: Int,
+      requiredFrameWindows: Int
+    )
+  {
+    (
+      topologyObservedProcessIDs.count,
+      observers.count,
+      observedWindowCount(
+        topologyRequiredWindows,
+        coveredBy: topologyObservedWindows
+      ),
+      topologyRequiredWindows.values.reduce(0) { $0 + $1.count },
+      observedWindowCount(
+        frameRequiredWindows,
+        coveredBy: frameObservedWindows
+      ),
+      frameRequiredWindows.values.reduce(0) { $0 + $1.count }
+    )
+  }
+
+  var hasReliableApplicationLifecycleObservation: Bool {
+    workspaceTokens.count == 6
+  }
+
+  func setFrameNotificationsEnabled(_ enabled: Bool) -> (
+    processIDs: Set<pid_t>, requiresFullSnapshot: Bool
+  ) {
+    guard frameNotificationsEnabled != enabled else { return ([], false) }
+    frameNotificationsEnabled = enabled
+    guard enabled else {
+      suppressedFrameProcessIDs.removeAll(keepingCapacity: true)
+      suppressedFrameRequiresFullSnapshot = false
+      return ([], false)
+    }
+    let refresh = (
+      processIDs: suppressedFrameProcessIDs,
+      requiresFullSnapshot: suppressedFrameRequiresFullSnapshot
+    )
+    suppressedFrameProcessIDs.removeAll(keepingCapacity: true)
+    suppressedFrameRequiresFullSnapshot = false
+    return refresh
+  }
+
+  func recordSuppressedFrameNotification(processID: pid_t?) {
+    guard frameNotificationsEnabled == false else { return }
+    if let processID {
+      suppressedFrameProcessIDs.insert(processID)
+    } else {
+      suppressedFrameRequiresFullSnapshot = true
+    }
+  }
+
+  func resetAccessibilityObservers() {
+    notificationFailures.removeAll(keepingCapacity: true)
+    for observer in observers.values {
+      CFRunLoopRemoveSource(
+        CFRunLoopGetMain(),
+        AXObserverGetRunLoopSource(observer),
+        .commonModes
+      )
+    }
+    observers.removeAll(keepingCapacity: true)
+    topologyObservedProcessIDs.removeAll(keepingCapacity: true)
+    observedWindows.removeAll(keepingCapacity: true)
+    topologyRequiredWindows.removeAll(keepingCapacity: true)
+    frameRequiredWindows.removeAll(keepingCapacity: true)
+    topologyObservedWindows.removeAll(keepingCapacity: true)
+    frameObservedWindows.removeAll(keepingCapacity: true)
+    frameNotificationsEnabled = true
+    suppressedFrameProcessIDs.removeAll(keepingCapacity: true)
+    suppressedFrameRequiresFullSnapshot = false
+  }
+
+  private func observer(for processID: pid_t) -> AXObserver? {
+    if let observer = observers[processID] {
+      return observer
+    }
+
+    var observer: AXObserver?
+    let result = AXObserverCreate(
+      processID,
+      { _, element, notification, context in
+        guard let context else { return }
+        let monitor = Unmanaged<PlatformEventMonitor>
+          .fromOpaque(context)
+          .takeUnretainedValue()
+        MainActor.assumeIsolated {
+          var processID: pid_t = 0
+          let normalizedProcessID =
+            AXUIElementGetPid(element, &processID) == .success
+            ? processID
+            : nil
+          switch notification as String {
+          case kAXFocusedWindowChangedNotification:
+            monitor.handler(.focus, normalizedProcessID)
+          case kAXMovedNotification, kAXResizedNotification:
+            guard monitor.frameNotificationsEnabled else {
+              monitor.recordSuppressedFrameNotification(
+                processID: normalizedProcessID
+              )
+              return
+            }
+            monitor.windowEventHandler(.frame, normalizedProcessID, element)
+          case kAXUIElementDestroyedNotification:
+            monitor.windowEventHandler(.windows, normalizedProcessID, element)
+          case kAXWindowCreatedNotification:
+            monitor.windowEventHandler(.windowCreated, normalizedProcessID, element)
+          default:
+            monitor.handler(.windows, normalizedProcessID)
+          }
+        }
+      },
+      &observer
+    )
+    guard result == .success, let observer else { return nil }
+    CFRunLoopAddSource(
+      CFRunLoopGetMain(),
+      AXObserverGetRunLoopSource(observer),
+      .commonModes
+    )
+    observers[processID] = observer
+    return observer
+  }
+
+  private func prepareForWindowDiscovery(
+    processID: pid_t,
+    application: AXUIElement,
+    observer: AXObserver
+  ) {
+    guard !topologyObservedProcessIDs.contains(processID),
+      !notificationObservationIsDeferred(.applicationTopology, processID: processID)
+    else { return }
+    if subscribe(
+      observer,
+      processID: processID,
+      kind: .applicationTopology,
+      element: application,
+      notifications: [
+        kAXFocusedWindowChangedNotification,
+        // A native tab switch or close changes only the main window.
+        kAXMainWindowChangedNotification,
+        kAXWindowCreatedNotification,
+      ]
+    ) {
+      topologyObservedProcessIDs.insert(processID)
+    }
+  }
+
+  @discardableResult
+  private func subscribe(
+    _ observer: AXObserver,
+    processID: pid_t,
+    kind: NotificationObservationKind,
+    element: AXUIElement,
+    notifications: [String]
+  ) -> Bool {
+    let context = Unmanaged.passUnretained(self).toOpaque()
+    let result = messagingTimeoutAccess.withTimeout(observerSubscriptionTimeoutSeconds, elements: [element]) {
+      registerNotificationBatch(
+        notifications: notifications,
+        add: { addNotification(observer, element, $0 as CFString, context) },
+        remove: { _ = removeNotification(observer, element, $0 as CFString) }
+      )
+    }
+    if result == .success {
+      notificationFailures[kind]?[element] = nil
+    } else {
+      let maxAttempts = notificationObservationMaxAttempts(for: kind)
+      let permanentlyUnsupported = result == .notificationUnsupported || result == .notImplemented
+      let attempts = permanentlyUnsupported ? maxAttempts : min(
+        (notificationFailures[kind]?[element]?.attempts ?? 0) + 1,
+        maxAttempts
+      )
+      notificationFailures[kind, default: [:]][element] = NotificationObservationFailure(
+        processID: processID, attempts: attempts, error: result,
+        retryAfter: attempts < maxAttempts
+          ? now() + notificationObservationRetryDelays(for: kind)[attempts - 1]
+          : (permanentlyUnsupported ? .infinity : now() + reliableObservationWatchdogInterval)
+      )
+    }
+    return result == .success
+  }
+
+  func stop() {
+    activationGeneration &+= 1
+    if displayCallbackRegistered {
+      CGDisplayRemoveReconfigurationCallback(
+        displayReconfigurationCallback,
+        Unmanaged.passUnretained(self).toOpaque()
+      )
+      displayCallbackRegistered = false
+    }
+    let center = NSWorkspace.shared.notificationCenter
+    for token in workspaceTokens {
+      center.removeObserver(token)
+    }
+    workspaceTokens.removeAll()
+    ownActivationToken.map(NotificationCenter.default.removeObserver)
+    ownActivationToken = nil
+    ownActivationPolicyToken.map(NotificationCenter.default.removeObserver)
+    ownActivationPolicyToken = nil
+    for token in sessionTokens {
+      center.removeObserver(token)
+    }
+    sessionTokens.removeAll()
+    for token in screenTokens {
+      NotificationCenter.default.removeObserver(token)
+    }
+    screenTokens.removeAll()
+    if let mouseMonitor {
+      NSEvent.removeMonitor(mouseMonitor)
+      self.mouseMonitor = nil
+    }
+    resetAccessibilityObservers()
+  }
+}

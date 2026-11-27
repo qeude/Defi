@@ -6,6 +6,7 @@ import Testing
 import Synchronization
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct WindowSnapshotStabilityTests {
   @MainActor

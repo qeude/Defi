@@ -1,0 +1,836 @@
+import AppKit
+import Synchronization
+import ApplicationServices
+import Darwin
+import DefiConfig
+import DefiCore
+import DefiModel
+import OSLog
+
+/// A display's ribbon as the overlay sees it: where it is and every managed window it
+/// owns, on any of its workspaces.
+public struct WindowProxyMonitor: Equatable, Sendable {
+  public let viewport: Rect
+  public let windowIDs: Set<WindowID>
+  /// Vertical travel of a workspace switch on this display, so windows entering an
+  /// empty or emptied ribbon still know where to come from.
+  public var workspaceShift: Double?
+  /// False when the layout reused this display's previous plan: nothing on it moves.
+  public let laidOut: Bool
+
+  public init(viewport: Rect, windowIDs: Set<WindowID>, workspaceShift: Double? = nil,
+    laidOut: Bool = true) {
+    self.viewport = viewport
+    self.windowIDs = windowIDs
+    self.workspaceShift = workspaceShift
+    self.laidOut = laidOut
+  }
+}
+
+@NavigationActor
+public final class MacOSPlatform {
+  public var windowProxiesEnabled = false {
+    didSet { RibbonProxyPresenter.enabled = windowProxiesEnabled }
+  }
+  /// The overlay spring from `[animation]`.
+  public var windowProxySpring = AnimationConfig() {
+    didSet { if oldValue != windowProxySpring { RibbonProxyStore.shared.spring = windowProxySpring } }
+  }
+  public var windowProxyMonitors: [WindowProxyMonitor] = []
+  /// Windows the layout floats, including those floated by command, which the snapshot cannot see.
+  public var layoutFloatingWindowIDs: Set<WindowID> = []
+  /// Scratchpad windows, which slide in from above the screen as they show and back up as they park.
+  public var scratchpadWindowIDs: Set<WindowID> = []
+  /// The overlay is drawing a motion; desktop reads wait for its landing.
+  public nonisolated var windowProxiesMoving: Bool { RibbonProxyStore.shared.isMoving }
+  /// The overlay holds the pointer's window (a carry or a stretch).
+  public var windowProxyCarrying: Bool { RibbonProxyPresenter.isCarrying }
+  public var windowProxyStretching: Bool { RibbonProxyPointerTrack.shared.isStretching }
+  /// The window's frame now, from the WindowServer: desktop reads wait while the
+  /// overlay draws, so a snapshot can still hold an older frame.
+  public func windowServerFrame(_ windowID: WindowID) -> Rect? {
+    ribbonProxyNativeFrames([windowID])[windowID]
+  }
+  /// Marks where a drop at the pointer would land, on the overlay only. `frames` place every
+  /// window on every display as the strip stands without the held one, which keeps its
+  /// landing slot; `hint` marks the drop, and `rejectedFrame` a column it cannot join. `scroll` names
+  /// the windows of a strip scrolled by `shift` points since the last preview: they follow
+  /// at once instead of springing.
+  public func presentWindowProxyPreview(
+    _ frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?, hint: Rect? = nil,
+    scroll: (shift: Double, windowIDs: Set<WindowID>)? = nil
+  ) {
+    guard windowProxiesEnabled else { return }
+    windowProxyPreview = (frames, heldWindowID, rejectedFrame, hint)
+    hostWindowProxyPreview()
+    presentPendingWindowProxyPreview(scroll: scroll)
+  }
+  /// The pointer let go: the next drag starts without a preview.
+  public func endWindowProxyPreview() { windowProxyPreview = nil }
+  /// The pointer travelled past a click's jitter since the last left press.
+  public var leftPressPointerDragged: Bool { leftPressPointerTravelled.load(ordering: .relaxed) }
+  /// A light trackpad tap as a dragged window's drop slot moves, for a trackpad drag
+  /// only: macOS plays it on a Force Touch trackpad even while a mouse drags.
+  public func playDropSlotHaptic() {
+    let trackpad = leftDragFromTrackpad.load(ordering: .relaxed)
+    recordPerformanceTrace("drop-slot-haptic trackpad=\(trackpad)")
+    guard trackpad else { return }
+    DispatchQueue.main.async { playAlignmentHaptic() }
+  }
+  /// Taps the trackpad each time the column, or workspace, that releasing scroll gesture `id`
+  /// at a travel would land on changes. `landing` runs on the main queue.
+  public func beginScrollPanDetents(_ id: UInt64, landing: @escaping @Sendable (Double) -> Int?) {
+    let coordinator = frameCoordinator
+    ScrollPanDetents.shared.begin(id, landing: landing) { coordinator.recordTrace($0) }
+  }
+  private var windowProxyPreview: (frames: [WindowID: Rect], heldWindowID: WindowID, rejectedFrame: Rect?, hint: Rect?)?
+  private var windowProxyHostRetryAt: TimeInterval = 0
+
+  /// Puts the display the drop would land on (not the carried window's own) on its
+  /// overlay, so its ribbon can make room as it does on a single display.
+  @discardableResult
+  private func hostWindowProxyPreview() -> Bool {
+    let now = ProcessInfo.processInfo.systemUptime
+    guard RibbonProxyPresenter.isCarrying, let (frames, id, _, _) = windowProxyPreview, let slot = frames[id],
+      now >= windowProxyHostRetryAt,
+      let monitor = windowProxyMonitors.first(where: {
+        !$0.windowIDs.contains(id) && slot.ribbonIntersects($0.viewport)
+      }),
+      let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID
+    else { return false }
+    let presenter = RibbonProxyPresenter.on(display)
+    guard presenter.hostedWindowID != id, !presenter.isCarrying else { return false }
+    guard let carried = lastSnapshotWindows.first(where: { $0.id == id }), let processID = carried.processID,
+      let native = ribbonProxyNativeFrames([id])[id]
+    else {
+      windowProxyHostRetryAt = now + 0.1
+      return false
+    }
+    let windows = windowProxyCarryWindows(monitor) + [RibbonProxyWindow(id: id, appID: carried.appID,
+      processID: processID, from: native, to: native)]
+    guard presenter.host(id, windows: windows, viewport: monitor.viewport,
+      generation: frameSubmissionGeneration)
+    else {
+      // The overlay there is not ready (surface, background): the next drag event retries.
+      windowProxyHostRetryAt = now + 0.1
+      return false
+    }
+    return true
+  }
+
+  /// The tiled window just released by the pointer; it starts from where it was dropped.
+  public var windowProxyDroppedWindowID: WindowID?
+
+  /// Hands a tiled window dragged by the pointer to the overlay: its proxy follows the
+  /// pointer over every window drawn where it is now.
+  public func carryWindowProxy(_ windowID: WindowID, stretches: Bool) {
+    if RibbonProxyPresenter.isCarrying {
+      if hostWindowProxyPreview() { presentPendingWindowProxyPreview() }
+      return
+    }
+    let now = ProcessInfo.processInfo.systemUptime
+    guard windowProxiesEnabled, now >= windowProxyCarryRetryAt,
+      let monitor = windowProxyMonitors.first(where: { $0.windowIDs.contains(windowID) }) else { return }
+    guard let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else {
+      DispatchQueue.main.async { RibbonProxyRenderer.shared.refreshEnvironment() }
+      windowProxyCarryRetryAt = now + 0.1
+      return
+    }
+    let presenter = RibbonProxyPresenter.on(display)
+    let window = lastSnapshotWindows.first { $0.id == windowID }
+    let maximumWidth = window?.maximumTiledWidth ?? .infinity
+    let minimumWidth = min(max(window?.minimumTiledWidth ?? 0, 240), maximumWidth)
+    presenter.carry(windowID, stretches: stretches, widths: minimumWidth...maximumWidth,
+      windows: windowProxyCarryWindows(monitor), viewport: monitor.viewport,
+      slot: previousLogicalRibbonFrames[windowID], generation: frameSubmissionGeneration)
+    // A drag event arrives every frame: a refused carry waits instead of re-reading the
+    // WindowServer list each time.
+    guard presenter.isCarrying else {
+      windowProxyCarryRetryAt = now + 0.1
+      return
+    }
+    // A preview computed before the carry started applies now; one from an earlier drag goes.
+    guard windowProxyPreview?.heldWindowID == windowID else {
+      windowProxyPreview = nil
+      return
+    }
+    hostWindowProxyPreview()
+    presentPendingWindowProxyPreview()
+  }
+
+  /// Puts the windows of the display showing `viewport` on the overlay, following scroll
+  /// gesture `id`: `moving` shift by `scale` points per travel point along the axis,
+  /// rubber-banded past `bounds`; the others stay still. `neighbors` are the workspaces
+  /// above and below, drawn at these frames. Returns where the strip is drawn from rest
+  /// (a motion still running), nil without overlay.
+  public func beginScrollPan(_ id: UInt64, viewport: Rect, vertical: Bool, moving: Set<WindowID>,
+    neighbors: [WindowID: Rect], scale: Double, bounds: ClosedRange<Double>, dimension: Double,
+    stiffness: Double) -> Double? {
+    guard windowProxiesEnabled, !RibbonProxyPresenter.isCarrying,
+      let monitor = windowProxyMonitors.first(where: { $0.viewport == viewport }),
+      let display = RibbonProxyStore.shared.screen(containing: viewport)?.displayID
+    else { return nil }
+    scrollPanDisplay = display
+    let windows = windowProxyCarryWindows(monitor).filter { neighbors[$0.id] == nil }
+      + lastSnapshotWindows.compactMap { window in
+        guard let frame = neighbors[window.id], let processID = window.processID else { return nil }
+        return RibbonProxyWindow(id: window.id, appID: window.appID, processID: processID, from: frame, to: frame)
+      }
+    return RibbonProxyPresenter.on(display).pan(id, windows: windows, ribbon: moving, vertical: vertical,
+      viewport: viewport, generation: frameSubmissionGeneration, selectedWindowID: desiredSelectedWindowID,
+      scale: scale, bounds: bounds, dimension: dimension, stiffness: stiffness)
+  }
+
+  /// The gesture released: the next animated layout settles the strip from where it is drawn.
+  public func endScrollPan(velocity: Double, vertical: Bool) {
+    ScrollPanDetents.shared.end()
+    scrollPanDisplay.map { RibbonProxyPresenter.on($0).endPan(velocity: velocity, vertical: vertical) }
+    scrollPanDisplay = nil
+  }
+
+  /// The gesture gave way to something else: the windows show where they really are.
+  public func cancelScrollPan() {
+    ScrollPanDetents.shared.end()
+    scrollPanDisplay.map { RibbonProxyPresenter.on($0).cancel("scroll-pan") }
+    scrollPanDisplay = nil
+  }
+
+  /// Starts the stretch at the first drag event of a resize, without waiting for a
+  /// snapshot: the native edge moved while the neighbours stood still. Pressed on a side
+  /// edge, a horizontal move is enough; an app that resizes in steps (a terminal's cells)
+  /// moves its edge only later. Elsewhere, the WindowServer must show the resize.
+  func stretchWindowProxyEarly(_ windowID: WindowID, pressing: Bool, pointer: CGPoint) {
+    // Tiled windows only: a floating one has no ribbon place.
+    guard pressing || pressedWindow?.id == windowID, previousLogicalRibbonFrames[windowID] != nil,
+      let frame = ribbonProxyNativeFrames([windowID])[windowID] else { return }
+    if pressing {
+      let onSideEdge = Double(pointer.y) >= frame.y && Double(pointer.y) <= frame.y + frame.height
+        && ((frame.x - 8)...(frame.x + 3) ~= Double(pointer.x)
+          || (frame.x + frame.width - 3)...(frame.x + frame.width + 8) ~= Double(pointer.x))
+      pressedWindow = (windowID, frame, onSideEdge ? Double(pointer.x) : nil)
+      return
+    }
+    guard let (pressedID, start, edgePointerX) = pressedWindow, pressedID == windowID else { return }
+    let resizing = abs(frame.width - start.width) >= 2 && abs(frame.y - start.y) < 1
+      && (abs(frame.x - start.x) < 1 || abs(frame.x + frame.width - start.x - start.width) < 1)
+    guard resizing || edgePointerX.map({ abs(Double(pointer.x) - $0) >= 2 }) == true else { return }
+    pressedWindow = nil
+    carryWindowProxy(windowID, stretches: true)
+  }
+  private var pressedWindow: (id: WindowID, frame: Rect, edgePointerX: Double?)?
+  private var scrollPanDisplay: CGDirectDisplayID?
+
+  private func presentPendingWindowProxyPreview(scroll: (shift: Double, windowIDs: Set<WindowID>)? = nil) {
+    guard let (frames, id, rejectedFrame, hint) = windowProxyPreview else { return }
+    for presenter in RibbonProxyPresenter.all {
+      presenter.preview(frames, heldWindowID: id, rejectedFrame: rejectedFrame, hint: hint, scroll: scroll)
+    }
+  }
+  private var windowProxyCarryRetryAt: TimeInterval = 0
+
+  /// A display's windows for a drag: the whole ribbon, so windows off screen join it at
+  /// their logical place (natively they sit parked at the edge).
+  private func windowProxyCarryWindows(_ monitor: WindowProxyMonitor) -> [RibbonProxyWindow] {
+    let viewport = monitor.viewport
+    let windows = Dictionary(lastSnapshotWindows.filter { monitor.windowIDs.contains($0.id) }
+      .map { ($0.id, $0) }) { first, _ in first }
+    let native = ribbonProxyNativeFrames(Set(windows.keys))
+    // Visible windows start exactly where they are (the held one is already under the
+    // pointer); only windows off screen take their logical place.
+    return windows.compactMap { id, window -> RibbonProxyWindow? in
+      guard let processID = window.processID, !nativeFullscreenWindowIDs.contains(id) else { return nil }
+      let logical = previousLogicalRibbonFrames[id]
+      // A window still on its way to or from its parking corner is not on the ribbon yet.
+      if let frame = native[id], windowProxyVisibleOverlap(frame, viewport) > 1.01,
+        logical.map({ abs($0.y - frame.y) < 40 }) ?? true {
+        return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: frame, to: frame,
+          pinned: pinnedWindowIDs.contains(id))
+      }
+      // Parked at a corner, its native y is the display's bottom: the ribbon place is logical.
+      guard let logical else { return nil }
+      return RibbonProxyWindow(id: id, appID: window.appID, processID: processID, from: logical, to: logical,
+        pinned: pinnedWindowIDs.contains(id))
+    } + nativeFullscreenProxies(monitor, from: previousNativeFullscreenRibbonFrames)
+  }
+  var previousLogicalRibbonFrames: [WindowID: Rect] = [:]
+  /// Native fullscreen placeholders at their ribbon place, set before each layout.
+  public var nativeFullscreenRibbonPlaceholders: [WindowID: NativeFullscreenPlaceholder] = [:]
+  var previousNativeFullscreenRibbonFrames: [WindowID: Rect] = [:]
+  /// Windows of pinned columns, set before each layout: strip windows slide beneath them.
+  public var pinnedWindowIDs: Set<WindowID> = []
+  private var nativeFullscreenPictures: [WindowID: (key: String, image: CGImage)] = [:]
+
+  /// The placeholders of `monitor` as overlay windows, so they travel with the ribbon.
+  func nativeFullscreenProxies(_ monitor: WindowProxyMonitor, from previous: [WindowID: Rect])
+    -> [RibbonProxyWindow] {
+    nativeFullscreenPictures = nativeFullscreenPictures.filter { nativeFullscreenRibbonPlaceholders[$0.key] != nil }
+    return nativeFullscreenRibbonPlaceholders.compactMap { id, window -> RibbonProxyWindow? in
+      guard monitor.windowIDs.contains(id) else { return nil }
+      let to = window.frame
+      let scale = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.scale ?? 2
+      let selected = id == desiredSelectedWindowID
+      let accent = RibbonProxyPresenter.borderStyle?.activeColor ?? 0
+      let key = "\(window.appID)|\(window.title)|\(to.width)x\(to.height)@\(scale)|\(selected)|\(accent)"
+      let image = nativeFullscreenPictures[id].flatMap { $0.key == key ? $0.image : nil }
+        ?? nativeFullscreenPlaceholderImage(appID: window.appID, title: window.title,
+          size: CGSize(width: to.width, height: to.height), scale: scale, selected: selected, accentColor: accent)
+      guard let image else { return nil }
+      nativeFullscreenPictures[id] = (key, image)
+      return RibbonProxyWindow(id: id, appID: window.appID, processID: 0,
+        from: previous[id] ?? to, to: to, picture: image)
+    }
+  }
+  /// Ribbon moves an animated layout could not write yet; the layout that writes them animates.
+  var deferredRibbonMoves: Set<WindowID> = []
+  /// Skipped windows whose new target or parking the latest layout did not write.
+  public internal(set) var heldBackWindowIDs: Set<WindowID> = []
+  /// When the latest window opening began holding the screen: only its check releases the hold.
+  var latestOpening: TimeInterval = 0
+  nonisolated let snapshotEngine: SnapshotEngine
+
+
+  @MainActor func frame(of element: AXUIElement) -> Rect? {
+    snapshotEngine.frame(of: element)
+  }
+
+  func stableWindowID(
+    processID: pid_t?,
+    in windows: [Window]
+  ) -> WindowID? {
+    snapshotEngine.stableWindowID(
+      processID: processID,
+      in: windows
+    )
+  }
+
+  nonisolated public func accessibilityTrusted(prompt: Bool) -> Bool {
+    return snapshotEngine.accessibilityTrusted(prompt: prompt)
+  }
+
+  @MainActor public func snapshot(config: Config) -> DesktopSnapshot {
+    return snapshotEngine.snapshot(config: config)
+  }
+
+  public func beginSnapshot(
+    config: Config,
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool,
+    forceApplicationInventoryRefresh: Bool,
+    completion: @escaping @NavigationActor @Sendable (DesktopSnapshot) -> Void
+  ) {
+    snapshotEngine.beginSnapshot(
+      config: config,
+      forceFullWindowRefresh: forceFullWindowRefresh,
+      forceWindowListRefresh: forceWindowListRefresh,
+      forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
+      completion: completion
+    )
+  }
+
+  @MainActor public func snapshot(
+    config: Config,
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool = false,
+    forceApplicationInventoryRefresh: Bool = false
+  ) -> DesktopSnapshot {
+    return snapshotEngine.snapshot(
+      config: config,
+      forceFullWindowRefresh: forceFullWindowRefresh,
+      forceWindowListRefresh: forceWindowListRefresh,
+      forceApplicationInventoryRefresh: forceApplicationInventoryRefresh
+    )
+  }
+  nonisolated var elements: [WindowID: AXUIElement] {
+    get { snapshotEngine.elements }
+    set { snapshotEngine.elements = newValue }
+  }
+  nonisolated var processIDs: [WindowID: pid_t] {
+    get { snapshotEngine.processIDs }
+    set { snapshotEngine.processIDs = newValue }
+  }
+  nonisolated var transientOwnerWindowIDs: [WindowID: WindowID] {
+    get { snapshotEngine.transientOwnerWindowIDs }
+    set { snapshotEngine.transientOwnerWindowIDs = newValue }
+  }
+  nonisolated var transientOwnerResolutionAttempts: [WindowID: Int] {
+    get { snapshotEngine.transientOwnerResolutionAttempts }
+    set { snapshotEngine.transientOwnerResolutionAttempts = newValue }
+  }
+  nonisolated var transientOwnerResolutionRetryAfter: [WindowID: TimeInterval] {
+    get { snapshotEngine.transientOwnerResolutionRetryAfter }
+    set { snapshotEngine.transientOwnerResolutionRetryAfter = newValue }
+  }
+  nonisolated var floatingWindowIDs: Set<WindowID> {
+    get { snapshotEngine.floatingWindowIDs }
+    set { snapshotEngine.floatingWindowIDs = newValue }
+  }
+  nonisolated var applications: [pid_t: AXUIElement] {
+    get { snapshotEngine.applications }
+    set { snapshotEngine.applications = newValue }
+  }
+  nonisolated var applicationIDsByProcess: [pid_t: String] {
+    get { snapshotEngine.applicationIDsByProcess }
+    set { snapshotEngine.applicationIDsByProcess = newValue }
+  }
+  nonisolated var applicationWindowCounts: [pid_t: Int] {
+    get { snapshotEngine.applicationWindowCounts }
+    set { snapshotEngine.applicationWindowCounts = newValue }
+  }
+  nonisolated var enhancedUIByProcess: [pid_t: Bool] {
+    get { snapshotEngine.enhancedUIByProcess }
+    set { snapshotEngine.enhancedUIByProcess = newValue }
+  }
+  nonisolated var multipleAttributeReadsSupportedByProcess: [pid_t: Bool] {
+    get { snapshotEngine.multipleAttributeReadsSupportedByProcess }
+    set { snapshotEngine.multipleAttributeReadsSupportedByProcess = newValue }
+  }
+  nonisolated var failedBatchedWindowAttributeReadsByElement: [AXWindowElementIdentity: Int] {
+    get { snapshotEngine.failedBatchedWindowAttributeReadsByElement }
+    set { snapshotEngine.failedBatchedWindowAttributeReadsByElement = newValue }
+  }
+  nonisolated var batchedWindowAttributeReadCount: Int {
+    get { snapshotEngine.batchedWindowAttributeReadCount }
+    set { snapshotEngine.batchedWindowAttributeReadCount = newValue }
+  }
+  nonisolated var fallbackWindowAttributeReadCount: Int {
+    get { snapshotEngine.fallbackWindowAttributeReadCount }
+    set { snapshotEngine.fallbackWindowAttributeReadCount = newValue }
+  }
+  nonisolated var windowManagementCapabilities: [WindowID: WindowManagementCapabilities] {
+    get { snapshotEngine.windowManagementCapabilities }
+    set { snapshotEngine.windowManagementCapabilities = newValue }
+  }
+  nonisolated var windowManagementMetadataReadCount: Int {
+    get { snapshotEngine.windowManagementMetadataReadCount }
+    set { snapshotEngine.windowManagementMetadataReadCount = newValue }
+  }
+  nonisolated var windowManagementMetadataReuseCount: Int {
+    get { snapshotEngine.windowManagementMetadataReuseCount }
+    set { snapshotEngine.windowManagementMetadataReuseCount = newValue }
+  }
+  nonisolated let frameCoordinator: AXFrameCoordinator
+  nonisolated let pendingBorderGeometry = Mutex(PendingBorderGeometry())
+  nonisolated let focusWriter = AXFocusWriter()
+  nonisolated let focusRecoveryResolver = AXFocusRecoveryResolver()
+  @MainActor lazy var windowIDProvider = AXWindowIDProvider()
+
+
+  @MainActor lazy var borderManager = WindowBorderManager()
+  @MainActor lazy var borderSync = makeWindowBorderSync()
+  @MainActor lazy var borderStackingSettle = makeWindowBorderStackingSettle()
+  @MainActor lazy var nativeFullscreenPlaceholderManager = NativeFullscreenPlaceholderManager()
+  nonisolated let borderBoundsProvider: WindowServerBoundsProvider
+  nonisolated var targetFrames: [WindowID: Rect] {
+    get { snapshotEngine.targetFrames }
+    set { snapshotEngine.targetFrames = newValue }
+  }
+  nonisolated var pendingFrameDebtWindowIDs: Set<WindowID> {
+    get { snapshotEngine.pendingFrameDebtWindowIDs }
+    set { snapshotEngine.pendingFrameDebtWindowIDs = newValue }
+  }
+  nonisolated var pendingFrameCorrections: [WindowID: Rect] {
+    get { snapshotEngine.pendingFrameCorrections }
+    set { snapshotEngine.pendingFrameCorrections = newValue }
+  }
+  nonisolated var latestObservedFrames: [WindowID: Rect] {
+    get { snapshotEngine.latestObservedFrames }
+    set { snapshotEngine.latestObservedFrames = newValue }
+  }
+  public nonisolated var nextFrameCommitVerificationAt: TimeInterval? {
+    snapshotEngine.nextFrameCommitVerificationAt
+  }
+
+  public nonisolated func requestDueFrameCommitVerification(now: TimeInterval) -> Bool {
+    snapshotEngine.requestDueFrameCommitVerification(now: now)
+  }
+
+  nonisolated var frameCommitExpectations: [WindowID: FrameCommitExpectation] {
+    get { snapshotEngine.frameCommitExpectations }
+    set { snapshotEngine.frameCommitExpectations = newValue }
+  }
+  nonisolated var initialFrameSettlementDeadlines: [WindowID: TimeInterval] {
+    get { snapshotEngine.initialFrameSettlementDeadlines }
+    set { snapshotEngine.initialFrameSettlementDeadlines = newValue }
+  }
+  nonisolated var newlyDiscoveredWindowIDs: Set<WindowID> {
+    get { snapshotEngine.newlyDiscoveredWindowIDs }
+    set { snapshotEngine.newlyDiscoveredWindowIDs = newValue }
+  }
+  nonisolated var hasCompletedWindowSnapshot: Bool {
+    get { snapshotEngine.hasCompletedWindowSnapshot }
+    set { snapshotEngine.hasCompletedWindowSnapshot = newValue }
+  }
+
+  public var hasPendingWindowTopologyEvent: Bool {
+    snapshotEngine.pendingObservations.topologyPending
+  }
+  nonisolated var lastSnapshotWindows: [Window] {
+    get { snapshotEngine.lastSnapshotWindows }
+    set { snapshotEngine.lastSnapshotWindows = newValue }
+  }
+  nonisolated var lastSnapshotWindowIDs: Set<WindowID> {
+    get { snapshotEngine.lastSnapshotWindowIDs }
+    set { snapshotEngine.lastSnapshotWindowIDs = newValue }
+  }
+  nonisolated var lastSnapshotProcessIDs: Set<pid_t> {
+    get { snapshotEngine.lastSnapshotProcessIDs }
+    set { snapshotEngine.lastSnapshotProcessIDs = newValue }
+  }
+  nonisolated var lastApplicationWindowElements: [pid_t: [AXUIElement]] {
+    get { snapshotEngine.lastApplicationWindowElements }
+    set { snapshotEngine.lastApplicationWindowElements = newValue }
+  }
+  nonisolated var minimizedWindowElementsByProcess: [pid_t: [AXUIElement]] {
+    get { snapshotEngine.minimizedWindowElementsByProcess }
+    set { snapshotEngine.minimizedWindowElementsByProcess = newValue }
+  }
+  nonisolated var transientGeometryWindowElementsByProcess: [pid_t: [AXUIElement]] {
+    get { snapshotEngine.transientGeometryWindowElementsByProcess }
+    set { snapshotEngine.transientGeometryWindowElementsByProcess = newValue }
+  }
+  nonisolated var unmatchedWindowElementsByProcess: [pid_t: [AXUIElement]] {
+    get { snapshotEngine.unmatchedWindowElementsByProcess }
+    set { snapshotEngine.unmatchedWindowElementsByProcess = newValue }
+  }
+  nonisolated var unmatchedWindowRetryAttemptsByProcess: [pid_t: Int] {
+    get { snapshotEngine.unmatchedWindowRetryAttemptsByProcess }
+    set { snapshotEngine.unmatchedWindowRetryAttemptsByProcess = newValue }
+  }
+  nonisolated var windowListReadRetryAttemptsByProcess: [pid_t: Int] {
+    get { snapshotEngine.windowListReadRetryAttemptsByProcess }
+    set { snapshotEngine.windowListReadRetryAttemptsByProcess = newValue }
+  }
+  nonisolated var cgWindowInventoryRetryAttempts: Int? {
+    get { snapshotEngine.cgWindowInventoryRetryAttempts }
+    set { snapshotEngine.cgWindowInventoryRetryAttempts = newValue }
+  }
+  nonisolated var retainedWindowIDs: Set<WindowID> {
+    get { snapshotEngine.retainedWindowIDs }
+    set { snapshotEngine.retainedWindowIDs = newValue }
+  }
+  nonisolated var retainedWindowDeadlines: [WindowID: TimeInterval] {
+    get { snapshotEngine.retainedWindowDeadlines }
+    set { snapshotEngine.retainedWindowDeadlines = newValue }
+  }
+  nonisolated var lastWindowSnapshotDurationMS: Double {
+    get { snapshotEngine.lastWindowSnapshotDurationMS }
+    set { snapshotEngine.lastWindowSnapshotDurationMS = newValue }
+  }
+  nonisolated var maximumWindowSnapshotDurationMS: Double {
+    get { snapshotEngine.maximumWindowSnapshotDurationMS }
+    set { snapshotEngine.maximumWindowSnapshotDurationMS = newValue }
+  }
+  nonisolated var windowSnapshotDurationSamplesMS: [Double] {
+    get { snapshotEngine.windowSnapshotDurationSamplesMS }
+    set { snapshotEngine.windowSnapshotDurationSamplesMS = newValue }
+  }
+  nonisolated var fullWindowSnapshotCount: Int {
+    get { snapshotEngine.fullWindowSnapshotCount }
+    set { snapshotEngine.fullWindowSnapshotCount = newValue }
+  }
+  nonisolated var incrementalWindowSnapshotCount: Int {
+    get { snapshotEngine.incrementalWindowSnapshotCount }
+    set { snapshotEngine.incrementalWindowSnapshotCount = newValue }
+  }
+  nonisolated var cachedWindowSnapshotCount: Int {
+    get { snapshotEngine.cachedWindowSnapshotCount }
+    set { snapshotEngine.cachedWindowSnapshotCount = newValue }
+  }
+  nonisolated var applicationInventorySnapshotCount: Int {
+    get { snapshotEngine.applicationInventorySnapshotCount }
+    set { snapshotEngine.applicationInventorySnapshotCount = newValue }
+  }
+  nonisolated var applicationWindowListReadCount: Int {
+    get { snapshotEngine.applicationWindowListReadCount }
+    set { snapshotEngine.applicationWindowListReadCount = newValue }
+  }
+  nonisolated var applicationInventoryDurationSamplesMS: [Double] {
+    get { snapshotEngine.applicationInventoryDurationSamplesMS }
+    set { snapshotEngine.applicationInventoryDurationSamplesMS = newValue }
+  }
+  nonisolated var applicationWindowListDurationSamplesMS: [Double] {
+    get { snapshotEngine.applicationWindowListDurationSamplesMS }
+    set { snapshotEngine.applicationWindowListDurationSamplesMS = newValue }
+  }
+  nonisolated var snapshotCGWindowCopyCount: Int {
+    get { snapshotEngine.snapshotCGWindowCopyCount }
+    set { snapshotEngine.snapshotCGWindowCopyCount = newValue }
+  }
+  nonisolated var lastSnapshotCGWindowCopyDurationMS: Double {
+    get { snapshotEngine.lastSnapshotCGWindowCopyDurationMS }
+    set { snapshotEngine.lastSnapshotCGWindowCopyDurationMS = newValue }
+  }
+  nonisolated var maximumSnapshotCGWindowCopyDurationMS: Double {
+    get { snapshotEngine.maximumSnapshotCGWindowCopyDurationMS }
+    set { snapshotEngine.maximumSnapshotCGWindowCopyDurationMS = newValue }
+  }
+  nonisolated var windowSnapshotObservationGeneration: UInt64 {
+    get { snapshotEngine.windowSnapshotObservationGeneration }
+    set { snapshotEngine.windowSnapshotObservationGeneration = newValue }
+  }
+  nonisolated var deferredFrameCommitMismatchCount: Int {
+    get { snapshotEngine.deferredFrameCommitMismatchCount }
+    set { snapshotEngine.deferredFrameCommitMismatchCount = newValue }
+  }
+  nonisolated var observedFrameCommitCount: Int {
+    get { snapshotEngine.observedFrameCommitCount }
+    set { snapshotEngine.observedFrameCommitCount = newValue }
+  }
+  nonisolated var maximumObservedFrameCommitLatencyMS: Double {
+    get { snapshotEngine.maximumObservedFrameCommitLatencyMS }
+    set { snapshotEngine.maximumObservedFrameCommitLatencyMS = newValue }
+  }
+  var commandLatency = CommandLatencyAccumulator()
+  var commandDiagnosticHandler: (@NavigationActor @Sendable (CommandDiagnosticSample) -> Void)?
+  nonisolated var lastHiddenWindowIDs: Set<WindowID> {
+    get { snapshotEngine.lastHiddenWindowIDs }
+    set { snapshotEngine.lastHiddenWindowIDs = newValue }
+  }
+  @MainActor var presentationStatusPending = false
+  @MainActor var accessibilityDisplayObserver: NSObjectProtocol?
+  @MainActor lazy var delayedObservationCampaigns = DelayedObservationCampaigns()
+  @MainActor var observationMeasurementAccess: ObservationMeasurementAccess?
+  @MainActor var eventMonitor: PlatformEventMonitor?
+  nonisolated var mouseResizeGesturePending: Bool {
+    get { snapshotEngine.mouseResizeGesturePending }
+    set { snapshotEngine.mouseResizeGesturePending = newValue }
+  }
+  nonisolated var mouseFocusReleasePending: Bool {
+    get { snapshotEngine.mouseFocusReleasePending }
+    set { snapshotEngine.mouseFocusReleasePending = newValue }
+  }
+  nonisolated var nativeFocusEventGeneration: UInt64 {
+    get { snapshotEngine.nativeFocusEventGeneration }
+    set { snapshotEngine.nativeFocusEventGeneration = newValue }
+  }
+  nonisolated var mouseFocusReleaseEventGeneration: UInt64? {
+    get { snapshotEngine.mouseFocusReleaseEventGeneration }
+    set { snapshotEngine.mouseFocusReleaseEventGeneration = newValue }
+  }
+  nonisolated var nativeFocusEventPending: Bool {
+    get { snapshotEngine.nativeFocusEventPending }
+    set { snapshotEngine.nativeFocusEventPending = newValue }
+  }
+  nonisolated var nativeFocusEventProcessIDs: Set<pid_t> {
+    get { snapshotEngine.nativeFocusEventProcessIDs }
+    set { snapshotEngine.nativeFocusEventProcessIDs = newValue }
+  }
+  nonisolated var nativeFocusEventHasUnknownProcess: Bool {
+    get { snapshotEngine.nativeFocusEventHasUnknownProcess }
+    set { snapshotEngine.nativeFocusEventHasUnknownProcess = newValue }
+  }
+  nonisolated var nativeFocusEventTimestamp: TimeInterval {
+    get { snapshotEngine.nativeFocusEventTimestamp }
+    set { snapshotEngine.nativeFocusEventTimestamp = newValue }
+  }
+  nonisolated var lastFocusedWindowByProcess: [pid_t: WindowID] {
+    get { snapshotEngine.lastFocusedWindowByProcess }
+    set { snapshotEngine.lastFocusedWindowByProcess = newValue }
+  }
+  nonisolated var verifiedNativeFocusedWindowID: WindowID? {
+    get { snapshotEngine.verifiedNativeFocusedWindowID }
+    set { snapshotEngine.verifiedNativeFocusedWindowID = newValue }
+  }
+  /// Defi focused one of this app's windows lately: its activation may be that focus's
+  /// echo, not the user's.
+  public nonisolated func internalFocusIsRecent(processID: pid_t) -> Bool {
+    let now = ProcessInfo.processInfo.systemUptime, owners = processIDs
+    return internalFocusSuppressions.contains { $0.value.deadline >= now && owners[$0.key] == processID }
+  }
+  nonisolated var internalFocusSuppressions: [WindowID: InternalFocusSuppression] {
+    get { snapshotEngine.internalFocusSuppressions }
+    set { snapshotEngine.internalFocusSuppressions = newValue }
+  }
+  var nextInternalFocusRequestID: UInt64 = 0
+  var submittedFocusRecoveryRequestID: NativeFocusRequestID?
+  var submittedFocusRecoveryTimestamp: TimeInterval?
+  var submittedFocusRecoveryGeneration: UInt64?
+  var nextFocusRecoveryGeneration: UInt64 = 0
+  nonisolated let cursorWarpGeneration = Mutex<UInt64>(0)
+  var focusRecoveryIntentGeneration: UInt64 = 0 {
+    didSet { cursorWarpGeneration.withLock { $0 &+= 1 } }
+  }
+  var frameSubmissionGeneration: UInt64 = 0 {
+    didSet { cursorWarpGeneration.withLock { $0 &+= 1 } }
+  }
+  var lastFrameApplyDurationMS = 0.0
+  nonisolated var lastMonitorFrames: [Rect] {
+    get { snapshotEngine.lastMonitorFrames }
+    set { snapshotEngine.lastMonitorFrames = newValue }
+  }
+  nonisolated var deferredFreshReadProcessIDs: Set<pid_t> {
+    get { snapshotEngine.deferredFreshReadProcessIDs }
+    set { snapshotEngine.deferredFreshReadProcessIDs = newValue }
+  }
+  nonisolated var deferredFreshReadsStartedAt: TimeInterval? {
+    get { snapshotEngine.deferredFreshReadsStartedAt }
+    set { snapshotEngine.deferredFreshReadsStartedAt = newValue }
+  }
+  nonisolated var chunkedFullRefreshRemainingProcessIDs: Set<pid_t>? {
+    get { snapshotEngine.chunkedFullRefreshRemainingProcessIDs }
+    set { snapshotEngine.chunkedFullRefreshRemainingProcessIDs = newValue }
+  }
+  nonisolated var fallbackFreshReadDeadlines: [pid_t: TimeInterval] {
+    get { snapshotEngine.fallbackFreshReadDeadlines }
+    set { snapshotEngine.fallbackFreshReadDeadlines = newValue }
+  }
+  @MainActor var pointerHitTestRecords: [CGWindowRecord] = []
+  @MainActor var pointerHitTestDockProcessIDs = Set<pid_t>()
+  @MainActor var pointerHitTestNotificationCenterProcessIDs = Set<pid_t>()
+  @MainActor var pointerHitTestSnapshotTimestamp: TimeInterval?
+  @MainActor var borderFrames: [FrameAssignment] = []
+  @MainActor var borderSelectedWindowID: WindowID?
+  /// Accessibility was revoked: focus no longer reaches Defi, so no border or dim shows.
+  @MainActor var bordersLackAccessibility = false
+  @MainActor var borderTrustTimer: Timer?
+  var desiredSelectedWindowID: WindowID?
+  /// Pointer focus waits while an app's own menu or palette has focus: moving
+  /// out of it would focus another window and close it.
+  public nonisolated var nativeFocusIsAppPopup: Bool { snapshotEngine.nativeFocusIsAppPopup }
+  nonisolated var lastNativeFocusedWindowID: WindowID? {
+    get { snapshotEngine.lastNativeFocusedWindowID }
+    set { snapshotEngine.lastNativeFocusedWindowID = newValue }
+  }
+  @MainActor var borderHiddenWindowIDs = Set<WindowID>()
+  /// The window a refused resize rings for a moment while its style draws no ring.
+  @MainActor var refusalRingWindowID: WindowID?
+  @MainActor var refusalRingGeneration = 0
+  public private(set) var nativeFullscreenWindowIDs = Set<WindowID>()
+  /// Selecting a fullscreen window stays in the strip; only the next focus of this window switches to its Space.
+  public var nativeFullscreenActivationWindowID: WindowID?
+  public private(set) var activeNativeFullscreenWindowIDs = Set<WindowID>()
+  /// Full-screen windows already back on the desktop Space, before the snapshots report it.
+  public internal(set) var returnedNativeFullscreenWindowIDs = Set<WindowID>()
+  @MainActor var windowBorderStacking = WindowBorderStacking.inactive(for: nil)
+  @MainActor var borderStackingRefreshState = WindowBorderStackingRefreshState()
+  @MainActor var borderStackingRefreshTask: Task<Void, Never>?
+  @MainActor var borderSettleTask: Task<Void, Never>?
+  @MainActor var borderStyle = WindowBorderStyle(
+    enabled: true,
+    width: 4,
+    activeColor: 0xffc0_99ff,
+    inactiveEnabled: false,
+    inactiveColor: 0x66c0_99ff,
+    captureEnabled: false
+  )
+
+  var presentationStatus = PlatformPresentationStatus()
+  public var privateWindowIDLookupStatus: String { presentationStatus.windowIDStatus }
+  public var successfulPrivateWindowIDLookupCount: Int { snapshotEngine.privateWindowIDLookupCount }
+  public var publicWindowIDLookupFallbackCount: Int { snapshotEngine.publicWindowIDFallbackCount }
+  public var isPrivateWindowBoundsLookupAvailable: Bool { presentationStatus.boundsAvailable }
+  public var successfulPrivateWindowBoundsLookupCount: Int { presentationStatus.boundsSuccesses }
+  public var privateWindowBoundsLookupFallbackCount: Int { presentationStatus.boundsFallbacks }
+  public var isPrivateWindowConstraintLookupAvailable: Bool { presentationStatus.constraintsAvailable }
+  public var successfulPrivateWindowConstraintLookupCount: Int { presentationStatus.constraintsSuccesses }
+  public var privateWindowConstraintLookupFallbackCount: Int { presentationStatus.constraintsFallbacks }
+  public var windowBorderSyncStatus: String { presentationStatus.borderSync }
+  @MainActor var presentedNativeFullscreenWindowIDs = Set<WindowID>()
+  @MainActor var presentedSelectedWindowID: WindowID?
+
+  var cursorWarpAppliedCount = 0
+  var cursorWarpSkippedCount = 0
+  var cursorWarpFailedCount = 0
+
+  public nonisolated let userInputTracker = UserInputTracker()
+  public nonisolated let pointerMotionTracker = PointerMotionTracker()
+
+  public convenience init() {
+    self.init(frameCoordinator: nil)
+  }
+
+  init(frameCoordinator suppliedCoordinator: AXFrameCoordinator?) {
+    let boundsProvider = WindowServerBoundsProvider()
+    borderBoundsProvider = boundsProvider
+    frameCoordinator = suppliedCoordinator ?? AXFrameCoordinator(accessibilityWriter: AXFrameAccessibilityWriter(
+      independentBorderObservationAvailable: { boundsProvider.isAvailable }
+    ))
+    snapshotEngine = SnapshotEngine(
+      frameCoordinator: frameCoordinator, userInputTracker: userInputTracker
+    )
+    snapshotEngine.host = self
+    frameCoordinator.borderNativeFrameReader = { boundsProvider.frame(for: $0) }
+    frameCoordinator.borderBindingIsCurrent = { [weak snapshotEngine] target in
+      snapshotEngine?.borderBindingIsCurrent(target) == true
+    }
+    frameCoordinator.borderObservationHandler = { [weak self] observations in
+      self?.presentBorderGeometryObservations(observations)
+    }
+    frameCoordinator.borderLiveGeometryHandler = { [weak self] frames in
+      self?.enqueueBorderGeometry(Set(frames.keys))
+    }
+  }
+
+  public func updateNativeFullscreenWindowIDs(
+    _ windowIDs: Set<WindowID>,
+    activeWindowIDs: Set<WindowID> = []
+  ) {
+    let entered = windowIDs.subtracting(nativeFullscreenWindowIDs)
+    let exited = nativeFullscreenWindowIDs.subtracting(windowIDs)
+    nativeFullscreenWindowIDs = windowIDs
+    activeNativeFullscreenWindowIDs = activeWindowIDs.intersection(windowIDs)
+    returnedNativeFullscreenWindowIDs.formIntersection(activeNativeFullscreenWindowIDs)
+    let now = ProcessInfo.processInfo.systemUptime
+    if !entered.isEmpty {
+      RibbonProxyPresenter.cancelAll()
+      frameSubmissionGeneration &+= 1
+      if entered.contains(where: frameCoordinator.isBusy(for:)) {
+        frameCoordinator.invalidate(reason: "native-fullscreen")
+      }
+    }
+    for windowID in entered {
+      frameCommitExpectations[windowID] = nil
+      initialFrameSettlementDeadlines[windowID] = now + initialSettlementHorizon
+      pendingFrameCorrections[windowID] = nil
+      pendingFrameDebtWindowIDs.remove(windowID)
+    }
+    for windowID in exited {
+      initialFrameSettlementDeadlines[windowID] = now + initialSettlementHorizon
+    }
+    enqueuePresentation { platform in
+      platform.presentedNativeFullscreenWindowIDs = windowIDs
+      if let activeWindowID = platform.borderManager.activeWindowID,
+        windowIDs.contains(activeWindowID) { platform.borderManager.hide() }
+    }
+    if !entered.isEmpty {
+      let ids = entered.sorted { $0.rawValue < $1.rawValue }
+        .map { String($0.rawValue) }.joined(separator: ",")
+      frameCoordinator.recordTrace("fullscreen-enter ids=[\(ids)]")
+    }
+    if !exited.isEmpty {
+      let ids = exited.sorted { $0.rawValue < $1.rawValue }
+        .map { String($0.rawValue) }.joined(separator: ",")
+      frameCoordinator.recordTrace("fullscreen-exit ids=[\(ids)]")
+    }
+  }
+
+  /// macOS lists a window on screen only while its Space is active, wherever it sits.
+  public func anyWindowOnScreen(_ windowIDs: Set<WindowID>) -> Bool {
+    guard !windowIDs.isEmpty else { return false }
+    let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+      as? [NSDictionary] ?? []
+    return infos.contains {
+      ($0[kCGWindowNumber as String] as? NSNumber).map { windowIDs.contains(WindowID(rawValue: $0.uint64Value)) } == true
+    }
+  }
+
+  public func isInitialFrameSettlementActive(
+    for windowID: WindowID,
+    now: TimeInterval = ProcessInfo.processInfo.systemUptime
+  ) -> Bool {
+    initialFrameSettlementDeadlines[windowID].map { $0 > now } ?? false
+  }
+
+  public func requestFrameRefresh(for windowID: WindowID) {
+    snapshotEngine.recordObservation(
+      .frame,
+      processID: processIDs[windowID],
+      windowID: windowID
+    )
+  }
+
+  nonisolated func invalidateWindowSnapshot() {
+    snapshotEngine.invalidateWindowSnapshot()
+  }
+
+}

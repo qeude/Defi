@@ -6,6 +6,7 @@ import Synchronization
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct FrameCommitTests {
   @Test func overviewExitAcceptsVerifiedParkingDespiteNativeVerticalClamping() {

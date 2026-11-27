@@ -1,0 +1,220 @@
+import AppKit
+import DefiCore
+import DefiModel
+
+/// Geometry notifications carry IDs, never stale frames. Resolve once at delivery.
+struct PendingBorderGeometry {
+  struct Delivery {
+    let windowIDs: Set<WindowID>
+    let nativeReadWindowIDs: Set<WindowID>
+  }
+
+  private var windowIDs = Set<WindowID>()
+  private var nativeReadWindowIDs = Set<WindowID>()
+
+  mutating func enqueue(_ ids: Set<WindowID>, requiresNativeRead: Bool = false) -> Bool {
+    let needsDelivery = windowIDs.isEmpty && !ids.isEmpty
+    windowIDs.formUnion(ids)
+    if requiresNativeRead { nativeReadWindowIDs.formUnion(ids) }
+    return needsDelivery
+  }
+
+  mutating func take() -> Delivery {
+    let delivery = Delivery(windowIDs: windowIDs, nativeReadWindowIDs: nativeReadWindowIDs)
+    windowIDs.removeAll(keepingCapacity: true)
+    nativeReadWindowIDs.removeAll(keepingCapacity: true)
+    return delivery
+  }
+}
+
+/// A non-authoritative projection of UI effects and observer coverage.
+struct PlatformPresentationStatus: Sendable {
+  var windowIDStatus = "unprobed"
+  var boundsAvailable = false
+  var boundsSuccesses = 0
+  var boundsFallbacks = 0
+  var constraintsAvailable = false
+  var constraintsSuccesses = 0
+  var constraintsFallbacks = 0
+  var borderSync = "borderSync=unstarted"
+  var topologyReliable = false
+  var framesReliable = false
+  var lifecycleReliable = false
+  var uncoveredTopologyProcesses = Set<pid_t>()
+  var incompatibleProcesses = Set<pid_t>()
+  var failures: NotificationObservationFailureCounts = [:]
+  var failureCodes: [NotificationObservationKind: [pid_t: [Int32]]] = [:]
+  var coverage = (applicationObservers: 0, applications: 0, topologyWindows: 0,
+    requiredTopologyWindows: 0, frameWindows: 0, requiredFrameWindows: 0)
+  var frontmostProcessID: pid_t?
+  var reduceMotion = false
+  var borders = WindowBorderPerformance(
+    allocated: 0, visible: 0, dormant: 0, activeOpacity: 0, estimatedSurfacePixels: 0,
+    appliedPlans: 0, skippedPlans: 0, geometryUpdates: 0, captureEnabled: false
+  )
+}
+
+extension MacOSPlatform {
+  nonisolated func enqueueBorderGeometry(
+    _ windowIDs: Set<WindowID>, requiresNativeRead: Bool = false
+  ) {
+    guard pendingBorderGeometry.withLock({
+      $0.enqueue(windowIDs, requiresNativeRead: requiresNativeRead)
+    }) else { return }
+    enqueuePresentation { $0.deliverPendingBorderGeometry() }
+  }
+
+  @MainActor func deliverPendingBorderGeometry() {
+    let delivery = pendingBorderGeometry.withLock { $0.take() }
+    let live = borderManager.liveGeometryWindowIDs
+    // Frame writes completed (any animation, switch, or parking): reread WindowServer
+    // bounds so a missed final move event cannot strand a border. No AX reads.
+    if windowServerDrivesBorders {
+      return borderSync.reconcile(delivery.windowIDs.intersection(live))
+    }
+    let targets = snapshotEngine.borderGeometryTargets(
+      for: delivery.nativeReadWindowIDs.intersection(live)
+    )
+    frameCoordinator.requestBorderGeometry(targets)
+    refreshWindowBorderGeometry(windowIDs: delivery.windowIDs.intersection(live))
+  }
+
+  @MainActor func presentBorderGeometryObservations(_ observations: [BorderGeometryObservation]) {
+    var changed = Set<WindowID>()
+    let live = borderManager.liveGeometryWindowIDs
+    for observation in observations where live.contains(observation.windowID) {
+      // The public read-back of a moved window, for when WindowServer bounds are unavailable.
+      if borderManager.hasElevatedDim {
+        borderManager.lowerDims(overlapping: observation.frame, movedWindowID: observation.windowID)
+      }
+      if snapshotEngine.acceptBorderObservation(observation) {
+        changed.insert(observation.windowID)
+      }
+    }
+    refreshWindowBorderGeometry(windowIDs: changed)
+  }
+
+  public var frontmostProcessID: pid_t? { presentationStatus.frontmostProcessID }
+  public var reduceMotion: Bool { presentationStatus.reduceMotion }
+  public nonisolated func enqueuePresentation(
+    _ effect: @escaping @MainActor @Sendable (MacOSPlatform) -> Void
+  ) {
+    DispatchQueue.main.async { [self] in
+      effect(self)
+      publishPresentationStatus()
+    }
+  }
+
+  /// A quiet cue on the focused window's border: its resize hit a limit. Without a ring
+  /// in the config, one is drawn for the cue and removed after it.
+  public nonisolated func showResizeRefusal(on windowID: WindowID) {
+    enqueuePresentation { platform in
+      guard !platform.borderStyle.ringsFocusedWindow else {
+        return platform.borderManager.pulseActiveRing(for: windowID)
+      }
+      platform.refusalRingGeneration &+= 1
+      let generation = platform.refusalRingGeneration
+      platform.refusalRingWindowID = windowID
+      platform.presentRefreshWindowBorders()
+      platform.borderManager.pulseActiveRing(for: windowID)
+      platform.presentRevealWindowBordersIfReady()
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        guard platform.refusalRingGeneration == generation else { return }
+        platform.refusalRingWindowID = nil
+        platform.presentRefreshWindowBorders()
+      }
+    }
+  }
+
+  @MainActor func publishPresentationStatus() {
+    guard !presentationStatusPending else { return }
+    presentationStatusPending = true
+    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(16)) { [self] in
+      presentationStatusPending = false
+      collectPresentationStatus()
+    }
+  }
+
+  @MainActor private func collectPresentationStatus() {
+    let failures = eventMonitor?.notificationObservationFailureCountsValue ?? [:]
+    var failureCodes: [NotificationObservationKind: [pid_t: [Int32]]] = [:]
+    for (kind, processes) in failures {
+      for processID in processes.keys {
+        failureCodes[kind, default: [:]][processID] =
+          eventMonitor?.notificationObservationErrors(kind: kind, processID: processID) ?? []
+      }
+    }
+    let status = PlatformPresentationStatus(
+      windowIDStatus: windowIDProvider.probeResult.map(String.init) ?? "unprobed",
+      boundsAvailable: borderBoundsProvider.isAvailable,
+      boundsSuccesses: borderBoundsProvider.successfulLookupCount,
+      boundsFallbacks: borderBoundsProvider.failureCount,
+      constraintsAvailable: borderBoundsProvider.constraintsAreAvailable,
+      constraintsSuccesses: borderBoundsProvider.successfulConstraintLookupCount,
+      constraintsFallbacks: borderBoundsProvider.constraintFallbackCount,
+      borderSync: borderSync.statusDescription,
+      topologyReliable: eventMonitor?.hasReliableWindowTopologyCoverage(for: Set(applications.keys)) == true,
+      framesReliable: eventMonitor?.hasReliableFrameCoverage() == true,
+      lifecycleReliable: eventMonitor?.hasReliableApplicationLifecycleObservation == true,
+      uncoveredTopologyProcesses: eventMonitor?.processIDsWithoutReliableTopologyCoverage(activeProcessIDs: Set(applications.keys)) ?? [],
+      incompatibleProcesses: eventMonitor?.incompatibleNotificationProcessIDs ?? [],
+      failures: failures,
+      failureCodes: failureCodes,
+      coverage: eventMonitor?.observationCoverage ?? (0, 0, 0, 0, 0, 0),
+      frontmostProcessID:
+        positiveProcessID(NSWorkspace.shared.frontmostApplication?.processIdentifier)
+        ?? snapshotEngine.lastResolvedFrontmostProcessID,
+      reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+      borders: borderManager.performance
+    )
+    NavigationActor.enqueue { [self] in presentationStatus = status }
+  }
+
+  @MainActor func invalidatePointerCacheFromPresentation() {
+    NavigationActor.enqueue { [self] in invalidatePointerHitTestCache() }
+  }
+
+  public func invalidateInputAfterEventTapReenabled(at timestamp: TimeInterval) {
+    userInputTracker.invalidate(at: timestamp)
+    pointerMotionTracker.invalidate(at: timestamp)
+    invalidatePointerHitTestCache()
+    enqueuePresentation { $0.presentInvalidateInputAfterEventTapReenabled(at: timestamp) }
+  }
+
+  public func stageWindowBorderSelection(_ windowID: WindowID?) {
+    desiredSelectedWindowID = windowID
+    frameCoordinator.updateLiveBorderWindowID(windowID)
+    enqueuePresentation { $0.presentStageWindowBorderSelection(windowID) }
+  }
+
+  public func commitWindowBorderSelection(_ windowID: WindowID?) {
+    desiredSelectedWindowID = windowID
+    frameCoordinator.updateLiveBorderWindowID(windowID)
+    enqueuePresentation { $0.presentCommitWindowBorderSelection(windowID) }
+  }
+
+  public func setOverviewPresentationActive(_ active: Bool) {
+    snapshotEngine.overviewPresentationActive = active
+    enqueuePresentation { $0.presentSetWindowBordersSuppressed(active) }
+  }
+  /// A suppressed monitor shows a fullscreen Space, where an ordered-in placeholder would land.
+  public func updateNativeFullscreenPlaceholders(_ placeholders: [NativeFullscreenPlaceholder],
+    selectedWindowID: WindowID?, stackingWindowID: WindowID?, suppressedMonitorIDs: Set<MonitorID>) {
+    let processIDs = snapshotEngine.nativeFullscreenProcessIDsByWindowID
+    let fullscreenWindows = Dictionary(uniqueKeysWithValues: nativeFullscreenWindowIDs.map { ($0, processIDs[$0] ?? 0) })
+    enqueuePresentation {
+      $0.presentUpdateNativeFullscreenPlaceholders(placeholders, selectedWindowID: selectedWindowID,
+        stackingWindowID: stackingWindowID, suppressedMonitorIDs: suppressedMonitorIDs,
+        fullscreenWindows: fullscreenWindows)
+    }
+  }
+  /// Called when Return is pressed on a focused placeholder.
+  public func setNativeFullscreenActivationHandler(_ handler: @escaping @MainActor (WindowID?) -> Void) {
+    enqueuePresentation { $0.nativeFullscreenPlaceholderManager.activationHandler = handler }
+  }
+  /// Called on a plain single click on a placeholder.
+  public func setNativeFullscreenSelectionHandler(_ handler: @escaping @MainActor (WindowID) -> Void) {
+    enqueuePresentation { $0.nativeFullscreenPlaceholderManager.selectionHandler = handler }
+  }
+  public var windowBorderPerformance: WindowBorderPerformance { presentationStatus.borders }
+}

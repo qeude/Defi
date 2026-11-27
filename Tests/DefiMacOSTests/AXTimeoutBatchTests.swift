@@ -3,6 +3,7 @@ import DefiModel
 import Synchronization
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct AXTimeoutBatchTests {
   @Test(arguments: [false, true]) func mixedTimeoutsRetainPerWindowScopes(mixed: Bool) {

@@ -5,6 +5,7 @@ import DefiRuntime
 import Synchronization
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 final class DiscoveryReadFixture: Sendable {
   struct State: Sendable {

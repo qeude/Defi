@@ -1,6 +1,8 @@
 import DefiRuntime
+import DefiModel
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 @MainActor
 struct DelayedObservationCampaignRegressionTests {

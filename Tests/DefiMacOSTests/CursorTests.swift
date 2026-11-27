@@ -4,6 +4,7 @@ import Foundation
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct CursorTests {
   private let frame = Rect(x: 100, y: 200, width: 400, height: 600)

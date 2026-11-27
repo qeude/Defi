@@ -1,0 +1,999 @@
+import AppKit
+import ApplicationServices
+import Darwin
+import DefiConfig
+import DefiCore
+import DefiModel
+import OSLog
+
+private let frameCommitLogger = Logger(
+  subsystem: "com.qeude.defi",
+  category: "FrameCommit"
+)
+
+extension SnapshotEngine {
+
+  public func accessibilityTrusted(prompt: Bool) -> Bool {
+    let options =
+      [
+        "AXTrustedCheckOptionPrompt": prompt
+      ] as CFDictionary
+    return AXIsProcessTrustedWithOptions(options)
+  }
+
+  public func snapshot(config: Config) -> DesktopSnapshot {
+    snapshot(
+      config: config,
+      forceFullWindowRefresh: true,
+      forceWindowListRefresh: true,
+      forceApplicationInventoryRefresh: true
+    )
+  }
+
+  public func snapshot(
+    config: Config,
+    forceFullWindowRefresh: Bool,
+    forceWindowListRefresh: Bool = false,
+    forceApplicationInventoryRefresh: Bool = false
+  ) -> DesktopSnapshot {
+    defer { DispatchQueue.main.async { [weak host] in host?.publishPresentationStatus() } }
+    let snapshotStartedAt = discoveryNow
+    requestDueFrameCommitVerification(now: snapshotStartedAt)
+    let frameCommitReads = captureFrameCommitReads()
+    let verificationWindowIDs = Set(frameCommitReads.compactMap { id, read in
+      read.expectation.verification == .requested ? id : nil
+    })
+    let verificationProcessIDs = Set(verificationWindowIDs.compactMap { frameCommitReads[$0]?.binding.processID })
+    let dueCGWindowRetryProcessIDs = cgWindowDiscoveryRetries.dueProcessIDs(
+      now: snapshotStartedAt
+    )
+    let dueWindowRetryProcessIDs = dueCGWindowRetryProcessIDs.union(dueProcessWindowRetryIDs(now: snapshotStartedAt))
+    let observations = consumeObservations()
+    let hadDeferredFreshReads = !deferredFreshReadProcessIDs.isEmpty
+    let explicitlyDestroyedWindowIDs = observations.destroyedWindowIDs
+    let tracesWindowTopology = observations.topologyPending
+    let capturedTopologyRequiresFullSnapshot =
+      observations.topologyRequiresFullSnapshot
+    let topologyProcessIDs = observations.topologyProcessIDs
+    let frameRequiresFullSnapshot = observations.frameRequiresFullSnapshot
+    let frameProcessIDs = observations.frameProcessIDs
+    let frameWindowIDs = observations.frameWindowIDs
+    let requestedFrameWindowIDs = frameWindowIDs.union(verificationWindowIDs)
+    let requestedFrameProcessIDs = frameProcessIDs.union(verificationProcessIDs)
+    let retainedProcessIDs = retainedWindowRefreshProcessIDs(
+      retainedWindowIDs: retainedWindowIDs,
+      processIDs: processIDs
+    ).intersection(dueWindowRetryProcessIDs)
+    let topologyInputTimestamp = observations.topologyInputTimestamp
+    let eventRequiresFullSnapshot =
+      capturedTopologyRequiresFullSnapshot || frameRequiresFullSnapshot
+    let platformInputs = onMain { platform in
+      (
+        frameCoverage: platform.eventMonitor?.processIDsWithoutReliableFrameCoverage ?? [],
+        topologyCoverage: platform.eventMonitor?.processIDsWithoutReliableTopologyCoverage(activeProcessIDs: Set(platform.applications.keys)) ?? [],
+        incompatible: platform.eventMonitor?.incompatibleNotificationProcessIDs ?? [],
+        monitors: platform.discoverMonitors()
+      )
+    }
+    let uncoveredProcessIDs = platformInputs.frameCoverage.union(platformInputs.topologyCoverage)
+    let fallbackFreshReadProcessIDs = fallbackWindowRefreshProcessIDs(
+      uncovered: uncoveredProcessIDs, incompatible: platformInputs.incompatible,
+      eventProcessIDs: topologyProcessIDs.union(frameProcessIDs),
+      force: forceFullWindowRefresh, now: ProcessInfo.processInfo.systemUptime,
+      deadlines: &fallbackFreshReadDeadlines
+    )
+    if eventRequiresFullSnapshot {
+      unmatchedWindowElementsByProcess.removeAll(keepingCapacity: true)
+      unmatchedWindowRetryAttemptsByProcess.removeAll(keepingCapacity: true)
+    } else {
+      for processID in topologyProcessIDs.union(frameProcessIDs) {
+        unmatchedWindowElementsByProcess[processID] = nil
+        unmatchedWindowRetryAttemptsByProcess[processID] = nil
+      }
+    }
+    var incrementalProcessIDs =
+      forceFullWindowRefresh
+      ? nil
+      : incrementalWindowRefreshProcessIDs(
+        hasCompletedSnapshot: hasCompletedWindowSnapshot,
+        eventPending: tracesWindowTopology,
+        requiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
+        processIDs: observations.topologyProcessIDs,
+        coalescedProcessIDs:
+          requestedFrameProcessIDs
+          .union(fallbackFreshReadProcessIDs)
+          .union(deferredFreshReadProcessIDs)
+          .union(retainedProcessIDs),
+        coalescedEventRequiresFullSnapshot: frameRequiresFullSnapshot,
+        allowsCoalescedProcessRefresh:
+          observations.framePending || !verificationWindowIDs.isEmpty || mouseResizeGesturePending
+          || !fallbackFreshReadProcessIDs.isEmpty
+          || !deferredFreshReadProcessIDs.isEmpty
+          || !retainedProcessIDs.isEmpty,
+        allowsCachedRefresh: true
+      )
+    if var requestedProcessIDs = incrementalProcessIDs {
+      requestedProcessIDs.formUnion(dueWindowRetryProcessIDs)
+      incrementalProcessIDs = requestedProcessIDs
+    }
+    var effectiveIncrementalProcessIDs = incrementalProcessIDs
+    let deferredAgeAtPartition = deferredFreshReadsStartedAt
+    // Reads mid-motion cost the overlay frames: background processes wait a little.
+    let defersBackgroundReads = overlayMoving()
+      && !eventRequiresFullSnapshot && !forceApplicationInventoryRefresh
+    let eventProcessIDs = topologyProcessIDs.union(frameProcessIDs).union(fallbackFreshReadProcessIDs)
+    let retainedIDs = retainedWindowIDs
+    let retentionDeadlines = retainedWindowDeadlines
+    let retainedWindowProcesses = processIDs
+    func urgentRetentionProcessIDs(at now: TimeInterval) -> Set<pid_t> {
+      retainedWindowRefreshProcessIDs(
+        retainedWindowIDs: retainedIDs, processIDs: retainedWindowProcesses,
+        deadlines: retentionDeadlines,
+        deferringUntil: overlayMoving() ? now + 0.5 : nil
+      )
+    }
+    let urgentProcessIDs = eventProcessIDs.union(
+      urgentRetentionProcessIDs(at: ProcessInfo.processInfo.systemUptime)
+    )
+    let chunkedFullActive =
+      !applications.isEmpty
+      && (forceFullWindowRefresh
+        || chunkedFullRefreshRemainingProcessIDs?.isEmpty == false)
+    if chunkedFullActive {
+      // Full refreshes are the most expensive passes (every app re-read), so
+      // they are spread over consecutive budgeted passes: served apps get
+      // fresh window lists, deferred apps ride their cached windows until
+      // their pass comes. Cacheless apps are always served immediately so a
+      // fresh launch can never pop in late.
+      let liveProcessIDs = Set(applications.keys)
+      if chunkedFullRefreshRemainingProcessIDs == nil {
+        chunkedFullRefreshRemainingProcessIDs = liveProcessIDs
+      }
+      chunkedFullRefreshRemainingProcessIDs?.formIntersection(liveProcessIDs)
+      let remaining = (chunkedFullRefreshRemainingProcessIDs ?? [])
+        .union(dueWindowRetryProcessIDs)
+      let cachelessProcessIDs = remaining.subtracting(
+        Set(lastApplicationWindowElements.keys)
+      )
+      let partition = budgetedFreshReadPartition(
+        requestedProcessIDs: remaining,
+        deferredProcessIDs: [],
+        eventPendingProcessIDs: urgentProcessIDs.union(cachelessProcessIDs),
+        predictedLatencyMS: { processID in
+          frameCoordinator.predictedProcessLatency(processID: processID)
+        },
+        budgetMS: snapshotFreshReadBudgetMS,
+        defersBackgroundReads: defersBackgroundReads,
+        maximumDeferredAgeSeconds: 0.5,
+        deferredSince: deferredFreshReadsStartedAt,
+        now: ProcessInfo.processInfo.systemUptime
+      )
+      effectiveIncrementalProcessIDs = partition.allowedNow
+      chunkedFullRefreshRemainingProcessIDs =
+        partition.stillDeferred.isEmpty ? nil : partition.stillDeferred
+      deferredFreshReadsStartedAt = partition.deferredSince
+      frameCoordinator.recordTrace(
+        "fresh-read-budget kind=full allowed=\(partition.allowedNow.count) deferred=\(partition.stillDeferred.count)"
+      )
+    } else if let requested = incrementalProcessIDs {
+      deferredFreshReadProcessIDs.formIntersection(
+        Set(applications.keys)
+      )
+      let partition = budgetedFreshReadPartition(
+        requestedProcessIDs: requested,
+        deferredProcessIDs: deferredFreshReadProcessIDs,
+        eventPendingProcessIDs: urgentProcessIDs.union(
+          requested.subtracting(Set(lastApplicationWindowElements.keys))
+        ),
+        predictedLatencyMS: { processID in
+          frameCoordinator.predictedProcessLatency(processID: processID)
+        },
+        budgetMS: snapshotFreshReadBudgetMS,
+        defersBackgroundReads: defersBackgroundReads,
+        maximumDeferredAgeSeconds: 0.5,
+        deferredSince: deferredFreshReadsStartedAt,
+        now: ProcessInfo.processInfo.systemUptime
+      )
+      deferredFreshReadProcessIDs = partition.stillDeferred
+      deferredFreshReadsStartedAt = partition.deferredSince
+      effectiveIncrementalProcessIDs = partition.allowedNow
+      if !partition.stillDeferred.isEmpty {
+        frameCoordinator.recordTrace(
+          "fresh-read-budget allowed=\(partition.allowedNow.count) deferred=\(partition.stillDeferred.count)"
+        )
+      }
+    } else {
+      deferredFreshReadProcessIDs.removeAll(keepingCapacity: true)
+      deferredFreshReadsStartedAt = nil
+    }
+    let forceWindowListRefreshEffective =
+      forceWindowListRefresh || chunkedFullActive
+    let snapshotMode: String
+    if effectiveIncrementalProcessIDs == nil {
+      snapshotMode = "full"
+      fullWindowSnapshotCount += 1
+    } else if effectiveIncrementalProcessIDs?.isEmpty == true {
+      snapshotMode = "cached"
+      cachedWindowSnapshotCount += 1
+    } else {
+      snapshotMode = "incremental"
+      incrementalWindowSnapshotCount += 1
+    }
+    let monitors = platformInputs.monitors
+    lastMonitorFrames = monitors.map(\.frame)
+    var hasResolvedCGWindows = false
+    var cachedCGWindows: [CGWindowRecord]?
+    let refreshesOnlyKnownFrames =
+      !requestedFrameWindowIDs.isEmpty
+      && requestedFrameWindowIDs.isSubset(of: Set(elements.keys))
+      && effectiveIncrementalProcessIDs?.isSubset(of: requestedFrameProcessIDs) == true
+      && !forceWindowListRefreshEffective
+      && !forceApplicationInventoryRefresh
+      && !tracesWindowTopology
+      && !eventRequiresFullSnapshot
+      && !observations.frameIncludesUnscopedRefresh
+      && fallbackFreshReadProcessIDs.isEmpty
+      && !hadDeferredFreshReads
+      && retainedProcessIDs.isEmpty
+      && dueWindowRetryProcessIDs.isEmpty
+    func publicCGWindows() -> [CGWindowRecord]? {
+      if hasResolvedCGWindows { return cachedCGWindows }
+      let reusableCGWindows = lastCGWindowInventory
+      if cgWindowInventoryCanBeReused(
+        snapshotUsesCachedWindows: effectiveIncrementalProcessIDs?.isEmpty == true,
+        snapshotRefreshesOnlyKnownFrames: refreshesOnlyKnownFrames,
+        cachedInventoryAvailable: reusableCGWindows != nil
+      ) {
+        hasResolvedCGWindows = true
+        cachedCGWindows = reusableCGWindows
+        return cachedCGWindows
+      }
+      let copyStartedAt = ProcessInfo.processInfo.systemUptime
+      let inventoryGeneration = windowSnapshotObservationGeneration
+      let copied = discoveryMeasurementAccess?.snapshotCGWindows.map { $0() } ?? copyCGWindowsIfAvailable()
+      let copyDurationMS =
+        (ProcessInfo.processInfo.systemUptime - copyStartedAt) * 1_000
+      snapshotCGWindowCopyCount += 1
+      lastSnapshotCGWindowCopyDurationMS = copyDurationMS
+      maximumSnapshotCGWindowCopyDurationMS = max(
+        maximumSnapshotCGWindowCopyDurationMS,
+        copyDurationMS
+      )
+      hasResolvedCGWindows = true
+      cachedCGWindows = copied
+      publishCGWindowInventory(copied.map {
+        CGWindowInventory(records: $0, generation: inventoryGeneration, capturedAt: copyStartedAt)
+      })
+      cgWindowInventoryRetryAttempts =
+        updatedWindowListReadRetryAttempts(
+          previousAttempts: cgWindowInventoryRetryAttempts,
+          readSucceeded: copied != nil
+        )
+      return copied
+    }
+    if cgWindowInventoryRetryIsRequired(
+      attempts: cgWindowInventoryRetryAttempts,
+      forceWindowListRefresh: forceWindowListRefresh
+    ) {
+      _ = publicCGWindows()
+    }
+    // Recheck at each process boundary: motion can start after partitioning.
+    let alwaysReadsProcesses = eventProcessIDs.union(
+      Set(applications.keys).subtracting(Set(lastApplicationWindowElements.keys))
+    )
+    func shouldReadProcess(_ processID: pid_t) -> Bool {
+      let now = ProcessInfo.processInfo.systemUptime
+      guard !eventRequiresFullSnapshot, !forceApplicationInventoryRefresh,
+        !alwaysReadsProcesses.contains(processID), overlayMoving(),
+        !urgentRetentionProcessIDs(at: now).contains(processID),
+        (deferredAgeAtPartition ?? deferredFreshReadsStartedAt)
+          .map({ now - $0 < 0.5 }) ?? true
+      else { return true }
+      if chunkedFullActive {
+        chunkedFullRefreshRemainingProcessIDs =
+          (chunkedFullRefreshRemainingProcessIDs ?? []).union([processID])
+      } else {
+        deferredFreshReadProcessIDs.insert(processID)
+      }
+      if deferredFreshReadsStartedAt == nil { deferredFreshReadsStartedAt = now }
+      return false
+    }
+    // Prepare only this chunk, on the snapshot queue. Deferred applications
+    // must not be read here and then read again when their chunk runs.
+    let prepared = chunkedFullActive
+      ? prepareWindowAttributes(
+        processIDs: effectiveIncrementalProcessIDs ?? Set(applications.keys),
+        shouldReadProcess: shouldReadProcess
+      )
+      : (attributes: [:], owners: [:], applications: [:])
+    let previousElements = elements
+    let discovery = discoverSnapshotWindows(
+      monitors: monitors,
+      config: config,
+      incrementalProcessIDs: effectiveIncrementalProcessIDs,
+      forceWindowListRefresh: forceWindowListRefreshEffective,
+      forceWindowListRefreshProcessIDs: dueWindowRetryProcessIDs.union(
+        fallbackFreshReadProcessIDs.intersection(platformInputs.topologyCoverage)
+      ),
+      forceApplicationInventoryRefresh: forceApplicationInventoryRefresh,
+      capturedTopologyRequiresFullSnapshot: capturedTopologyRequiresFullSnapshot,
+      topologyProcessIDs: topologyProcessIDs,
+      createdElements: observations.createdElements,
+      preparedWindowAttributes: prepared.attributes,
+      preparedTransientOwnerWindowIDs: prepared.owners,
+      preparedApplicationWindows: prepared.applications,
+      explicitlyDestroyedWindowIDs: explicitlyDestroyedWindowIDs,
+      frameRefreshWindowIDs: refreshesOnlyKnownFrames ? requestedFrameWindowIDs : nil,
+      shouldReadProcess: shouldReadProcess,
+      publicCGWindows: publicCGWindows
+    )
+    var nextElements = discovery.nextElements
+    var nextProcessIDs = discovery.nextProcessIDs
+    let nextApplications = discovery.nextApplications
+    let nextApplicationIDs = discovery.nextApplicationIDs
+    let applicationWindows = discovery.applicationWindows
+    let minimizedWindows = discovery.minimizedWindows
+    let transientGeometryWindows = discovery.transientGeometryWindows
+    let windows = discovery.windows
+    let currentCGWindows = publicCGWindows()
+    let fullscreenCGWindows = currentCGWindows ?? []
+    let detectedNativeFullscreenProcessIDs = nativeFullscreenProcessIDs(
+      cgWindows: fullscreenCGWindows,
+      monitors: monitors
+    )
+    var detectedNativeFullscreenWindowIDs = nativeFullscreenWindowIDs(
+      windows: windows,
+      cgWindows: fullscreenCGWindows,
+      monitors: monitors,
+      lastFocusedWindowByProcess: lastFocusedWindowByProcess
+    )
+    nativeFullscreenProcessIDsByWindowID =
+      retainedNativeFullscreenProcessIDsByWindowID(
+        detectedWindowIDs: detectedNativeFullscreenWindowIDs,
+        previous: nativeFullscreenProcessIDsByWindowID,
+        observedProcessIDs: processIDs.merging(nextProcessIDs) { _, next in next },
+        fullscreenProcessIDs: detectedNativeFullscreenProcessIDs,
+        explicitlyRemovedWindowIDs: explicitlyDestroyedWindowIDs
+      )
+    detectedNativeFullscreenWindowIDs.formUnion(
+      nativeFullscreenProcessIDsByWindowID.keys
+    )
+    let stabilizedNativeFullscreen = stabilizedNativeFullscreenWindowIDs(
+      detectedWindowIDs: detectedNativeFullscreenWindowIDs,
+      previousExitDeadlines: nativeFullscreenExitDeadlines,
+      explicitlyRemovedWindowIDs: explicitlyDestroyedWindowIDs,
+      restoredWindowIDs: restoredNativeFullscreenWindowIDs(cgWindows: fullscreenCGWindows, monitors: monitors),
+      now: snapshotStartedAt
+    )
+    nativeFullscreenExitDeadlines = stabilizedNativeFullscreen.exitDeadlines
+    let nativeFullscreenWindowIDs = stabilizedNativeFullscreen.windowIDs
+    let maskedWindowIDs = fullscreenMaskedWindowIDs(
+      previousWindowIDs: Set(previousElements.keys),
+      nativeFullscreenWindowIDs: nativeFullscreenWindowIDs,
+      explicitlyRemovedWindowIDs: explicitlyDestroyedWindowIDs
+    )
+    nextElements.merge(previousElements.filter { maskedWindowIDs.contains($0.key) }) {
+      current, _ in current
+    }
+    nextProcessIDs.merge(processIDs.filter { maskedWindowIDs.contains($0.key) }) {
+      current, _ in current
+    }
+    let activeNativeFullscreenWindowIDs = activeNativeFullscreenWindowIDs(
+      processIDsByWindowID: nativeFullscreenProcessIDsByWindowID,
+      cgWindows: fullscreenCGWindows,
+      monitors: monitors
+    ).intersection(nativeFullscreenWindowIDs)
+      // In the exit grace the real window is back on the desktop: its placeholder
+      // would show around the window's rounded corners.
+      .union(nativeFullscreenWindowIDs.subtracting(detectedNativeFullscreenWindowIDs))
+    var retries = cgWindowDiscoveryRetries
+    var diagnostics = cgWindowDiscoveryDiagnostics
+    var unresolvedOutcomes: [CGWindowDiscoveryIdentity: String] = [:]
+    if let currentCGWindows {
+      let diagnosticRecords = relevantCGWindowDiscoveryRecords(
+        currentCGWindows,
+        ownProcessID: ProcessInfo.processInfo.processIdentifier,
+        previouslyManagedProcessIDs: Set(processIDs.values)
+          .union(nextProcessIDs.values)
+      )
+      let transientWindowIDs = Set(windows.compactMap {
+        $0.transientOwnerID == nil ? nil : $0.id
+      })
+      let observedIdentities = Set(diagnosticRecords.map(CGWindowDiscoveryIdentity.init(record:)))
+      let cachedExclusions = retainedCGWindowDiscoveryExclusions(
+        cgWindowDiscoveryDiagnostics,
+        observed: observedIdentities,
+        refreshedProcessIDs: discovery.refreshedProcessIDs,
+        destroyedWindowIDs: explicitlyDestroyedWindowIDs
+      )
+      let diagnosticAppIdentityByProcess = Dictionary(uniqueKeysWithValues: Set(
+        diagnosticRecords.map { $0.processID }
+      ).map { processID in
+        let record = diagnosticRecords.first { $0.processID == processID }
+        return (
+          processID,
+          nextApplicationIDs[processID]
+            ?? applicationIDsByProcess[processID]
+            ?? fallbackApplicationIdentity(
+              bundleIdentifier: nil,
+              ownerName: record?.ownerName,
+              processID: processID
+            )
+        )
+      })
+      var classifications: [CGWindowDiscoveryIdentity: (CGWindowDiscoveryClassification, String?)] = [:]
+      var ignoredWindowReasonsByID = cachedExclusions.reasonsByWindowID
+      ignoredWindowReasonsByID.merge(discovery.ignoredWindowReasonsByID) { _, fresh in fresh }
+      let minimizedWindowIDs = cachedExclusions.minimizedWindowIDs
+        .union(discovery.minimizedWindowIDs)
+      for record in diagnosticRecords {
+        let identity = CGWindowDiscoveryIdentity(record: record)
+        let appIdentity = diagnosticAppIdentityByProcess[record.processID]
+          ?? "pid-\(record.processID)"
+        let classification = cgWindowDiscoveryClassification(
+          record: record,
+          windows: windows,
+          processIDsByWindowID: nextProcessIDs,
+          appIdentity: appIdentity,
+          ignoredProcessReason: discovery.ignoredProcessReasonsByProcess[
+            record.processID
+          ],
+          nativeFullscreenWindowIDs: nativeFullscreenWindowIDs,
+          nativeFullscreenProcessIDs: detectedNativeFullscreenProcessIDs,
+          monitors: monitors,
+          transientWindowIDs: transientWindowIDs,
+          minimizedWindowIDs: minimizedWindowIDs,
+          ignoredReasonsByWindowID: ignoredWindowReasonsByID
+        )
+        classifications[identity] = classification
+        if classification.classification == .unresolved {
+          unresolvedOutcomes[identity] = discovery.unresolvedOutcome(for: record.processID)
+        }
+      }
+      retries.observe(
+        observed: observedIdentities,
+        unresolved: unresolvedOutcomes,
+        now: snapshotStartedAt
+      )
+      diagnostics = diagnosticRecords.map { record in
+        let identity = CGWindowDiscoveryIdentity(record: record)
+        let appIdentity = diagnosticAppIdentityByProcess[record.processID]
+          ?? "pid-\(record.processID)"
+        let (found, reason) = classifications[identity] ?? (.unresolved, nil)
+        return CGWindowDiscoveryDiagnostic(
+          identity: identity,
+          appIdentity: appIdentity,
+          classification: found,
+          reason: reason,
+          retry: retries.entries[identity]
+        )
+      }
+    }
+    retries.completeRetries(
+      processIDs: currentCGWindows == nil
+        ? dueCGWindowRetryProcessIDs
+        : dueCGWindowRetryProcessIDs.intersection(discovery.refreshedProcessIDs),
+      now: ProcessInfo.processInfo.systemUptime,
+      unresolved: currentCGWindows == nil ? nil : unresolvedOutcomes
+    )
+    cgWindowDiscoveryRetries = retries
+    for index in diagnostics.indices {
+      diagnostics[index].retry = retries.entries[diagnostics[index].identity]
+    }
+    let previousSignatures = cgWindowDiscoveryTraceSignatures
+    let nextSignatures: [CGWindowDiscoveryIdentity: String] = Dictionary(
+      uniqueKeysWithValues: diagnostics.map {
+      ($0.identity, $0.traceSignature)
+      }
+    )
+    for diagnostic in diagnostics
+    where previousSignatures[diagnostic.identity] != diagnostic.traceSignature {
+      frameCoordinator.recordTrace(
+        "window-discovery \(diagnostic.detail(now: ProcessInfo.processInfo.systemUptime))"
+      )
+    }
+    for identity in previousSignatures.keys where nextSignatures[identity] == nil {
+      frameCoordinator.recordTrace(
+        "window-discovery id=\(identity.windowID.rawValue) pid=\(identity.processID) class=gone"
+      )
+    }
+    cgWindowDiscoveryDiagnostics = diagnostics
+    cgWindowDiscoveryTraceSignatures = nextSignatures
+    let nextRetainedWindowIDs = discovery.nextRetainedWindowIDs
+    let cachedSnapshotWindowIDs = discovery.cachedSnapshotWindowIDs
+    let previouslyManagedApplicationWindows =
+      discovery.previouslyManagedApplicationWindows
+    let nextWindowIDs = Set(nextElements.keys)
+    let freshObservationIDs = freshWindowObservationIDs(
+      windows: windows,
+      retainedWindowIDs: nextRetainedWindowIDs,
+      cachedWindowIDs: cachedSnapshotWindowIDs
+    )
+    let windowIDReplacements = discovery.windowIDReplacements
+    let removedWindowIDs = Set(previousElements.keys)
+      .subtracting(nextWindowIDs)
+      .subtracting(windowIDReplacements.keys)
+    if windowIDReplacements.isEmpty == false {
+      let replacements = windowIDReplacements.sorted {
+        $0.key.rawValue < $1.key.rawValue
+      }.map {
+        "\($0.key.rawValue)->\($0.value.rawValue)"
+      }.joined(separator: ",")
+      frameCoordinator.recordTrace("window-identity-replaced [\(replacements)]")
+    }
+    newlyDiscoveredWindowIDs =
+      hasCompletedWindowSnapshot
+      ? nextWindowIDs.subtracting(previousElements.keys)
+        .subtracting(windowIDReplacements.values)
+      : []
+    if tracesWindowTopology
+      || !newlyDiscoveredWindowIDs.isEmpty
+      || !removedWindowIDs.isEmpty
+    {
+      onMain { $0.invalidatePointerCacheFromPresentation() }
+    }
+    if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
+      let discoveredIDs = newlyDiscoveredWindowIDs.sorted {
+        $0.rawValue < $1.rawValue
+      }.map { String($0.rawValue) }.joined(separator: ",")
+      let elapsedMS =
+        (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
+      frameCoordinator.recordTrace(
+        "window-snapshot mode=\(snapshotMode) ms=\(String(format: "%.2f", elapsedMS)) discovered=\(newlyDiscoveredWindowIDs.count)[\(discoveredIDs)] total=\(windows.count)"
+      )
+    }
+    hasCompletedWindowSnapshot = true
+    elements = nextElements
+    processIDs = nextProcessIDs
+    floatingWindowIDs = Set(windows.lazy.filter(\.floating).map(\.id))
+    windowManagementCapabilities = windowManagementCapabilities.filter {
+      nextElements[$0.key] != nil
+    }
+    if let currentCGWindows {
+      let presentWindowIDs = Set(currentCGWindows.map { WindowID(rawValue: UInt64($0.id)) })
+      forgetWindowClassificationTraces { nextElements[$0] != nil || presentWindowIDs.contains($0) }
+    }
+    applications = nextApplications
+    applicationIDsByProcess = nextApplicationIDs
+    applicationWindowCounts = applicationWindows.mapValues(\.count)
+    lastSnapshotWindows = windows
+    lastSnapshotWindowIDs = Set(windows.lazy.map(\.id))
+    lastSnapshotProcessIDs = Set(windows.lazy.compactMap(\.processID))
+    lastApplicationWindowElements = applicationWindows
+    minimizedWindowElementsByProcess =
+      minimizedWindows.filter { nextApplications[$0.key] != nil }
+    transientGeometryWindowElementsByProcess =
+      transientGeometryWindows.filter { nextApplications[$0.key] != nil }
+    retainedWindowIDs = nextRetainedWindowIDs
+    let deferredFrameEventWindowIDs = retainedFrameEventWindowIDs(
+      observedFrameEventWindowIDs: frameWindowIDs,
+      retainedWindowIDs: nextRetainedWindowIDs
+    )
+    if !deferredFrameEventWindowIDs.isEmpty {
+      recordFrameRefresh(
+        windowIDs: deferredFrameEventWindowIDs,
+        processIDs: Set(deferredFrameEventWindowIDs.compactMap { nextProcessIDs[$0] }),
+        requiresFullSnapshot: false,
+        invalidatesPreparedObservations: false
+      )
+    }
+    retainedWindowDeadlines = retainedWindowDeadlines.filter {
+      nextRetainedWindowIDs.contains($0.key)
+    }
+    enhancedUIByProcess = enhancedUIByProcess.filter { nextApplications[$0.key] != nil }
+    multipleAttributeReadsSupportedByProcess =
+      multipleAttributeReadsSupportedByProcess.filter {
+        nextApplications[$0.key] != nil
+      }
+    let liveWindowElements = Set(
+      applicationWindows.flatMap { processID, elements in
+        elements.map { AXWindowElementIdentity(processID: processID, element: $0) }
+      })
+    failedBatchedWindowAttributeReadsByElement =
+      failedBatchedWindowAttributeReadsByElement.filter {
+        liveWindowElements.contains($0.key)
+      }
+    synchronizeProcessWindowRetryDeadlines(now: discoveryNow)
+    let observedApplicationWindows = Dictionary(
+      uniqueKeysWithValues: nextApplications.keys.map {
+        ($0, applicationWindows[$0] ?? [])
+      }
+    )
+    var requiredFrameWindows = Dictionary(
+      uniqueKeysWithValues: nextApplications.keys.map { ($0, [AXUIElement]()) }
+    )
+    for (windowID, element) in nextElements {
+      if let processID = nextProcessIDs[windowID] {
+        requiredFrameWindows[processID, default: []].append(element)
+      }
+    }
+    let topologyWindowsRequiredForObservation = requiredTopologyWindows(
+      applicationWindows: observedApplicationWindows,
+      managedWindows: requiredFrameWindows,
+      previouslyManagedWindows: previouslyManagedApplicationWindows,
+      minimizedWindows: minimizedWindows
+    )
+    let observationInputs = AssumedThreadSafe(
+      (
+        apps: observedApplicationWindows,
+        topo: topologyWindowsRequiredForObservation,
+        frames: requiredFrameWindows,
+        transient: transientGeometryWindows
+      ))
+    onMain {
+      $0.eventMonitor?.refresh(
+        applications: observationInputs.value.apps,
+        requiredTopologyWindows: observationInputs.value.topo,
+        requiredFrameWindows: observationInputs.value.frames,
+        transientGeometryWindows: observationInputs.value.transient
+      )
+    }
+    frameCoordinator.pruneRecentInternalFrameWrites(
+      liveWindowIDs: Set(nextElements.keys),
+      now: ProcessInfo.processInfo.systemUptime
+    )
+    frameCoordinator.pruneProcessLatencyState(
+      liveProcessIDs: Set(nextApplications.keys)
+    )
+    targetFrames = targetFrames.filter { nextElements[$0.key] != nil }
+    pendingFrameCorrections = pendingFrameCorrections.filter { nextElements[$0.key] != nil }
+    latestObservedFrames = latestObservedFrames.filter {
+      freshObservationIDs.contains($0.key)
+        || cachedSnapshotWindowIDs.contains($0.key)
+    }
+    frameCoordinator.retainBorderGeometry(for: nextWindowIDs)
+    let now = discoveryNow
+    initialFrameSettlementDeadlines = initialFrameSettlementDeadlines.filter {
+      $0.value > now
+    }
+    lastHiddenWindowIDs = lastHiddenWindowIDs.filter { nextElements[$0] != nil }
+    let leftMouseButtonDown = CGEventSource.buttonState(
+      .combinedSessionState,
+      button: .left
+    )
+    let mouseResizeGestureObserved = mouseResizeGesturePending
+    let mouseFocusReleaseObserved = mouseFocusReleasePending
+    let userInput = userInputTracker.snapshot
+    let nativeFocusObservedAfterMouseRelease =
+      mouseFocusReleasePending
+      && nativeFocusEventGeneration
+        > (mouseFocusReleaseEventGeneration ?? nativeFocusEventGeneration)
+    let mouseGestureWindowID =
+      mouseResizeGestureObserved
+      ? mouseGestureRefreshProcessID(
+        latestFocusIntent: userInput.latestFocusIntent,
+        focusedWindowID: lastNativeFocusedWindowID,
+        processIDs: processIDs
+      ).flatMap { processID in
+        if let focusIntent = userInput.latestFocusIntent,
+          case .mouse(let windowID) = focusIntent.source,
+          let windowID,
+          processIDs[windowID] == processID
+        {
+          return windowID
+        }
+        return lastNativeFocusedWindowID.flatMap {
+          processIDs[$0] == processID ? $0 : nil
+        }
+      }
+      : nil
+    let externalResizeGestureActive =
+      leftMouseButtonDown || mouseResizeGestureObserved
+    var externallyChangedFrames: [WindowID: Rect] = [:]
+    var targetMismatches: [FrameMismatch] = []
+    var deferredMismatchCount = 0
+    // A commit read that cannot conclude neither confirms nor clears an observed mismatch.
+    var inconclusiveObservationIDs = Set<WindowID>()
+    var settledCommitLatenciesMS: [Double] = []
+    var commandObservations: [(CommandPerformanceContext, WindowID, Rect, Rect, Rect)] = []
+    let hiddenWindowIDs = lastHiddenWindowIDs
+    for window in windows
+    where freshObservationIDs.contains(window.id)
+      && !nativeFullscreenWindowIDs.contains(window.id)
+    {
+      latestObservedFrames[window.id] = window.frame
+      frameCoordinator.recordObservedBorderFrame(
+        window.frame, windowID: window.id, sampledAt: snapshotStartedAt
+      )
+      if let read = frameCommitReads[window.id] {
+        let expectation = read.expectation
+        switch observeFrameCommit(read, actual: window.frame, sampledAt: snapshotStartedAt,
+          now: now, externalGesture: externalResizeGestureActive) {
+        case .stale:
+          inconclusiveObservationIDs.insert(window.id)
+          continue
+        case .deferred:
+          inconclusiveObservationIDs.insert(window.id)
+          deferredMismatchCount += 1
+          deferredFrameCommitMismatchCount += 1
+          continue
+        case .matched(let latencyMS):
+          if let latencyMS {
+            settledCommitLatenciesMS.append(latencyMS)
+            observedFrameCommitCount += 1
+            maximumObservedFrameCommitLatencyMS = max(maximumObservedFrameCommitLatencyMS, latencyMS)
+          }
+        case .mismatch:
+          break
+        }
+        if let command = expectation.command {
+          commandObservations.append((command, window.id, expectation.from, window.frame, expectation.target))
+        }
+      } else if frameCommitExpectations[window.id] != nil {
+        continue
+      }
+      guard let target = targetFrames[window.id],
+        !approximatelyEqual(window.frame, target),
+        !(hiddenWindowIDs.contains(window.id) && parkedFrameHolds(window.frame, target: target))
+      else {
+        continue
+      }
+      guard targetIntersectsAnyMonitor(target, monitors: monitors) else {
+        continue
+      }
+      targetMismatches.append(
+        FrameMismatch(windowID: window.id, actual: window.frame, target: target)
+      )
+      if windowHasExternalFrameChange(
+        window.id,
+        pendingFrameWindowIDs: frameWindowIDs,
+        matchesRecentInternalWrite: frameWindowIDs.contains(window.id)
+          && frameCoordinator.frameMatchesRecentInternalWrite(
+            windowID: window.id,
+            actual: window.frame,
+            now: now
+          )
+      )
+        || windowIsMouseResizeGestureCandidate(
+          window.id,
+          mouseGestureWindowID: mouseGestureWindowID,
+          mouseResizeGestureObserved: mouseResizeGestureObserved
+        )
+      {
+        externallyChangedFrames[window.id] = window.frame
+      }
+    }
+    finishFrameCommitReads(frameCommitReads,
+      attemptedWindowIDs: discovery.attemptedFrameWindowIDs, sampledAt: snapshotStartedAt, now: now)
+    if !commandObservations.isEmpty {
+      let observations = commandObservations
+      NavigationActor.enqueue { [weak host] in
+        guard let platform = host else { return }
+        for (command, windowID, from, actual, target) in observations {
+          platform.recordCommandObservation(
+            command, windowID: windowID, from: from,
+            actual: actual, target: target, at: now
+          )
+        }
+      }
+    }
+    pendingFrameDebtWindowIDs = prunedFrameDebtWindowIDs(
+      debtWindowIDs: pendingFrameDebtWindowIDs,
+      liveWindowIDs: Set(nextElements.keys),
+      targetFrames: targetFrames,
+      observedFrames: latestObservedFrames
+    )
+    mouseResizeGesturePending = false
+    mouseFocusReleasePending = false
+    mouseFocusReleaseEventGeneration = nil
+    pendingFrameCorrections = frameCorrectionsPreservingDebt(
+      existing: pendingFrameCorrections,
+      observed: Dictionary(
+        uniqueKeysWithValues: targetMismatches.map { ($0.windowID, $0.actual) }
+      ),
+      debtWindowIDs: pendingFrameDebtWindowIDs
+    )
+    let maximumSettledLatencyMS = settledCommitLatenciesMS.max() ?? 0
+    frameCoordinator.recordCommitObservation(
+      deferred: deferredMismatchCount,
+      settled: settledCommitLatenciesMS.count,
+      maximumLatencyMS: maximumSettledLatencyMS
+    )
+    if deferredMismatchCount > 0 || !settledCommitLatenciesMS.isEmpty {
+      frameCommitLogger.debug(
+        "frame commit observed settled=\(settledCommitLatenciesMS.count) deferred=\(deferredMismatchCount) max_latency_ms=\(maximumSettledLatencyMS, format: .fixed(precision: 2))"
+      )
+    }
+    let frontmostApplication = onMain { _ in
+      let application = NSWorkspace.shared.frontmostApplication
+      return (application?.processIdentifier, application?.bundleIdentifier)
+    }
+    let frontmostProcessID = currentFrontmostProcessID(
+      appKitProcessID: frontmostApplication.0,
+      appKitBundleID: frontmostApplication.1,
+      cgWindows: borderStackingInventory(now: ProcessInfo.processInfo.systemUptime)
+    )
+    lastResolvedFrontmostProcessID = frontmostProcessID
+    let activation = userInputTracker.pendingApplicationActivation(
+      frontmostProcessID: frontmostProcessID
+    )
+    var focusedWindowID = focusedWindowID(
+      in: windows,
+      frontmostProcessID: frontmostProcessID,
+      requiresConfirmedWindow: activation != nil
+    )
+    if focusedWindowID == nil, let activation {
+      // AX confirmation lags genuine activation on slow apps. A fresh read
+      // proving the frontmost process owns exactly one window leaves no
+      // ambiguity to resolve, so admit it without waiting for AX.
+      // Anything else keeps requiring AX confirmation.
+      if let fallback = singleFreshWindowID(
+        frontmostProcessID: frontmostProcessID,
+        in: windows
+      ) {
+        focusedWindowID = fallback
+        frameCoordinator.recordTrace(
+          "native-activation-single-window pid=\(activation.processID) target=\(fallback.rawValue)"
+        )
+      } else if lastUnconfirmedActivationTimestamp != activation.timestamp {
+        lastUnconfirmedActivationTimestamp = activation.timestamp
+        frameCoordinator.recordTrace(
+          "native-activation-unconfirmed pid=\(activation.processID)"
+        )
+      }
+    }
+    lastNativeFocusedWindowID = focusedWindowID
+    verifiedNativeFocusedWindowID = focusedWindowID
+    if let focusedWindowID,
+      let processID = nextProcessIDs[focusedWindowID],
+      !detectedNativeFullscreenProcessIDs.contains(processID)
+    {
+      lastFocusedWindowByProcess[processID] = focusedWindowID
+    }
+    lastFocusedWindowByProcess = lastFocusedWindowByProcess.filter {
+      nextProcessIDs[$0.value] == $0.key
+    }
+    internalFocusSuppressions = internalFocusSuppressions.filter {
+      $0.value.deadline >= now
+    }
+    let focusedProcessID = focusedWindowID.flatMap { nextProcessIDs[$0] }
+    let currentActivation = userInputTracker.pendingApplicationActivation(
+      frontmostProcessID: frontmostProcessID
+    )
+    var nativeFocusIsApplicationActivation = activation != nil
+      && activation == currentActivation
+      && focusedProcessID == activation?.processID
+    let nativeFocusTargetMatched = nativeFocusEventMatchesTarget(
+      eventPending: nativeFocusEventPending,
+      eventProcessIDs: nativeFocusEventProcessIDs,
+      hasUnknownEventProcess: nativeFocusEventHasUnknownProcess,
+      focusedProcessID: focusedProcessID
+    )
+    var nativeFocusChanged = nativeFocusTargetMatched || nativeFocusIsApplicationActivation
+    if nativeFocusChanged,
+      let focusedWindowID,
+      let suppression = internalFocusSuppressions[focusedWindowID]
+    {
+      if internalFocusSuppressionConsumesEvent(
+        suppression,
+        suppressedWindowID: focusedWindowID,
+        latestFocusIntent: userInput.latestFocusIntent,
+        applicationActivation: nativeFocusIsApplicationActivation
+      ) {
+        nativeFocusChanged = false
+        nativeFocusIsApplicationActivation = false
+        // Retire our own activation echo now; it must not reappear after suppression expires.
+        if let activation {
+          frameCoordinator.recordTrace("native-activation-retired reason=internal-focus-echo target=\(focusedWindowID.rawValue)")
+          userInputTracker.consumeApplicationActivation(
+            processID: activation.processID, at: activation.timestamp
+          )
+        }
+      } else {
+        internalFocusSuppressions.removeValue(forKey: focusedWindowID)
+      }
+    }
+    if !nativeFocusEventShouldRemainPending(
+      eventPending: nativeFocusEventPending,
+      targetMatched: nativeFocusTargetMatched,
+      eventAge: ProcessInfo.processInfo.systemUptime - nativeFocusEventTimestamp,
+      sourceIsFrontmost: nativeFocusEventHasUnknownProcess
+        || frontmostProcessID.map(nativeFocusEventProcessIDs.contains) == true
+    ) {
+      nativeFocusEventPending = false
+      nativeFocusEventProcessIDs.removeAll(keepingCapacity: true)
+      nativeFocusEventHasUnknownProcess = false
+    }
+    if nativeFocusChanged {
+      userInputTracker.recordObservedFocus(
+        windowID: focusedWindowID,
+        processID: focusedProcessID ?? frontmostProcessID
+      )
+    }
+    if tracesWindowTopology || !newlyDiscoveredWindowIDs.isEmpty {
+      let elapsedMS =
+        (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
+      frameCoordinator.recordTrace(
+        "window-snapshot-complete ms=\(String(format: "%.2f", elapsedMS))"
+      )
+    }
+    let snapshotDurationMS =
+      (ProcessInfo.processInfo.systemUptime - snapshotStartedAt) * 1_000
+    lastWindowSnapshotDurationMS = snapshotDurationMS
+    maximumWindowSnapshotDurationMS = max(
+      maximumWindowSnapshotDurationMS,
+      snapshotDurationMS
+    )
+    recordDurationSample(
+      snapshotDurationMS,
+      in: &windowSnapshotDurationSamplesMS
+    )
+    let mouseFocusIntentWindowID: WindowID?
+    let mouseFocusIntentTimestamp: TimeInterval?
+    let keyboardFocusIntentTimestamp: TimeInterval?
+    if let focusIntent = userInput.latestFocusIntent,
+      case .mouse(let windowID) = focusIntent.source
+    {
+      mouseFocusIntentWindowID = windowID
+      mouseFocusIntentTimestamp = focusIntent.timestamp
+      keyboardFocusIntentTimestamp = nil
+    } else if let focusIntent = userInput.latestFocusIntent,
+      case .keyboard = focusIntent.source
+    {
+      mouseFocusIntentWindowID = nil
+      mouseFocusIntentTimestamp = nil
+      keyboardFocusIntentTimestamp = focusIntent.timestamp
+    } else {
+      mouseFocusIntentWindowID = nil
+      mouseFocusIntentTimestamp = nil
+      keyboardFocusIntentTimestamp = nil
+    }
+    let mousePressedOtherApplication = mousePressLandedInOtherApplication(
+      pressedWindowID: mouseFocusIntentWindowID,
+      pressedWindowIsManaged: mouseFocusIntentWindowID.map { elements[$0] != nil } ?? false,
+      focusedProcessID: focusedWindowID.flatMap { processIDs[$0] },
+      windows: currentCGWindows ?? lastCGWindowInventory ?? []
+    )
+    return DesktopSnapshot(
+      monitors: monitors,
+      windows: windows,
+      nativeFullscreenWindowIDs: nativeFullscreenWindowIDs,
+      activeNativeFullscreenWindowIDs: activeNativeFullscreenWindowIDs,
+      focusedWindowID: focusedWindowID,
+      nativeFocusChanged: nativeFocusChanged,
+      nativeFocusIsApplicationActivation: nativeFocusIsApplicationActivation,
+      applicationActivationTimestamp: nativeFocusIsApplicationActivation ? activation?.timestamp : nil,
+      removedWindowIDs: removedWindowIDs,
+      explicitlyDestroyedWindowIDs: explicitlyDestroyedWindowIDs,
+      windowIDReplacements: windowIDReplacements,
+      latestUserInputTimestamp: userInput.latestEventTimestamp,
+      userInputAfterWindowTopology: userInputOccurredAfterWindowTopology(
+        topologyInputTimestamp: topologyInputTimestamp,
+        latestInputTimestamp: userInput.latestEventTimestamp,
+        latestFocusIntent: userInput.latestFocusIntent,
+        latestCloseIntentTimestamp: userInput.latestCloseIntent,
+        removedWindowIDs: removedWindowIDs
+      ),
+      externallyChangedFrames: externallyChangedFrames,
+      leftMouseButtonDown: leftMouseButtonDown,
+      mouseResizeGestureObserved: mouseResizeGestureObserved,
+      mouseFocusReleaseObserved: mouseFocusReleaseObserved,
+      nativeFocusObservedAfterMouseRelease:
+        nativeFocusObservedAfterMouseRelease,
+      mouseFocusIntentWindowID: mouseFocusIntentWindowID,
+      mouseFocusIntentTimestamp: mouseFocusIntentTimestamp,
+      mousePressedOtherApplication: mousePressedOtherApplication,
+      keyboardFocusIntentTimestamp: keyboardFocusIntentTimestamp,
+      freshFrameObservationIDs: freshObservationIDs.subtracting(inconclusiveObservationIDs),
+      targetMismatches: targetMismatches,
+      pendingWindowIDs: cgWindowDiscoveryRetries.pendingWindowIDs,
+      frontmostProcessID: frontmostProcessID
+    )
+  }
+
+}
+
+/// A press on another app's window (the Dock, the menu bar) moves no managed window, so
+/// the focused window must not stand in as the gesture's window: its scroll anchor and
+/// its frame moved by the activation would undo the switch (issue #210).
+func mousePressLandedInOtherApplication(
+  pressedWindowID: WindowID?,
+  pressedWindowIsManaged: Bool,
+  focusedProcessID: pid_t?,
+  windows: [CGWindowRecord]
+) -> Bool {
+  guard let pressedWindowID, !pressedWindowIsManaged, let focusedProcessID,
+    let owner = windows.first(where: { UInt64($0.id) == pressedWindowID.rawValue })?.processID
+  else { return false }
+  return owner != focusedProcessID
+}

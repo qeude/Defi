@@ -5,6 +5,7 @@ import Synchronization
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 @Suite(.serialized)
 struct FocusMutationTests {

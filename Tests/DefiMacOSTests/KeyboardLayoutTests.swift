@@ -4,6 +4,7 @@ import Carbon
 import DefiConfig
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 // Real installed layouts keep the expectations honest: nothing here is a fixture that could
 // drift from what macOS types. Chords are `modifiers-keycode`, written out by hand.

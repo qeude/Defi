@@ -5,6 +5,7 @@ import Synchronization
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 // Waits allow 10 s: with the whole suite running in a 4-core VM, a global queue can take over 3 s
 // to start a block. A successful wait returns at once.

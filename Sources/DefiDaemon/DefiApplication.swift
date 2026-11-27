@@ -1,8 +1,10 @@
 import DefiMacOS
 import DefiConfig
+import DefiModel
 import DefiRuntime
 import Foundation
 import SwiftUI
+import DefiUI
 
 @main
 struct DefiDaemonMain: App {

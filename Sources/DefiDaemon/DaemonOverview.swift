@@ -5,6 +5,7 @@ import DefiMacOS
 import DefiModel
 import DefiRuntime
 import Foundation
+import DefiUI
 
 struct OverviewToggleRequest: Equatable, Sendable {
   let generation: UInt64

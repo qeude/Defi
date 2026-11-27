@@ -2,6 +2,7 @@ import Foundation
 import XCTest
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 private enum Bound { @TaskLocal static var value = false }
 

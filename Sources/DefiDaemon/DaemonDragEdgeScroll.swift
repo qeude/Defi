@@ -4,6 +4,7 @@ import DefiMacOS
 import DefiModel
 import DefiRuntime
 import Foundation
+import DefiUI
 
 extension Daemon {
   var physicalMonitorFrames: [MonitorID: Rect] {

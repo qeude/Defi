@@ -2,6 +2,7 @@ import DefiModel
 import Testing
 
 @testable import DefiDaemon
+@testable import DefiUI
 
 struct WorkspaceSwitchShiftTests {
   @Test func switchSlidesAlongTheMonitorsOwnStack() {

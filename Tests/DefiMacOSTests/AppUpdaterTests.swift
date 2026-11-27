@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct AppUpdaterTests {
   private func payload(tag: String = "v0.6.0", asset: String = "Defi-v0.6.0.zip", url: String) -> Data {

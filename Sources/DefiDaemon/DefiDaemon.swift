@@ -8,6 +8,7 @@ import DefiRuntime
 import Foundation
 import OSLog
 import Synchronization
+import DefiUI
 
 let performanceLogger = Logger(
   subsystem: "com.qeude.defi",

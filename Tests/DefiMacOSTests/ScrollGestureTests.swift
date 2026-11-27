@@ -4,6 +4,7 @@ import Foundation
 import Synchronization
 import Testing
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct ScrollGestureTests {
   private func touch(_ phase: Int64, dx: Double = 0, dy: Double = 0, held: Bool = true,

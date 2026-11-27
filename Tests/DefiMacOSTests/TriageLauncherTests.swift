@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct TriageLauncherTests {
   @Test func launcherRunsTriageOnQuotedPathAndDeletesItself() throws {

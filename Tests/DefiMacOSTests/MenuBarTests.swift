@@ -4,6 +4,7 @@ import DefiConfig
 import class SwiftUI.NSHostingMenu
 
 @testable import DefiMacOS
+@testable import DefiUI
 
 @MainActor
 struct MenuBarTests {

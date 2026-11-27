@@ -49,6 +49,7 @@ let package = Package(
     .library(name: "DefiRuntime", targets: ["DefiRuntime"]),
     .library(name: "DefiIPC", targets: ["DefiIPC"]),
     .library(name: "DefiMacOS", targets: ["DefiMacOS"]),
+    .library(name: "DefiUI", targets: ["DefiUI"]),
     .executable(name: "defi-daemon", targets: ["DefiDaemon"]),
     .executable(name: "defi", targets: ["DefiCLI"]),
   ],
@@ -78,10 +79,11 @@ let package = Package(
     ),
     .target(
       name: "DefiMacOS",
-      dependencies: [
-        "DefiModel", "DefiCore", "DefiConfig", "DefiRuntime",
-        .product(name: "TOMLDecoder", package: "TOMLDecoder"),
-      ]
+      dependencies: ["DefiModel", "DefiCore", "DefiConfig"]
+    ),
+    .target(
+      name: "DefiUI",
+      dependencies: ["DefiModel", "DefiCore", "DefiConfig", "DefiRuntime", "DefiMacOS"]
     ),
     .executableTarget(
       name: "DefiDaemon",
@@ -92,6 +94,7 @@ let package = Package(
         "DefiRuntime",
         "DefiIPC",
         "DefiMacOS",
+        "DefiUI",
       ],
       linkerSettings: sdkLinkerFlags.isEmpty ? [] : [.unsafeFlags(sdkLinkerFlags)]
     ),
@@ -131,6 +134,8 @@ let package = Package(
       name: "DefiMacOSTests",
       dependencies: [
         "DefiMacOS",
+        "DefiUI",
+        "DefiRuntime",
         "DefiConfig",
         "DefiCore",
         "DefiIPC",
@@ -139,7 +144,7 @@ let package = Package(
     ),
     .testTarget(
       name: "DefiDaemonTests",
-      dependencies: ["DefiDaemon", "DefiModel"]
+      dependencies: ["DefiDaemon", "DefiModel", "DefiUI"]
     ),
   ]
 )

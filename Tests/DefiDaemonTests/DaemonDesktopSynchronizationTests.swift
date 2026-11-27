@@ -8,6 +8,7 @@ import Testing
 
 @testable import DefiDaemon
 @testable import DefiMacOS
+@testable import DefiUI
 
 struct DaemonDesktopSynchronizationTests {
   @Test(arguments: [

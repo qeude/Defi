@@ -4,7 +4,7 @@
 # Set DEFI_INSTALL_DIR to choose the folder that receives Defi.app.
 set -eu
 
-# Same pin as defiReleaseRequirement in Sources/DefiMacOS/AppUpdater.swift.
+# Same pin as defiReleaseRequirement in Sources/DefiUI/Chrome/AppUpdater.swift.
 REQUIREMENT='identifier "com.qeude.defi" and certificate leaf = H"b81a903423676253b0eff36c4cdfbe3351742b68"'
 RELEASES='https://github.com/qeude/Defi/releases'
 

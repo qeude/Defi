@@ -5,6 +5,8 @@ import Synchronization
 import Testing
 @testable import DefiMacOS
 import DefiRuntime
+import DefiModel
+@testable import DefiUI
 
 struct WindowCaptureStallTests {
   /// macOS can hold the WindowServer capture for minutes. Blocked on worker threads, such
