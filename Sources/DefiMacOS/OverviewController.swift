@@ -980,7 +980,7 @@ public final class OverviewController: NSObject {
             windows: Array(snapshot.windows.values), settings: layout), windows: snapshot.windows,
           dim: borderStyle.inactiveDim, focusedWindowID: selection?.windowID)
       {
-        panel.hidePreviewScene(scene, duration: 0.22)
+        panel.hidePreviewScene(scene, duration: 0.22, fromRest: fromRest)
         previewClosingCount += 1
       } else {
         panel.hide()

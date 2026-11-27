@@ -111,7 +111,14 @@ final class OverviewPreviewClosingScene {
     item.masksToBounds = true
   }
 
-  func animate(duration: TimeInterval) {
+  func animate(duration: TimeInterval, lead: CFTimeInterval = 0) {
+    func add(_ animation: CAAnimation, to layer: CALayer) {
+      if lead > 0 {
+        animation.beginTime = layer.convertTime(CACurrentMediaTime() + lead, from: nil)
+        animation.fillMode = .backwards
+      }
+      layer.add(animation, forKey: "overview-preview-close")
+    }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     for (item, source, target) in entries {
@@ -132,7 +139,7 @@ final class OverviewPreviewClosingScene {
       animation.duration = duration
       animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       animation.preferredFrameRateRange = overviewAnimationFrameRate
-      item.add(animation, forKey: "overview-preview-close")
+      add(animation, to: item)
     }
     if let dim {
       dim.opacity = 0
@@ -141,7 +148,7 @@ final class OverviewPreviewClosingScene {
       fade.duration = duration
       fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       fade.preferredFrameRateRange = overviewAnimationFrameRate
-      dim.add(fade, forKey: "overview-preview-close")
+      add(fade, to: dim)
     }
     for (shade, opacity) in arrivingDims {
       shade.opacity = opacity
@@ -150,7 +157,7 @@ final class OverviewPreviewClosingScene {
       fade.duration = duration
       fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       fade.preferredFrameRateRange = overviewAnimationFrameRate
-      shade.add(fade, forKey: "overview-preview-close")
+      add(fade, to: shade)
     }
     CATransaction.commit()
   }

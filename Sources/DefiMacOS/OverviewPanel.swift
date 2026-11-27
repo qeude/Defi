@@ -320,17 +320,19 @@ final class OverviewPanel {
     return true
   }
 
-  func hidePreviewScene(_ scene: OverviewPreviewClosingScene, duration: TimeInterval) {
+  func hidePreviewScene(_ scene: OverviewPreviewClosingScene, duration: TimeInterval, fromRest: Bool) {
+    // The same compositor hold as the surface zoom's, unless a swipe already moved the scene.
+    let lead = fromRest && !openingTransitionInProgress ? zoomLead : 0
     cancelSurfaceTransition()
     previewClosingScene = scene
     let generation = surfaceGeneration
     let zoomsWallpaper = scene.zoomsWallpaper
     rootView.layer?.addSublayer(scene.layer)
-    scene.animate(duration: duration)
-    MotionSignpost.span("overview-zoom", duration)
-    fadeGlass(to: 0, duration: duration)
+    scene.animate(duration: duration, lead: lead)
+    MotionSignpost.span("overview-zoom", duration, after: lead)
+    fadeGlass(to: 0, duration: duration, lead: lead)
     surfaceTask = Task { [weak self] in
-      do { try await Task.sleep(for: .seconds(duration)) } catch { return }
+      do { try await Task.sleep(for: .seconds(duration + lead)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
       if zoomsWallpaper { await fadeRevealingDesktop(generation: generation) } else { hide() }
     }
