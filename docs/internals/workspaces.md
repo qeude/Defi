@@ -83,7 +83,8 @@ another workspace would be carried straight back, so the reducer refuses it.
 
 macOS raises only the window it focuses, so the daemon raises every scratchpad
 window through Accessibility, the selected one last, each time the scratchpad
-comes forward; otherwise the others stay behind the strip. Accessibility cannot
+comes forward with the focus, and never while another window has it: raised at
+every layout, its windows swapped places with each other many times a second. Accessibility cannot
 order a window above the active app's windows: a raise stops just below them. So
 the scratchpad stays in front only while it has the focus, which is why a focused
 scratchpad keeps it across a workspace switch, and `toggle-scratchpad` parks

@@ -209,11 +209,10 @@ extension Daemon {
         monitor.workspaces.contains { $0.id == monitor.activeWorkspace && $0.floatingWindows.contains(windowID) }
       }
     }
-    if !Set(shownScratchpad).isSubset(of: shownScratchpadWindowIDs) {
-      platform.raiseWindows(
-        shownScratchpad.filter { $0 != selectedWindowID } + shownScratchpad.filter { $0 == selectedWindowID })
-    }
-    shownScratchpadWindowIDs = selectedWindowID.map(shownScratchpad.contains) == true ? Set(shownScratchpad) : []
+    let raise = scratchpadRaise(shown: shownScratchpad, selected: selectedWindowID,
+      raised: shownScratchpadWindowIDs)
+    if !raise.order.isEmpty { platform.raiseWindows(raise.order) }
+    shownScratchpadWindowIDs = raise.raised
     let tracesWindowCreation = platform.hasNewlyDiscoveredWindows
     let borderStartedAt = ProcessInfo.processInfo.systemUptime
     let layoutMS =
@@ -234,6 +233,7 @@ extension Daemon {
     let workspaceShifts = consumeWorkspaceSwitchShifts(source: source)
     let shifts = animationsEnabled
     platform.layoutFloatingWindowIDs = Set(state.windows.filter(\.value.floating).keys)
+    platform.scratchpadWindowIDs = Set(state.scratchpadWindowIDs)
     platform.windowProxyMonitors = state.monitors.compactMap { monitor in
       viewports[monitor.id].map { viewport in
         WindowProxyMonitor(viewport: viewport,
@@ -381,4 +381,14 @@ func borderAssignmentsOutsideFullscreen(
   let fullscreenMonitorIDs = Set(fullscreenWindowIDs.compactMap(monitorOf))
   guard !fullscreenMonitorIDs.isEmpty else { return assignments }
   return assignments.filter { monitorOf($0.windowID).map { !fullscreenMonitorIDs.contains($0) } ?? true }
+}
+
+/// Raises a shown scratchpad once as it comes forward with the focus, the focused window last.
+/// Raised again while another window has the focus, its windows swapped places at every layout.
+func scratchpadRaise(shown: [WindowID], selected: WindowID?, raised: Set<WindowID>)
+  -> (order: [WindowID], raised: Set<WindowID>)
+{
+  guard let selected, shown.contains(selected) else { return ([], []) }
+  let focused = Set(shown)
+  return (focused.isSubset(of: raised) ? [] : shown.filter { $0 != selected } + [selected], focused)
 }
