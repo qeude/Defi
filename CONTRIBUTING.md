@@ -356,7 +356,7 @@ stanza, remove `com.apple.quarantine` in `postflight`, and zap:
 > [!WARNING]
 > Installed apps update themselves from the release marked latest, and accept a
 > download only if it satisfies `defiReleaseRequirement` in
-> `Sources/DefiMacOS/AppUpdater.swift`. Rotating the release certificate strands
+> `Sources/DefiUI/Chrome/AppUpdater.swift`. Rotating the release certificate strands
 > every installed copy: change that requirement, the pin in `release.yml`, and
 > the one in `script/install.sh` together, and expect users to reinstall by hand.
 

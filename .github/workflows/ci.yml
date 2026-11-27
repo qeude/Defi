@@ -36,6 +36,10 @@ jobs:
             echo "::error::Private macOS API use must stay inside DefiMacOS."
             exit 1
           fi
+          if grep -rnE '^[[:space:]]*import[[:space:]]+DefiRuntime\b' Sources/DefiMacOS; then
+            echo "::error::DefiMacOS must not depend on DefiRuntime; Defi's own windows live in DefiUI."
+            exit 1
+          fi
 
       - name: Toolchain
         run: |
