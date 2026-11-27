@@ -8,6 +8,7 @@ public final class CheatsheetController {
   private let config: Config
   private var panel: NSPanel?
   private var closingPanel: NSPanel?
+  private var closingEnd: Task<Void, Never>?
   /// Fitting sizes per column count: measuring builds a hosting view each, at every opening.
   private var measured: (groups: [ShortcutGroup], sizes: [CGSize])?
   private var grouped: (layout: KeyboardLayout?, displayMod: Bool, groups: [ShortcutGroup])?
@@ -36,7 +37,7 @@ public final class CheatsheetController {
       ?? shortcutGroups(config: config, layout: keyboardLayout, displayMod: displayMod)
     grouped = (keyboardLayout, displayMod, groups)
     let sizes = measured?.groups == groups ? measured!.sizes : (1...max(1, min(4, groups.count))).map {
-      NSHostingView(rootView: CheatsheetContent(groups: groups, columnCount: $0)).fittingSize
+      NSHostingView(rootView: CheatsheetContent(columns: CheatsheetContent.columns(groups, count: $0))).fittingSize
     }
     measured = (groups, sizes)
     let layout = CheatsheetLayout(
@@ -78,7 +79,8 @@ public final class CheatsheetController {
     panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
     self.panel = panel
-    let hosting = NSHostingView(rootView: CheatsheetView(groups: groups, layout: layout))
+    let hosting = NSHostingView(rootView: CheatsheetView(
+      columns: CheatsheetContent.columns(groups, count: layout.columns), layout: layout))
     hosting.sizingOptions = []
     panel.contentView = hosting
     hosting.wantsLayer = true
@@ -92,7 +94,7 @@ public final class CheatsheetController {
   /// The render server runs the fade: AppKit's window-alpha animation stepped from the main
   /// thread, which SwiftUI's first layout keeps busy right when the panel opens.
   private static func fade(_ view: NSView, from start: Float? = nil, to opacity: Float,
-    duration: TimeInterval, timing: CAMediaTimingFunctionName) {
+    duration: TimeInterval, timing: CAMediaTimingFunctionName, lead: CFTimeInterval = 0) {
     guard let layer = view.layer else { return }
     let fade = CABasicAnimation(keyPath: "opacity")
     fade.fromValue = start ?? (layer.presentation() ?? layer).opacity
@@ -100,9 +102,13 @@ public final class CheatsheetController {
     fade.duration = duration
     fade.timingFunction = CAMediaTimingFunction(name: timing)
     fade.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+    if lead > 0 {
+      fade.beginTime = layer.convertTime(CACurrentMediaTime() + lead, from: nil)
+      fade.fillMode = .backwards
+    }
     layer.opacity = opacity
     layer.add(fade, forKey: "fade")
-    MotionSignpost.span("cheatsheet", duration)
+    MotionSignpost.span("cheatsheet", duration, after: lead)
   }
 
   public func close() {
@@ -111,10 +117,16 @@ public final class CheatsheetController {
     guard animates else { return panel.close() }
     finishClosing()
     closingPanel = panel
-    if let content = panel.contentView { Self.fade(content, to: 0, duration: 0.12, timing: .easeIn) }
-    Task { [weak self] in
-      try? await Task.sleep(for: .seconds(0.12))
-      if self?.closingPanel === panel { self?.finishClosing() }
+    // Two frames: started at once, the closing fade skipped its second and third frames. The
+    // opening gains nothing from it: its first frames wait for the panel to reach the screen.
+    let lead = 2 / Double(max(panel.screen?.maximumFramesPerSecond ?? 60, 1))
+    if let content = panel.contentView { Self.fade(content, to: 0, duration: 0.12, timing: .easeIn, lead: lead) }
+    // A reopened panel is the same NSPanel: an earlier close's end must not cut this fade.
+    closingEnd?.cancel()
+    closingEnd = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(0.12 + lead))
+      guard !Task.isCancelled, self?.closingPanel === panel else { return }
+      self?.finishClosing()
     }
   }
 

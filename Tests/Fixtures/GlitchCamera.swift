@@ -2,6 +2,7 @@
 // Usage: GlitchCamera OUT.jsonl HUE,HUE,...   records until stdin closes
 //        GlitchCamera click X Y               a real left click at CG coordinates
 //        GlitchCamera key PID KEYCODE         one key press delivered to that process only
+//        GlitchCamera cmdtab                  a real Command-Tab, to the previous app
 // Each changed frame logs the runs of fixture colours on three rows of every display ("w<index>",
 // "ph" for a placeholder card), and every 33 ms the on-screen bounds of fixture and Defi windows.
 import AppKit
@@ -148,8 +149,37 @@ func key(_ pid: pid_t, _ code: CGKeyCode) {
   }
 }
 
+// Through the HID tap, like the keyboard: Defi only follows an activation a person asked for.
+func commandTab() {
+  let steps: [(CGKeyCode, Bool, CGEventFlags)] = [
+    (55, true, .maskCommand), (48, true, .maskCommand), (48, false, .maskCommand), (55, false, []),
+  ]
+  for (code, down, flags) in steps {
+    let event = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+    event?.flags = flags
+    event?.post(tap: .cghidEventTap)
+    usleep(60_000)
+  }
+}
+
+// Events on the HID tap reach whatever app is frontmost: only a virtual machine may receive them.
+func requireVirtualMachine() {
+  var present: Int32 = 0
+  var size = MemoryLayout<Int32>.size
+  guard sysctlbyname("kern.hv_vmm_present", &present, &size, nil, 0) == 0, present == 1 else {
+    FileHandle.standardError.write(Data("GlitchCamera: global input runs only inside the defi-e2e VM\n".utf8))
+    exit(2)
+  }
+}
+
 let arguments = CommandLine.arguments
+if arguments.count == 2, arguments[1] == "cmdtab" {
+  requireVirtualMachine()
+  commandTab()
+  exit(0)
+}
 if arguments.count == 4, arguments[1] == "click" {
+  requireVirtualMachine()
   click(Double(arguments[2])!, Double(arguments[3])!)
   exit(0)
 }

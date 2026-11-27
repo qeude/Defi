@@ -88,6 +88,10 @@ extension AXFrameCoordinator {
         }
       }
       group.wait()
+      // The arrivals phase is first: once it ends, nothing later needs to wait behind it.
+      lock.lock()
+      activeFrameStagesVisibleBeforeParking = false
+      lock.unlock()
     }
     let result = accumulator.result
     if !result.processLatencySamplesMS.isEmpty {

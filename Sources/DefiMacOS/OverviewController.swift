@@ -285,6 +285,8 @@ public final class OverviewController: NSObject {
   private var swipe: OverviewSwipeState?
   private var skipsOpeningUntil: CFTimeInterval = 0
   private var zoomBackDuration: TimeInterval = 0.22
+  /// False for a zoom the fingers already moved, which must not pause before it goes on.
+  private var zoomBackFromRest = true
   public private(set) var isOpen = false
   public private(set) var usesWorkspaceParking = false
   public var panelCount: Int { isOpen ? panels.count : 0 }
@@ -910,13 +912,15 @@ public final class OverviewController: NSObject {
 
   private func close(duration: TimeInterval) {
     zoomBackDuration = duration
-    defer { zoomBackDuration = 0.22 }
+    zoomBackFromRest = false
+    defer { zoomBackDuration = 0.22; zoomBackFromRest = true }
     close()
   }
 
   private func close(commitScrollOffsets: Bool) {
     guard isOpen else { return }
     // A swipe still on the trackpad no longer drives this Overview's zoom.
+    let fromRest = zoomBackFromRest && swipe?.interactive != true
     swipe = nil
     let closingPreviews = previews
     let closingProjections = projections
@@ -955,7 +959,8 @@ public final class OverviewController: NSObject {
     // close commits viewport offsets must not disable a safe visual handoff.
     let canZoomBack = self.canZoomBack
     for panel in closingPanels {
-      if canZoomBack && panel.hideSurfaceSceneIfUnchanged(duration: zoomBackDuration, focusedWindowID: selection?.windowID) { continue }
+      if canZoomBack && panel.hideSurfaceSceneIfUnchanged(duration: zoomBackDuration,
+        focusedWindowID: selection?.windowID, fromRest: fromRest) { continue }
       let committedOffsets = commitScrollOffsets ? viewports[panel.monitorID]?.horizontalOffsets : nil
       if nativeExitCanZoom, animationsEnabled,
         !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,

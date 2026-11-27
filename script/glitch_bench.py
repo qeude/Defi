@@ -714,9 +714,42 @@ def settings(bench, rng, rounds):
     time.sleep(1.5)
 
 
+def app_switch(bench, rng, rounds):
+    """Command-Tab to an app whose windows are on another workspace: the workspace slides in."""
+    # The two most recent apps: Command-Tab then alternates between them.
+    # A command switch tells a build that traces drawn slides from one that predates the trace.
+    switch(bench, bench.other_workspace, 'app-switch-setup')
+    traced = 'workspace-slide drawn=' in bench.cli_run('trace')[0]
+    for name in ('a', 'c'):
+        activate(bench.fixture(name).pid)
+        time.sleep(0.8)
+    target = ('a', bench.home)
+    for _ in range(rounds * 4):
+        name, workspace = target
+        start, pids = now(), bench.daemons()
+        # Not a defect to record: without the key press there is nothing to judge, so the run stops.
+        if subprocess.run([str(bench.tools / 'GlitchCamera'), 'cmdtab']).returncode:
+            raise SystemExit('GlitchCamera refused Command-Tab: run the bench inside the defi-e2e VM')
+        bench.log_event('app-switch', t=start, expected=workspace)
+        bench.judge('app-switch', start, None, pids, until=lambda: bench.active()['id'] == workspace)
+        trace = bench.cli_run('trace')[0]
+        (bench.out / f'app-switch-{round(start, 1)}-trace.txt').write_text(trace)
+        slides = [drawn for at, drawn in re.findall(r'^(\d+\.\d+) workspace-slide drawn=(\w+)', trace, re.M)
+                  if float(at) >= start]
+        key, front = bench.key_window()
+        bench.check('app_switch_target', front == bench.fixture(name).pid, action='app-switch',
+                    front=front, expected=name)
+        # The overlay drew the slide, unless the run moves windows at once.
+        if traced:
+            bench.check('app_switch_slide', slides == (['false'] if bench.instant else ['true']),
+                        action='app-switch', slides=slides)
+        target = ('c', bench.other_workspace) if name == 'a' else ('a', bench.home)
+
+
 SCENARIOS = {'columns': columns, 'workspaces': workspaces, 'windows': windows, 'activation': activation,
              'overview': overview, 'fullscreen': fullscreen, 'restart': restart, 'slow': slow,
-             'displays': displays, 'settings': settings, 'hidden-close': hidden_close, 'pinned': pinned}
+             'displays': displays, 'settings': settings, 'hidden-close': hidden_close, 'pinned': pinned,
+             'app-switch': app_switch}
 
 
 # -- analysis ----------------------------------------------------------------------------------------
@@ -792,6 +825,8 @@ def analyze(out):
             width = displays.get(display, [0, 0, 1024, 768])[2]
             seq = [{**f, 'rows': [[run for run in row if run[0] not in still_hidden] for row in f['rows']]} for f in seq]
             judge_motion(action, seq, width, defect, instant)
+            if action['action'] == 'app-switch':
+                judge_bare_desk(action, seq, defect)
         # Parking leak: a hidden window shows once its action settled.
         if settled:
             hidden = set(settled['visible']['hidden'])
@@ -843,6 +878,20 @@ def view_shift(action, frames, t1, defect):
         if was != now_:
             defect(action['scenario'], 'view_shift', action=action['action'], t=action['t'],
                    before=sorted(was), after=sorted(now_))
+
+
+def judge_bare_desk(action, frames, defect):
+    """Both workspaces are occupied: between the last frame showing a window and the next, the desk
+    shows bare for more than 50 ms only if the switch hid one workspace before the other arrived."""
+    # The camera logs changed frames only: a bare stretch lasts from its first frame to the next window.
+    gap, bare_since = 0, None
+    for f in frames:
+        if not any(row for row in f['rows']):
+            bare_since = f['t'] if bare_since is None else bare_since
+        elif bare_since is not None:
+            gap, bare_since = max(gap, f['t'] - bare_since), None
+    if gap > 0.05:
+        defect(action['scenario'], 'bare_desk', action=action['action'], t=action['t'], ms=round(gap * 1000))
 
 
 def judge_motion(action, frames, width, defect, instant=False):
@@ -975,6 +1024,7 @@ def run(args):
     if camera.stdout.readline().strip() != 'ready':
         raise SystemExit('camera failed: ' + (out / 'camera.err').read_text())
     bench = Bench(args.app, out, tools)
+    bench.instant = args.instant
     bench.log_event('mode', instant=args.instant)
     rng = random.Random(args.seed)
     try:

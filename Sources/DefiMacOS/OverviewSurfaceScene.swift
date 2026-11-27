@@ -193,7 +193,8 @@ final class OverviewSurfaceScene {
   }
 
   /// Sets each card's dim to `share` of the desktop's: 1 at the desktop pose, 0 in the Overview.
-  private func fadeDims(toward share: Double, duration: TimeInterval, timing: CAMediaTimingFunctionName) {
+  private func fadeDims(toward share: Double, duration: TimeInterval, timing: CAMediaTimingFunctionName,
+    lead: CFTimeInterval = 0) {
     for (windowID, shade) in dims {
       let fade = CABasicAnimation(keyPath: "opacity")
       fade.fromValue = (shade.presentation() ?? shade).opacity
@@ -201,13 +202,15 @@ final class OverviewSurfaceScene {
       fade.duration = duration
       fade.timingFunction = CAMediaTimingFunction(name: timing)
       fade.preferredFrameRateRange = overviewAnimationFrameRate
-      fade.beginTime = shade.convertTime(CACurrentMediaTime(), from: nil)
+      fade.beginTime = shade.convertTime(CACurrentMediaTime() + lead, from: nil)
       fade.fillMode = .backwards
       shade.add(fade, forKey: "overview-dim")
     }
   }
 
-  func animate(opening: Bool, duration: TimeInterval) {
+  /// `lead` starts a zoom from rest that much later: its first frames reach the compositor
+  /// before its clock runs, as the ribbon's do.
+  func animate(opening: Bool, duration: TimeInterval, lead: CFTimeInterval = 0) {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     for (_, item, source, target) in entries {
@@ -249,11 +252,11 @@ final class OverviewSurfaceScene {
       group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
       group.preferredFrameRateRange = overviewAnimationFrameRate
       // A frame composited before the commit lands draws the start, not the end.
-      group.beginTime = item.convertTime(CACurrentMediaTime(), from: nil)
+      group.beginTime = item.convertTime(CACurrentMediaTime() + lead, from: nil)
       group.fillMode = .backwards
       item.add(group, forKey: "overview-surface")
     }
-    fadeDims(toward: opening ? 0 : 1, duration: duration, timing: .easeInEaseOut)
+    fadeDims(toward: opening ? 0 : 1, duration: duration, timing: .easeInEaseOut, lead: lead)
     CATransaction.commit()
   }
 

@@ -209,7 +209,18 @@ final class OverviewPanel {
   private func startSurfaceScene(duration: TimeInterval, generation: UInt64, requested: CFTimeInterval) {
     guard surfaceStartPending, surfaceGeneration == generation else { return }
     openingTransitionChanged?("presented(ms:\(Int((CACurrentMediaTime() - requested) * 1_000)))")
-    finishSurfaceOpening(duration: duration)
+    finishSurfaceOpening(duration: duration, lead: zoomLead)
+  }
+
+  /// How long a zoom from rest waits before it moves, unlike one the fingers already moved. The
+  /// compositor takes about 60 ms to take in the new panel, and a zoom started sooner showed
+  /// those 60 ms in three frames. On a display with adaptive refresh a still lead that long made
+  /// the compositor run ribbon motions at 80 Hz, so the zoom waits two frames there.
+  private var zoomLead: CFTimeInterval {
+    let frames = 2 / Double(max(window.screen?.maximumFramesPerSecond ?? 60, 1))
+    guard let screen = window.screen,
+      screen.minimumRefreshInterval == screen.maximumRefreshInterval else { return frames }
+    return max(frames, 0.06)
   }
 
   /// Holds the zoom where the fingers put it, `progress` of the way into the Overview.
@@ -227,17 +238,17 @@ final class OverviewPanel {
   }
 
   /// Plays the rest of the opening from the pose on screen.
-  func finishSurfaceOpening(duration: TimeInterval) {
+  func finishSurfaceOpening(duration: TimeInterval, lead: CFTimeInterval = 0) {
     guard openingTransitionInProgress, let scene = surfaceScene else { return }
     let generation = surfaceGeneration
     surfaceStartPending = false
     surfaceTask?.cancel()
-    scene.animate(opening: true, duration: duration)
-    MotionSignpost.span("overview-zoom", duration)
-    fadeGlass(to: 1, duration: duration)
+    scene.animate(opening: true, duration: duration, lead: lead)
+    MotionSignpost.span("overview-zoom", duration, after: lead)
+    fadeGlass(to: 1, duration: duration, lead: lead)
     if chromeMask != nil { coverChrome(1, duration: duration) }
     surfaceTask = Task { [weak self] in
-      do { try await Task.sleep(for: .seconds(duration)) } catch { return }
+      do { try await Task.sleep(for: .seconds(duration + lead)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
       uncoverChrome()
       openingTransitionInProgress = false
@@ -281,10 +292,13 @@ final class OverviewPanel {
     }
   }
 
-  func hideSurfaceSceneIfUnchanged(duration: TimeInterval, focusedWindowID: WindowID?) -> Bool {
+  func hideSurfaceSceneIfUnchanged(duration: TimeInterval, focusedWindowID: WindowID?, fromRest: Bool) -> Bool {
     guard let surfaceScene, let screen = window.screen,
       surfaceScene.matchesNativeFrames(screen: screen) else { return false }
     surfaceScene.focusedWindowID = focusedWindowID
+    // After a few seconds open, the compositor held a zoom started at once on its first frame
+    // for 40 to 70 ms: it starts after that instead, unless the scene is already moving.
+    let lead = fromRest && !openingTransitionInProgress ? zoomLead : 0
     if openingTransitionInProgress {
       openingTransitionInProgress = false
       openingTransitionChanged?("interrupted(exit)")
@@ -294,12 +308,12 @@ final class OverviewPanel {
     let generation = surfaceGeneration
     view.suppressedSurfaceWindowIDs = Set(surfaceScene.nativeFrames.keys)
     rootView.layer?.addSublayer(surfaceScene.layer)
-    surfaceScene.animate(opening: false, duration: duration)
-    MotionSignpost.span("overview-zoom", duration)
-    fadeGlass(to: 0, duration: duration)
+    surfaceScene.animate(opening: false, duration: duration, lead: lead)
+    MotionSignpost.span("overview-zoom", duration, after: lead)
+    fadeGlass(to: 0, duration: duration, lead: lead)
     if chromeMask != nil { coverChrome(0, duration: duration) }
     surfaceTask = Task { [weak self] in
-      do { try await Task.sleep(for: .seconds(duration)) } catch { return }
+      do { try await Task.sleep(for: .seconds(duration + lead)) } catch { return }
       guard !Task.isCancelled, let self, surfaceGeneration == generation else { return }
       hide()
     }
@@ -371,12 +385,16 @@ final class OverviewPanel {
 
   /// Compositor-driven with a 120 Hz preference: an AppKit animator stays on the main
   /// thread's clock and never asks ProMotion for more than 60 Hz.
-  private func fadeGlass(to alpha: CGFloat, duration: TimeInterval) {
+  private func fadeGlass(to alpha: CGFloat, duration: TimeInterval, lead: CFTimeInterval = 0) {
     guard let layer = glassView.layer else { glassView.alphaValue = alpha; return }
     let fade = CABasicAnimation(keyPath: "opacity")
     fade.fromValue = (layer.presentation() ?? layer).opacity
     fade.duration = duration
     fade.preferredFrameRateRange = overviewAnimationFrameRate
+    if lead > 0 {
+      fade.beginTime = layer.convertTime(CACurrentMediaTime() + lead, from: nil)
+      fade.fillMode = .backwards
+    }
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     glassView.alphaValue = alpha

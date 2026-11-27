@@ -335,6 +335,7 @@ extension Daemon {
     }
     var nativelyFocusedMonitorID: MonitorID?
     var nativelyActivatedWorkspace = false
+    var nativeWorkspaceIntent: WorkspaceTransitionIntent?
     var nativeCursorWarpWindowID: WindowID?
     var nativeCursorWarpInputTimestamp: TimeInterval?
     var nativeFocusFrameMonitorID: MonitorID?
@@ -696,8 +697,11 @@ extension Daemon {
         && (!snapshot.leftMouseButtonDown || nativeFocusAccepted)
         && nativeFocusAccepted && selectionChanged
       {
+        let intent = workspaceTransitionIntent(
+          targetWorkspaceID: state.location(containing: focusedWindowID)?.workspaceID, state: state)
         let activatedWorkspace = focusWindow(focusedWindowID, state: &state)
         nativelyActivatedWorkspace = nativeFocusAccepted && activatedWorkspace
+        nativeWorkspaceIntent = nativelyActivatedWorkspace ? intent : nil
         acceptedNativeFocusMonitorID = state.monitorID(containing: focusedWindowID)
         nativelyFocusedMonitorID = acceptedNativeFocusMonitorID
         if mouseInteractionEnded {
@@ -1027,7 +1031,10 @@ extension Daemon {
         // The app puts a window back from full screen where it likes; slide it home.
         || exitsNativeFullscreen)
     snapScrollOffsetsToTargets()
-    if animatesNativeFocus { beginFrameAnimationActivity() }
+    // Command-Tab, the Dock or a click reached another workspace: it slides in as a command's does.
+    let nativeWorkspaceTransition = overviewState.isOpen || mouseResizeGestureActive || displayGeometryChanged
+      ? nil : nativeWorkspaceIntent.flatMap(safeWorkspaceVerticalTransition)
+    if animatesNativeFocus || nativeWorkspaceTransition != nil { beginFrameAnimationActivity() }
     let nativeFocusSkippedWindowIDs = nativeFocusPendingSkippedWindowIDs(
       // A focus event retired by this snapshot without a native focus change no longer gates writes.
       nativeFocusWasPending: nativeFocusWasPending
@@ -1073,10 +1080,10 @@ extension Daemon {
       asynchronousPositions: true,
       updateVisibility: true,
       positionTimeoutSeconds: 0.05,
-      animated: animatesNativeFocus || animatesLifecycle || animatesMouseDrop,
+      animated: animatesNativeFocus || animatesLifecycle || animatesMouseDrop || nativeWorkspaceTransition != nil,
       skipping: nativeFocusSkippedWindowIDs.union(slidingDesktopWindowIDs).union(frozenDesktopWindowIDs),
-      positionsOnly: animatesNativeFocus,
-      stagesVisibleBeforeParking: nativelyActivatedWorkspace,
+      positionsOnly: animatesNativeFocus || nativeWorkspaceTransition != nil,
+      stagesVisibleBeforeParking: nativelyActivatedWorkspace && nativeWorkspaceTransition == nil,
       postCommitFocus: PostCommitFocus(
         cursorWarpWindowID: nativeCursorWarpWindowID,
         cursorWarpInputTimestamp: nativeCursorWarpInputTimestamp,
@@ -1085,12 +1092,15 @@ extension Daemon {
       forceFloatingFrameWrites: displayGeometryChanged,
       forcingFloatingFrameWritesFor: relocatedFloatingWindowIDs.union(
         ruleRelocatedFloatingMonitorIDs.keys),
-      source: animatesNativeFocus
+      workspaceTransition: nativeWorkspaceTransition,
+      source: nativeWorkspaceTransition != nil ? "workspace-transition" : animatesNativeFocus
         ? "native-focus-animation"
         : (nativelyActivatedWorkspace ? "native-workspace"
           : (animatesMouseDrop ? "mouse-drop-animation"
             : (animatesLifecycle ? "window-lifecycle-animation" : "desktop-sync")))
     )
+    // The slide moves positions only: the next snapshot writes the sizes.
+    if nativeWorkspaceTransition != nil { needsDesktopSync = true }
     // Nothing else may follow the focus that held these back: the next snapshot writes them.
     // The follow-up timer's back-off paces it while the focus stays pending.
     if !platform.heldBackWindowIDs.isDisjoint(with: nativeFocusSkippedWindowIDs) { needsDesktopSync = true }

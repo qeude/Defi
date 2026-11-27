@@ -24,13 +24,21 @@ class AttributeTests(unittest.TestCase):
         self.assertEqual(result['open']['hitches'], 1)
         self.assertEqual((result['close']['gaps'], result['close']['spikes']), (2, 1))
         self.assertEqual(result['close']['hitches'], 0)
+        # First render, from the mark: 10 ms before the motion plus its first 8 ms gap; 100 + 8 ms.
+        self.assertEqual((result['open']['first_ms'], result['close']['first_ms']), ([18.0], [108.0]))
 
     def test_a_motion_without_renders_is_one_gap_and_teardown_belongs_to_no_action(self):
         result = probe.attribute([(9.99, 'open'), (10.5, None)], [(10, 10.02), (10.6, 10.7)], [],
                                  [(10.01, 10), (10.65, 12)])
         self.assertEqual((result['open']['gaps'], result['open']['worst_ms']), (1, 20))
+        self.assertNotIn('first_ms', result['open'])  # no render, no first render
         self.assertEqual(result['open']['hitches'], 1)
         self.assertNotIn(None, result)
+
+    def test_first_render_comes_from_the_merged_series_the_cadence_uses(self):
+        # The render 0.5 ms after the start merges into the one before it: the first is at +16 ms.
+        result = probe.attribute([(9.99, 'open')], [(10, 10.05)], [9.9995, 10.0005, 10.016], [])
+        self.assertEqual(result['open']['first_ms'], [26.0])
 
 if __name__ == '__main__':
     unittest.main()

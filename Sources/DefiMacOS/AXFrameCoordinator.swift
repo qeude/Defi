@@ -69,6 +69,7 @@ final class AXFrameCoordinator: @unchecked Sendable {
   var running = false
   var activeWindowIDs = Set<WindowID>()
   var activeWrites: [WindowID: AsyncPositionWrite] = [:]
+  var activeFrameStagesVisibleBeforeParking = false
   var completedWrites = 0
   var completedAsynchronousSizeWrites = 0
   var skippedStaleWrites = 0
@@ -303,7 +304,10 @@ final class AXFrameCoordinator: @unchecked Sendable {
       source: source,
       writes: preservedWrites,
       monitorFrames: monitorFrames,
-      stagesVisibleBeforeParking: stagesVisibleBeforeParking,
+      // A replaced frame's arrivals, or an active frame's still being written, still go first.
+      stagesVisibleBeforeParking: stagesVisibleBeforeParking
+        || displacedFrame?.stagesVisibleBeforeParking == true
+        || activeFrameStagesVisibleBeforeParking,
       successfulWrite: successfulWrite,
       completion: completion,
       cursorWarpAfterWindowCommit: cursorWarpAfterWindowCommit

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Fluidity probe: A/B comparison of Defi builds per user action on the real display.
 Fixture windows only: column and workspace navigation, window open and close, app launch and
-quit, activation (Command-Tab's native path), Overview, cheatsheet, scratchpad. Screen capture cannot judge
+quit, activation (Command-Tab's native path, within one workspace: Defi refuses a scripted activation
+that would switch workspace; `glitch_bench.py`'s app-switch scenario covers that), Overview, cheatsheet, scratchpad. DEFI_PROBE_TIMELINES=1 adds each animation's render offsets in ms.
+DEFI_PROBE_REST=4 leaves four seconds between commands, as daily use does: a second apart, starts that are late
+after a rest read as on time. Screen capture cannot judge
 120 Hz: a light Instruments recording (Hitches and Points of Interest, ~30 MB) attached to the daemon
 gives the compositor's renders, and Defi's `motion` signposts say when something animates.
-Per action and trial: share of render gaps <= 10 ms inside animations, worst gap (spikes over
+Per action and trial: time from the action to its first render, share of render gaps <= 10 ms inside animations, worst gap (spikes over
 SYSTEM_SPIKE_MS, which macOS shows with Defi stopped, are counted apart), hitches, daemon CPU and
 wakeups (proc_pid_rusage), AX writes; per trial: idle CPU, idle wakeups and memory.
 Builds alternate ABBA... so drift hits both; run A against A first to learn each metric's noise.
@@ -79,7 +82,7 @@ def motion_windows(signposts):
 
 def render_gaps(windows, renders):
     """Per window, ms gaps from its start to each render inside it, with the ms offset of each
-    gap's end from the window start; renders merged within 2 ms."""
+    gap's end from the window start, and its first render or None; renders merged within 2 ms."""
     renders = sorted(renders)
     merged = [t for i, t in enumerate(renders) if i == 0 or t - renders[i - 1] > .002]
     result = []
@@ -87,7 +90,8 @@ def render_gaps(windows, renders):
         inside = [t for t in merged if start <= t <= end]
         # The motion's end closes the last gap: renders that stop early are missing frames.
         points = [start] + inside + ([end] if not inside or end - inside[-1] > .002 else [])
-        result.append((start, [((b - a) * 1e3, (b - start) * 1e3) for a, b in zip(points, points[1:])]))
+        result.append((start, [((b - a) * 1e3, (b - start) * 1e3) for a, b in zip(points, points[1:])],
+                       inside[0] if inside else None))
     return result
 
 
@@ -111,12 +115,18 @@ def attribute(marks, windows, renders, hitches):
     for _, action in marks:
         if action is not None:
             result[action]['events'] += 1
-    for start, gaps in render_gaps(windows, renders):
+    for start, gaps, first in render_gaps(windows, renders):
         action = owner(marks, start)
         if action is None:
             continue
         entry = result[action]
         entry['animations'] += 1
+        # From the action's mark, not the signpost: a motion that starts late must not look on time.
+        if first is not None:
+            marked = max(when for when, _ in marks if when <= start)
+            entry.setdefault('first_ms', []).append(round((first - marked) * 1e3, 1))
+        if os.environ.get('DEFI_PROBE_TIMELINES'):
+            entry.setdefault('timelines', []).append([round(offset, 1) for _, offset in gaps])
         for gap, offset in gaps:
             if gap > SMOOTH_MS:
                 entry.setdefault('late_at_ms', []).append(round(offset))
@@ -161,7 +171,9 @@ def scenario(out, label, rounds, on_ready, only=None):
         # Unmarked steps until the next action (an activation, a window to set up) are not this one's.
         marks.append((time.time(), None))
 
-    def go(name, *args, pause=.9):
+    rest = float(os.environ.get('DEFI_PROBE_REST', 0))
+
+    def go(name, *args, pause=rest or .9):
         act(name, lambda: subprocess.run([str(pe.CLI), *args], check=True, capture_output=True), pause)
 
     fixture = pe.Fixture(out / 'PerformanceFixture', out / f'{label}-fixture.jsonl')
@@ -211,8 +223,8 @@ def scenario(out, label, rounds, on_ready, only=None):
                 continue
             if only == 'overview':
                 for _ in range(8):
-                    go('overview-open', 'toggle-overview', pause=1)
-                    go('overview-close', 'toggle-overview', pause=1)
+                    go('overview-open', 'toggle-overview', pause=rest or 1)
+                    go('overview-close', 'toggle-overview', pause=rest or 1)
                 continue
             if only == 'window':
                 for n in range(4):
@@ -226,8 +238,8 @@ def scenario(out, label, rounds, on_ready, only=None):
                 continue
             if only == 'cheatsheet':
                 for _ in range(8):
-                    go('cheatsheet-open', 'toggle-cheatsheet', pause=.8)
-                    go('cheatsheet-close', 'toggle-cheatsheet', pause=.8)
+                    go('cheatsheet-open', 'toggle-cheatsheet', pause=rest or .8)
+                    go('cheatsheet-close', 'toggle-cheatsheet', pause=rest or .8)
                 continue
             for direction in ['right'] * 3 + ['left'] * 3:
                 go('column', 'focus-column', direction)
@@ -248,10 +260,10 @@ def scenario(out, label, rounds, on_ready, only=None):
             pe.activate(fixture.process.pid)
             time.sleep(.6)
             for _ in range(2):
-                go('overview-open', 'toggle-overview', pause=1)
-                go('overview-close', 'toggle-overview', pause=1)
-                go('cheatsheet-open', 'toggle-cheatsheet', pause=.8)
-                go('cheatsheet-close', 'toggle-cheatsheet', pause=.8)
+                go('overview-open', 'toggle-overview', pause=rest or 1)
+                go('overview-close', 'toggle-overview', pause=rest or 1)
+                go('cheatsheet-open', 'toggle-cheatsheet', pause=rest or .8)
+                go('cheatsheet-close', 'toggle-cheatsheet', pause=rest or .8)
         return marks, costs
     finally:
         marks.append((time.time(), None))

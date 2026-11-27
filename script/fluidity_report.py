@@ -8,6 +8,7 @@ from pathlib import Path
 
 # (name, better when, per-trial value)
 METRICS = [
+    ('first_ms', 'lower', lambda a: statistics.median(a['first_ms']) if a.get('first_ms') else None),
     ('smooth_pct', 'higher', lambda a: 100 * a['smooth'] / a['gaps'] if a.get('gaps') else None),
     ('worst_ms', 'lower', lambda a: a.get('worst_ms') if a.get('gaps') else None),
     ('spikes', 'lower', lambda a: a.get('spikes')),
