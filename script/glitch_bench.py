@@ -826,7 +826,9 @@ def analyze(out):
             seq = [{**f, 'rows': [[run for run in row if run[0] not in still_hidden] for row in f['rows']]} for f in seq]
             judge_motion(action, seq, width, defect, instant)
             if action['action'] == 'app-switch':
-                judge_bare_desk(action, seq, defect)
+                # The camera logs changes only: the last frame before the action shows what was on screen.
+                prior = [f for f in frames if f['d'] == display and f['t'] < t0 - 0.05][-1:]
+                judge_bare_desk(action, prior + seq, defect, end=t1 if t1 != float('inf') else seq[-1]['t'])
         # Parking leak: a hidden window shows once its action settled.
         if settled:
             hidden = set(settled['visible']['hidden'])
@@ -880,19 +882,23 @@ def view_shift(action, frames, t1, defect):
                    before=sorted(was), after=sorted(now_))
 
 
-def judge_bare_desk(action, frames, defect):
+def judge_bare_desk(action, frames, defect, end):
     """Both workspaces are occupied: between the last frame showing a window and the next, the desk
     shows bare for more than 50 ms only if the switch hid one workspace before the other arrived."""
     # The camera logs changed frames only: a bare stretch lasts from its first frame to the next window.
-    # Under 30 pt is an icon or a border fragment, not a window.
-    gap, bare_since = 0, None
+    # Under 30 pt is an icon or a border fragment, not a window. A display that showed no window
+    # before is not the one switching.
+    gap, bare_since, showed = 0, None, False
     for f in frames:
         if not any(run[2] - run[1] >= 30 for row in f['rows'] for run in row):
-            bare_since = f['t'] if bare_since is None else bare_since
-        elif bare_since is not None:
-            gap, bare_since = max(gap, f['t'] - bare_since), None
-    if bare_since is not None and frames:
-        gap = max(gap, frames[-1]['t'] - bare_since)
+            if showed and bare_since is None:
+                bare_since = f['t']
+        else:
+            showed = True
+            if bare_since is not None:
+                gap, bare_since = max(gap, f['t'] - bare_since), None
+    if bare_since is not None:
+        gap = max(gap, end - bare_since)
     if gap > 0.05:
         defect(action['scenario'], 'bare_desk', action=action['action'], t=action['t'], ms=round(gap * 1000))
 
