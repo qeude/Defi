@@ -774,6 +774,11 @@ def analyze(out):
     events, checks, camera = load(out / 'events.jsonl'), load(out / 'checks.jsonl'), load(out / 'camera.jsonl')
     displays = {c['display']: c['frame'] for c in camera if 'frame' in c}
     frames, last = [], {}
+    # Where each display's capture stopped: the end of a final action's bare stretch.
+    capture_end = {}
+    for c in camera:
+        if 'd' in c and 't' in c:
+            capture_end[c['d']] = max(capture_end.get(c['d'], 0), c['t'])
     for c in camera:
         if 'rows' in c:
             last[c['d']] = c['rows']
@@ -828,7 +833,7 @@ def analyze(out):
             if action['action'] == 'app-switch':
                 # The camera logs changes only: the last frame before the action shows what was on screen.
                 prior = [f for f in frames if f['d'] == display and f['t'] < t0 - 0.05][-1:]
-                judge_bare_desk(action, prior + seq, defect, end=t1 if t1 != float('inf') else seq[-1]['t'])
+                judge_bare_desk(action, prior + seq, defect, end=min(t1, capture_end.get(display, seq[-1]['t'])))
         # Parking leak: a hidden window shows once its action settled.
         if settled:
             hidden = set(settled['visible']['hidden'])
