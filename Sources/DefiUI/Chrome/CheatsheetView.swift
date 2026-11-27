@@ -20,6 +20,7 @@ struct CheatsheetView: View {
 
 /// The surface of Defi's floating panels, the cheat sheet and the recent windows switcher.
 private struct DefiPanelSurface: ViewModifier {
+  let cornerRadius: CGFloat
   @Environment(\.colorScheme) private var colorScheme
 
   func body(content: Content) -> some View {
@@ -34,18 +35,20 @@ private struct DefiPanelSurface: ViewModifier {
         ],
         startPoint: .top, endPoint: .bottom
       ),
-      in: .rect(cornerRadius: 20)
+      in: .rect(cornerRadius: cornerRadius)
     )
     if #available(macOS 26, *) {
-      tinted.glassEffect(.regular, in: .rect(cornerRadius: 20))
+      tinted.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
     } else {
-      tinted.background(.regularMaterial, in: .rect(cornerRadius: 20))
+      tinted.background(.regularMaterial, in: .rect(cornerRadius: cornerRadius))
     }
   }
 }
 
 extension View {
-  func defiPanelSurface() -> some View { modifier(DefiPanelSurface()) }
+  func defiPanelSurface(cornerRadius: CGFloat = 20) -> some View {
+    modifier(DefiPanelSurface(cornerRadius: cornerRadius))
+  }
 }
 
 struct CheatsheetContent: View {

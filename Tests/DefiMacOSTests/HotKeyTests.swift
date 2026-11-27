@@ -520,9 +520,17 @@ struct HotKeyTests {
     #expect(context.intercept(type: .keyDown, event: escape) != nil)
     try press(next)
     context.setRecentWindowsOpen(true)
+    // Arrows step while the switcher is open, with the modifier still held.
+    for code: CGKeyCode in [124, 123] {
+      let arrow = try #require(CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: true))
+      arrow.flags = [.maskAlternate]
+      #expect(context.intercept(type: .keyDown, event: arrow) == nil)
+    }
     #expect(context.intercept(type: .keyDown, event: escape) == nil)
     try flags([])
-    #expect(invocations.commands.suffix(2) == ["recent-windows next", "recent-windows cancel"])
+    #expect(invocations.commands.suffix(4) == [
+      "recent-windows next", "recent-windows next", "recent-windows previous", "recent-windows cancel",
+    ])
   }
 
   @Test
