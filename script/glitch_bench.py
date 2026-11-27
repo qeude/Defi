@@ -774,11 +774,8 @@ def analyze(out):
     events, checks, camera = load(out / 'events.jsonl'), load(out / 'checks.jsonl'), load(out / 'camera.jsonl')
     displays = {c['display']: c['frame'] for c in camera if 'frame' in c}
     frames, last = [], {}
-    # Where each display's capture stopped: the end of a final action's bare stretch.
-    capture_end = {}
-    for c in camera:
-        if 'd' in c and 't' in c:
-            capture_end[c['d']] = max(capture_end.get(c['d'], 0), c['t'])
+    # Where each display's capture stopped (its shutdown record): the end of a final action's bare stretch.
+    capture_end = {c['display']: c['t'] for c in camera if 'frames' in c and 'display' in c}
     for c in camera:
         if 'rows' in c:
             last[c['d']] = c['rows']
