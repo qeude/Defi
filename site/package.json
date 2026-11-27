@@ -6,9 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build --base=./",
-    "preview": "vite preview",
-    "predev": "node script/prepare-fonts.mjs",
-    "prebuild": "node script/prepare-fonts.mjs"
+    "preview": "vite preview"
   },
   "devDependencies": {
     "vite": "^8.0.0"

@@ -6,8 +6,11 @@ interactive product preview, its HTML illustrations, and its restrained motion.
 The background is a soft near black (`#1b1b1d`) with cards one step lighter
 (`#222225`) and hairline borders. Blue from the app icon (`#2b6df2`) carries
 the brand: the hero light, the wallpaper and the illustrations. In the desk,
-the focused window's border is white. Cabinet Grotesk sets headings, DM Sans
-the body, IBM Plex Mono the command and code. White pills are primary actions;
+the focused window's border is white. [Allo](https://allo.joshpuckett.me/) sets headings and
+body: 600 for headings with tight tracking, 400 for text, tabular figures for
+“120 Hz”, its optical size following the text size. Its roundness axis
+(`ROND`) is at 100, fully round, on the page title and at 0, sharp, everywhere
+else. IBM Plex Mono the command and code. White pills are primary actions;
 outlined pills are secondary.
 
 Rhythm and type:

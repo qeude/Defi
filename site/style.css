@@ -1,11 +1,14 @@
-@font-face{font-family:'DM Sans';src:url('./public/fonts/sans.woff2') format('woff2');font-weight:400 700;font-display:swap}
+@font-face{font-family:Allo;src:url('./public/fonts/allo.woff2') format('woff2');font-weight:100 900;font-display:swap}
 @font-face{font-family:'IBM Plex Mono';src:url('./public/fonts/mono.woff2') format('woff2');font-weight:500;font-display:swap}
-@font-face{font-family:'Cabinet Grotesk';src:url('./public/fonts/CabinetGrotesk-500.woff2') format('woff2');font-weight:500;font-display:swap}
-:root{--page:clamp(1180px,90vw,1480px);--section:clamp(96px,10vw,144px);--wallpaper:radial-gradient(70% 90% at 15% 105%,#1d4fd8cc,transparent 70%),radial-gradient(60% 70% at 90% 0%,#2b6df2b3,transparent 70%),radial-gradient(45% 55% at 62% 62%,#54afff66,transparent 75%),radial-gradient(30% 40% at 30% 20%,#3ad0ff33,transparent 75%),linear-gradient(160deg,#0a1024,#0c1a3d 55%,#0b0a16);--bg:#1b1b1d;--card:#222225;--card-2:#2a2a2e;--line:#ffffff14;--ink:#f5f5f7;--muted:#a1a1a8;--dim:#8a8a92;--accent:#2b6df2;--accent-soft:#7fa6ff;--display:'Cabinet Grotesk','DM Sans',sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;--ease:cubic-bezier(.22,.8,.24,1)}
+:root{--page:clamp(1180px,90vw,1480px);--section:clamp(96px,10vw,144px);--wallpaper:radial-gradient(70% 90% at 15% 105%,#1d4fd8cc,transparent 70%),radial-gradient(60% 70% at 90% 0%,#2b6df2b3,transparent 70%),radial-gradient(45% 55% at 62% 62%,#54afff66,transparent 75%),radial-gradient(30% 40% at 30% 20%,#3ad0ff33,transparent 75%),linear-gradient(160deg,#0a1024,#0c1a3d 55%,#0b0a16);--bg:#1b1b1d;--card:#222225;--card-2:#2a2a2e;--line:#ffffff14;--ink:#f5f5f7;--muted:#a1a1a8;--dim:#8a8a92;--accent:#2b6df2;--accent-soft:#7fa6ff;--display:Allo,sans-serif;--mono:'IBM Plex Mono',ui-monospace,monospace;--ease:cubic-bezier(.22,.8,.24,1)}
 *{box-sizing:border-box}
 /* The native rubber band would show flat --bg past the glows; main.js draws its own. */
 html{scroll-behavior:smooth;scroll-padding-top:80px;overscroll-behavior-y:none}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 'DM Sans',sans-serif;-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Allo,sans-serif;-webkit-font-smoothing:antialiased}
+/* Allo's roundness axis: the page title fully round, everything else sharp.
+   Important because every `font` shorthand resets font-variation-settings to its default, half round. */
+*,::before,::after{font-variation-settings:'ROND' 0!important}
+.hero h1,.hero h1 *{font-variation-settings:'ROND' 100!important}
 a{color:inherit;text-decoration:none}
 button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;padding:0}
 h1,h2,h3,p,pre,ol,figure{margin:0}
@@ -19,12 +22,12 @@ ol{padding:0;list-style:none}
 .skip-link:focus{top:12px}
 .visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .brand-icon{display:block;object-fit:contain;flex-shrink:0}
-kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:0 .35em;border-radius:.4em;background:#2e2e33;border:1px solid #ffffff1f;border-bottom-width:2px;font:500 .8em/1 'DM Sans',sans-serif;color:var(--ink)}
+kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:0 .35em;border-radius:.4em;background:#2e2e33;border:1px solid #ffffff1f;border-bottom-width:2px;font:500 .8em/1 Allo,sans-serif;color:var(--ink)}
 
 /* Navigation */
 .nav{position:sticky;top:0;z-index:40;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;height:68px;padding:0 max(20px,calc(50% - var(--page) / 2));pointer-events:none}
 .nav>*{pointer-events:auto}
-.wordmark{display:flex;align-items:center;gap:9px;font:500 21px var(--display);letter-spacing:-.4px}
+.wordmark{display:flex;align-items:center;gap:9px;font:600 21px var(--display);letter-spacing:-.03em}
 .nav-pill{display:flex;gap:2px;padding:4px;border:1px solid var(--line);border-radius:999px;background:#26262ad9;backdrop-filter:blur(20px) saturate(1.5)}
 .nav-pill a{padding:6px 14px;border-radius:999px;font-size:13px;color:var(--muted);transition:color .2s,background .2s}
 .nav-pill a:hover{color:var(--ink);background:#ffffff0c}
@@ -45,7 +48,7 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 .hero{position:relative;isolation:isolate;padding:56px 20px 0;text-align:center}
 /* The opened desk runs edge to edge and fits one screen with its legend: the reserve is the nav offset, the legend and their gaps. */
 .desk-stage{--desk-max-h:calc(100svh - var(--legend-reserve,150px));position:relative;margin:64px -20px 0}
-.desk-invite{position:absolute;inset:0 0 auto;z-index:10;display:flex;flex-direction:column;align-items:center;gap:.14em;padding:clamp(14px,5%,44px) 12px clamp(48px,12%,110px);background:linear-gradient(#060911f2,#060911b3 60%,#06091100);font:500 clamp(20px,5vw,68px)/1.1 var(--display);letter-spacing:-.03em;color:var(--ink);white-space:nowrap;pointer-events:none;transition:opacity .4s}
+.desk-invite{position:absolute;inset:0 0 auto;z-index:10;display:flex;flex-direction:column;align-items:center;gap:.14em;padding:clamp(14px,5%,44px) 12px clamp(48px,12%,110px);background:linear-gradient(#060911f2,#060911b3 60%,#06091100);font:600 clamp(20px,5vw,68px)/1.1 var(--display);letter-spacing:-.035em;color:var(--ink);white-space:nowrap;pointer-events:none;transition:opacity .4s}
 .desk-invite.gone{opacity:0}
 .desk-invite-line{display:flex;align-items:center;gap:.28em}
 .desk-invite small{font-size:.4em;letter-spacing:-.01em;color:var(--muted)}
@@ -65,7 +68,7 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 
 .badge{display:inline-flex;align-items:center;gap:10px;padding:4px 12px 4px 4px;border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--muted);background:#ffffff05}
 .badge span{padding:2px 8px;border-radius:999px;background:var(--ink);color:#111;font-size:11px;font-weight:700;letter-spacing:.06em}
-.hero h1{margin:22px 0 18px;font:500 clamp(54px,7vw,96px)/1.06 var(--display);letter-spacing:-.04em}
+.hero h1{margin:22px 0 18px;font:600 clamp(54px,7vw,96px)/1.04 var(--display);letter-spacing:-.045em}
 .hword{display:inline-block;animation:hword .8s var(--d) var(--ease) both}
 .hold-title .hword{animation-play-state:paused}
 @keyframes hword{from{opacity:0;filter:blur(10px);transform:translateY(.18em)}}
@@ -105,13 +108,16 @@ kbd{display:inline-grid;place-items:center;min-width:1.7em;height:1.7em;padding:
 /* The display bezel lives on its own layer so the desk only changes transform while scrolling. */
 .desk-bezel{position:absolute;top:0;left:0;width:100%;aspect-ratio:16/10;min-height:200px;max-height:var(--desk-max-h);border-radius:24px;transform:scale(var(--grow));transform-origin:50% 0;box-shadow:0 0 0 12px #0b0b0d,0 0 0 13.4px #ffffff14,0 50px 120px -30px #000;opacity:var(--open);pointer-events:none;will-change:transform,opacity}
 .desk:focus-visible{outline:3px solid var(--accent-soft);outline-offset:-3px}
-.screen{position:absolute;top:0;left:0;width:var(--screen-w,1440px);height:900px;transform:scale(var(--scale,.8));transform-origin:0 0;overflow:hidden;font:13px/1.4 -apple-system,BlinkMacSystemFont,'SF Pro Text','DM Sans',sans-serif;color:#f5f5f7;-webkit-font-smoothing:antialiased}
+.screen{position:absolute;top:0;left:0;width:var(--screen-w,1440px);height:900px;transform:scale(var(--scale,.8));transform-origin:0 0;overflow:hidden;font:13px/1.4 -apple-system,BlinkMacSystemFont,'SF Pro Text',Allo,sans-serif;color:#f5f5f7;-webkit-font-smoothing:antialiased}
 .wallpaper,.ov-backdrop{position:absolute;inset:0;background:var(--wallpaper)}
 .ov-backdrop{filter:blur(40px) saturate(1.3) brightness(.7);transform:scale(1.15);opacity:0;transition:opacity .35s}
 .is-overview .ov-backdrop{opacity:1}
 .track{position:absolute;top:0;left:0;width:var(--screen-w,1440px);height:900px;transform-origin:0 0;transition:transform var(--spring-s) var(--spring)}
 .is-overview .track,.track{will-change:transform}
 .ws{position:absolute;top:0;left:0;width:var(--screen-w,1440px);height:900px}
+/* The pinned column and the shown scratchpad stay put while the track moves under them. */
+.fixed{position:absolute;top:0;left:0;width:var(--screen-w,1440px);height:900px;pointer-events:none}
+.fixed .win{pointer-events:auto}
 /* The Overview as Defi draws it (OverviewView.swift). Sizes are screen points ÷ the row scale, .469. */
 .is-overview .track{transition-duration:.16s;transition-timing-function:cubic-bezier(.33,1,.68,1)}
 .ov-zoom .track,.ov-zoom .ws{transition:transform .22s ease-in-out}
@@ -372,7 +378,7 @@ aside p.on{background:#ffffff1f}
 
 /* Sections */
 section{scroll-margin-top:80px}
-h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
+h2{font:600 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.04em}
 .section-lede{max-width:560px;margin:20px auto 0;font-size:19px;line-height:1.55;color:var(--muted)}
 .section-lede.left{margin-left:0}
 .eyebrow{font-size:17px;color:var(--muted)}
@@ -425,9 +431,9 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 .hz-light i:nth-child(5){animation-duration:4.4s;animation-delay:-2.6s}
 @keyframes hz-breathe{from{scale:1 1;opacity:1}to{scale:1 .4;opacity:.55}}
 .hz-light i.on{background:linear-gradient(to top,#54afffbf,#2b6df280 40%,#2b6df226 75%,transparent)}
-/* Speed: 120 Hz snaps up from 0 (see main.js). The digits use the system face for its tabular figures, so the number
-   holds still while it counts; SF Pro on Apple devices, as in Defi itself. */
-.ill-hz{display:flex;align-items:flex-start;justify-content:center;align-self:center;gap:.08em;margin:0;font:600 clamp(56px,36cqi,128px)/1 -apple-system,BlinkMacSystemFont,'SF Pro Display','DM Sans',sans-serif;letter-spacing:-.045em;font-variant-numeric:tabular-nums;color:var(--ink)}
+/* Speed: 120 Hz snaps up from 0 (see main.js). The digits use Allo's tabular figures, so the number
+   holds still while it counts. */
+.ill-hz{display:flex;align-items:flex-start;justify-content:center;align-self:center;gap:.08em;margin:0;font:600 clamp(56px,36cqi,128px)/1 var(--display);letter-spacing:-.045em;font-variant-numeric:tabular-nums;color:var(--ink)}
 .ill-hz b{font-weight:inherit}
 .ill-hz>span{margin-top:.14em;font-size:.28em;letter-spacing:0;color:var(--muted)}
 .b-5 .card-art{min-height:260px;-webkit-mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);mask-composite:intersect}
@@ -480,21 +486,21 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
 .cmdtab span{position:relative;display:block;padding:6px;border-radius:14px}
 .cmdtab .app-icon{display:block;width:clamp(30px,calc((100cqi - 96px) / 5),56px);height:clamp(30px,calc((100cqi - 96px) / 5),56px);border-radius:11px}
 .cmdtab span.on{background:#ffffff26}
-.cmdtab em{position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);font:500 12px 'DM Sans',sans-serif;font-style:normal;color:#ffffffd9}
+.cmdtab em{position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);font:500 12px Allo,sans-serif;font-style:normal;color:#ffffffd9}
 .ill-native p{display:flex;align-items:center;gap:8px;margin:0;font-size:22px;color:var(--dim)}
 .ill-native p span{font-size:14px}
 
 /* Shortcuts: the real cheatsheet, as it appears over your windows */
 .shortcuts{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:44px 56px;align-items:start;max-width:var(--page);margin:0 auto;padding:var(--section) 20px 0}
-.key-option{display:inline-flex;flex-direction:column;justify-content:space-between;align-items:flex-end;width:1.05em;height:.95em;padding:.1em .12em;border-radius:.14em;background:linear-gradient(#34343a,#232327);box-shadow:inset 0 1px #ffffff2e,0 .05em 0 #0b0b0d,0 .12em .3em #0009;font:500 .22em/1 'DM Sans',sans-serif;font-size:inherit;vertical-align:-.08em;box-sizing:border-box;border:0;min-width:0}
+.key-option{display:inline-flex;flex-direction:column;justify-content:space-between;align-items:flex-end;width:1.05em;height:.95em;padding:.1em .12em;border-radius:.14em;background:linear-gradient(#34343a,#232327);box-shadow:inset 0 1px #ffffff2e,0 .05em 0 #0b0b0d,0 .12em .3em #0009;font:500 .22em/1 Allo,sans-serif;font-size:inherit;vertical-align:-.08em;box-sizing:border-box;border:0;min-width:0}
 .key-pair{display:inline-flex;gap:.08em}
-.key-option small,.key-option span{font:500 .2em/1 'DM Sans',sans-serif;letter-spacing:0;color:#d6d6dc}
+.key-option small,.key-option span{font:500 .2em/1 Allo,sans-serif;letter-spacing:0;color:#d6d6dc}
 .shortcuts .text-link{margin-top:18px}
 .shortcuts h2{display:flex;align-items:flex-end;gap:.22em;margin:0;line-height:1}
 .shortcuts .key-pair{margin-bottom:.13em}
 .shortcuts .section-lede{margin-top:0}
 .sheet-shot{grid-column:1/-1;position:relative;aspect-ratio:16/10;border-radius:18px;overflow:hidden;box-shadow:0 0 0 1px #ffffff1a,0 40px 80px -30px #000}
-.sheet-screen{position:absolute;top:0;left:0;width:1440px;height:900px;transform:scale(var(--scale,.45));transform-origin:0 0;background:var(--wallpaper);font:13px/1.4 -apple-system,BlinkMacSystemFont,'DM Sans',sans-serif;color:#f5f5f7}
+.sheet-screen{position:absolute;top:0;left:0;width:1440px;height:900px;transform:scale(var(--scale,.45));transform-origin:0 0;background:var(--wallpaper);font:13px/1.4 -apple-system,BlinkMacSystemFont,Allo,sans-serif;color:#f5f5f7}
 .sheet-screen .win{position:absolute;top:40px;bottom:16px;border-radius:16px}
 .sheet-screen .cheatsheet{transition:none}
 
@@ -554,7 +560,9 @@ h2{font:500 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.035em}
   .shortcuts{grid-template-columns:1fr;gap:36px}
 }
 @media (max-width:600px){
-  .hero h1{font-size:38px}
+  .hero h1{font-size:44px;letter-spacing:-.03em}
+  .section-lede{font-size:17px}
+  h2{letter-spacing:-.03em}
   .lede{font-size:17px}
   .install-button code{font-size:11px}
   .keypad button:not(.keypad-hold) span:not(.visually-hidden){position:absolute;width:1px;height:1px;margin:0;overflow:hidden;clip-path:inset(50%)}

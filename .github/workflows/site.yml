@@ -33,7 +33,7 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
-      # Downloads Cabinet Grotesk from Fontshare, then builds with relative asset paths
+      # Builds with relative asset paths
       # so the site works from a repository subpath such as /Defi/.
       - run: npm run build
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

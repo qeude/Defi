@@ -19,8 +19,7 @@ npm run preview
 
 The build creates `site/dist/` with relative asset URLs, suitable for a static
 host or repository subpath. Pushes to `main` that touch `site/` are published to
-GitHub Pages by `.github/workflows/site.yml`. The first dev or build run
-downloads Cabinet Grotesk from Fontshare; later runs reuse the local file.
+GitHub Pages by `.github/workflows/site.yml`.
 
 - `index.html` holds the first screen as plain HTML, so it paints before any script runs.
 - `main.js` mounts the desk inside the browser's first layout step, adds the
