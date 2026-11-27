@@ -6,18 +6,18 @@ workspaces, so the workspaces clip was dropped.
 
 | File | Length | Size | Used by |
 | --- | --- | --- | --- |
-| `feature-overview.mp4` | 6 s | 1280 × 720, 120 fps | “Every window at a glance” card |
+| `feature-overview.mp4` | 10 s | 1280 × 720, 60 fps | “Every window at a glance” card |
 
-It is cut from a 2560 × 1440 ScreenCaptureKit recording of the installed app
-on 30 October 2026 (menu bar and Dock included): a browser workspace, a
-workspace of terminals, and the Overview opening on them. Defi was driven
-through the `defi` CLI (`focus-workspace`, `focus-column`, `cycle-width`,
-`toggle-overview`) at human pace. The ribbon overlay appears as it does on
-screen. The cursor
-is hidden. A private calendar item in the menu bar is blurred with `delogo`.
-The poster is a mid-clip frame (`feature-overview.jpg`).
+It is a 2560 × 1440 `screencapture -v` recording made in the `defi-e2e` VM
+on 27 November 2026, from a build of `main`, in Dark Mode with the menu bar
+hidden: a browser workspace and a workspace of terminals, the Overview opening
+on them at `[overview] zoom = 0.75`, "term" typed into its search bar, then the
+Overview closing. Defi was driven through the `defi` CLI at human pace, the
+cursor hidden. The VM captures at 60 fps at most. macOS's recording indicator is
+masked with `delogo`. The poster is the frame with the filter applied
+(`feature-overview.jpg`).
 
-Encoding: `fps=120`, scale to 1280 × 720, `-crf 27`, `-preset slow`,
+Encoding: scale to 1280 × 720, `-crf 27`, `-preset slow`,
 `-movflags +faststart`, no audio.
 
 The film for the README and social media (not on the site) is one continuous
@@ -35,9 +35,10 @@ Frame rate: ScreenCaptureKit delivers 120 fps while columns scroll and the
 Overview moves. Vertical workspace switches arrive at about 60 fps in the
 capture; those stretches repeat frames in the 120 fps files.
 
-`feature-app-rules.webp` (1000 × 690) is a crop of a Retina capture of the
-installed app's Settings › App Rules. Its grays,
-warmed by the wallpaper in the capture, are shifted to the cool gray of the cards.
+`feature-app-rules.webp` (1000 × 690) is a crop of a Retina capture of
+Settings › App Rules in Dark Mode, made in the `defi-e2e` VM on 27 November
+2026 from a build of `main`, with two neutral rules (Xcode on `dev`, Safari on
+`web`).
 
 `og.jpg` (1200 × 630) is the link preview image declared in `index.html`, made
 from real window captures in the desk's frame. Its URLs are absolute, so they

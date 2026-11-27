@@ -134,6 +134,7 @@ const KEYS = {
   KeyU: 'focus-workspace down', KeyI: 'focus-workspace up', PageDown: 'focus-workspace down', PageUp: 'focus-workspace up',
   Minus: 'cycle-width previous', Equal: 'cycle-width next', KeyR: 'cycle-width next', KeyF: 'maximize-column',
   Semicolon: 'join-window left', Quote: 'join-window right', Period: 'unjoin-windows', KeyV: 'toggle-floating',
+  KeyP: 'pin-column left', KeyS: 'toggle-scratchpad',
   KeyC: 'center-column', BracketLeft: 'consume-or-expel-window left', BracketRight: 'consume-or-expel-window right',
   Tab: 'recent-windows next', Enter: 'activate-window',
 };
@@ -146,6 +147,7 @@ const COMMAND_KEYS = {
 // The preview has one display, so the monitor shortcuts change nothing, as in Defi.
 const SHIFT_KEYS = {
   KeyV: 'activate-floating', Comma: 'focus-floating previous', Period: 'focus-floating next',
+  KeyP: 'pin-column right', KeyS: 'toggle-scratchpad-window',
   KeyI: 'reorder-workspace up', KeyU: 'reorder-workspace down', PageUp: 'reorder-workspace up', PageDown: 'reorder-workspace down',
   Tab: 'recent-windows previous', Slash: 'toggle-cheatsheet',
 };
@@ -156,14 +158,14 @@ export const DEMO = ['ArrowRight', 'Semicolon', 'KeyK', 'KeyJ', 'Period', 'Minus
 // columns of sections; each row is a chord, its action, then its companion chord and action.
 const cheatsheet = [
   [
-    ['Columns', [['⌃⌥', '←', 'Column left', '⌃⌥⌘', 'Move column left'], ['⌃⌥', '→', 'Column right', '⌃⌥⌘', 'Move column right'], ['⌃⌥', '↖', 'First column', '⌃⌥⌘', 'Move column to first'], ['⌃⌥', '↘', 'Last column', '⌃⌥⌘', 'Move column to last'], ['⌃⌥', 'C', 'Center column']]],
+    ['Columns', [['⌃⌥', '←', 'Column left', '⌃⌥⌘', 'Move column left'], ['⌃⌥', '→', 'Column right', '⌃⌥⌘', 'Move column right'], ['⌃⌥', '↖', 'First column', '⌃⌥⌘', 'Move column to first'], ['⌃⌥', '↘', 'Last column', '⌃⌥⌘', 'Move column to last'], ['⌃⌥', 'C', 'Center column'], ['⌃⌥', 'P', 'Pin column left', '⌃⌥⇧', 'Pin column right']]],
     ['Windows in a column', [['⌃⌥', '↑', 'Window up', '⌃⌥⌘', 'Move window up'], ['⌃⌥', '↓', 'Window down', '⌃⌥⌘', 'Move window down'], ['⌃⌥', '[', 'Join or leave stack left'], ['⌃⌥', ']', 'Join or leave stack right'], ['⌃⌥', '.', 'Unjoin'], ['⌃⌥', ';', 'Join left column'], ['⌃⌥', "'", 'Join right column']]],
   ],
   [
     ['Workspaces', [['⌃⌥', 'I', 'Workspace up', '⌃⌥⌘', 'Move column to workspace up'], ['⌃⌥', 'U', 'Workspace down', '⌃⌥⌘', 'Move column to workspace down'], ['⌃⌥', '⇥', 'Recent windows', '⌃⌥⇧', 'Recent windows, backward'], ['⌃⌥', '1–9', 'Workspace 1–9', '⌃⌥⌘', 'Move column to workspace 1–9'], ['⌃⌥', 'O', 'Overview'], ['⌃⌥⇧', 'I', 'Reorder workspace up'], ['⌃⌥⇧', 'U', 'Reorder workspace down'], ['⌃⌥', '↩', 'Activate window']]],
     ['Monitors', [['⌃⌥⇧', '←↑↓→', 'Focus monitor', '⌃⌥⇧⌘', 'Move column to monitor']]],
     ['Size', [['⌃⌥', '−', 'Narrower'], ['⌃⌥', '=', 'Wider'], ['⌃⌥', 'F', 'Maximize column']]],
-    ['Floating', [['⌃⌥', 'V', 'Float or tile window', '⌃⌥⇧', 'Show floating layer'], ['⌃⌥⇧', ',', 'Previous floating'], ['⌃⌥⇧', '.', 'Next floating']]],
+    ['Floating', [['⌃⌥', 'V', 'Float or tile window', '⌃⌥⇧', 'Show floating layer'], ['⌃⌥⇧', ',', 'Previous floating'], ['⌃⌥⇧', '.', 'Next floating'], ['⌃⌥', 'S', 'Show or hide scratchpad', '⌃⌥⇧', 'Add to or take out of scratchpad']]],
     ['Other', [['⌃⌥⇧', '/', 'Shortcuts']]],
   ],
 ];
@@ -185,6 +187,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   root.innerHTML = `<div class="screen">
     <div class="wallpaper"></div><div class="ov-backdrop"></div>
     <div class="track"></div>
+    <div class="fixed"></div>
     <div class="menubar"><span class="mb-apple"><svg viewBox="0 0 14 17"><path fill="currentColor" d="M11.6 9c0-2 1.7-3 1.8-3.1-1-1.4-2.5-1.6-3-1.6-1.3-.1-2.5.8-3.1.8-.7 0-1.6-.7-2.7-.7C3.2 4.4 1.9 5.3 1.2 6.6c-1.5 2.6-.4 6.4 1 8.5.7 1 1.5 2.2 2.6 2.1 1-.1 1.4-.7 2.7-.7 1.2 0 1.6.7 2.7.6 1.1 0 1.8-1 2.5-2 .8-1.2 1.1-2.3 1.1-2.4 0 0-2.2-.8-2.2-3.7ZM9.5 2.9c.6-.7 1-1.7.9-2.7-.9 0-1.9.6-2.5 1.3-.6.6-1 1.6-.9 2.6 1 .1 1.9-.5 2.5-1.2Z"/></svg></span><b class="mb-app"></b><span class="mb-menus"></span>
       <span class="mb-right"><button type="button" class="mb-defi" aria-haspopup="menu" aria-label="Defi menu"><svg viewBox="0 0 18 14"><rect x="1" y="1" width="4" height="12" rx="1.2"/><rect x="7" y="1" width="4" height="12" rx="1.2"/><rect x="13" y="1" width="4" height="12" rx="1.2"/></svg><span class="mb-label"></span></button>
       <svg class="mb-ico" viewBox="0 0 20 14"><path d="M10 13l2.2-2.6a3 3 0 0 0-4.4 0zM4.5 7.3l1.6 1.8a5.5 5.5 0 0 1 7.8 0l1.6-1.8a8 8 0 0 0-11 0zM1 3.6l1.6 1.8a10.5 10.5 0 0 1 14.8 0L19 3.6a13 13 0 0 0-18 0z" fill="currentColor"/></svg>
@@ -201,6 +204,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   root.style.setProperty('--spring-s', `${SPRING_S.toFixed(3)}s`);
   const screen = root.querySelector('.screen');
   const track = root.querySelector('.track');
+  const fixed = root.querySelector('.fixed');
   const menuApp = root.querySelector('.mb-app');
   const menus = root.querySelector('.mb-menus');
   const label = root.querySelector('.mb-label');
@@ -217,10 +221,23 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   let messy = !reducedMotion.matches; // Before Defi starts, the windows overlap as on any Mac.
   const els = new Map();
   const rows = new Map();
+  // The screen's pinned column and the scratchpad live outside every workspace; `outside` says when one holds the focus.
+  let pin = null; // { column, side }
+  const scratch = { wins: [], focus: 0, shown: false }; // wins: [{ win, frame }]
+  let outside = null; // 'pin' | 'scratch'
+  const pinWidth = () => Math.min(pin.column.w, 0.5) * (W - GAP) - GAP;
+  const pinRoom = () => (pin ? pinWidth() + GAP : 0);
+  const stripX = () => (pin?.side === 'left' ? pinRoom() : 0);
+  const room = () => W - pinRoom();
   const isEmpty = space => !space.cols.length && !space.floats.length;
-  const focusedWin = space => (space.layer === 'floating' && space.floats.length
-    ? space.floats[space.floatFocus].win
-    : space.cols[space.focus]?.wins[space.cols[space.focus].focus]);
+  function focusedWin(space) {
+    if (outside === 'pin') return pin.column.wins[pin.column.focus];
+    if (outside === 'scratch') return scratch.wins[scratch.focus].win;
+    if (space.layer === 'floating' && space.floats.length) return space.floats[space.floatFocus].win;
+    return space.cols[space.focus]?.wins[space.cols[space.focus].focus];
+  }
+  const allWins = space => [...space.cols.flatMap(c => c.wins), ...space.floats.map(f => f.win)];
+  const outsideWins = () => [...(pin ? pin.column.wins : []), ...scratch.wins.map(s => s.win)];
 
   const rowFor = space => {
     if (!rows.has(space)) {
@@ -271,6 +288,19 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   }
 
   function focusWin(win) {
+    outside = null;
+    if (pin?.column.wins.includes(win)) {
+      outside = 'pin';
+      pin.column.focus = pin.column.wins.indexOf(win);
+      return;
+    }
+    const held = scratch.wins.findIndex(s => s.win === win);
+    if (held >= 0) {
+      // Focusing a parked scratchpad window shows the scratchpad.
+      Object.assign(scratch, { focus: held, shown: true });
+      outside = 'scratch';
+      return;
+    }
     spaces.forEach((space, index) => {
       const float = space.floats.findIndex(f => f.win === win);
       const column = space.cols.findIndex(c => c.wins.includes(win));
@@ -300,14 +330,15 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
 
   // center_focused_column = "never": scroll from `scroll` only as far as needed to reveal `frame`.
   function reveal(frame, scroll) {
-    if (frame.w > W - 2 * GAP || frame.x - GAP < scroll) return frame.x - GAP;
-    if (frame.x + frame.w + GAP > scroll + W) return frame.x + frame.w + GAP - W;
+    if (frame.w > room() - 2 * GAP || frame.x - GAP < scroll) return frame.x - GAP;
+    if (frame.x + frame.w + GAP > scroll + room()) return frame.x + frame.w + GAP - room();
     return scroll;
   }
   function layout(space) {
     let x = GAP;
     return space.cols.map(column => {
-      const w = column.w * (W - GAP) - GAP;
+      // Beside a pinned column a column keeps its width, up to the room left.
+      const w = Math.min(column.w * (W - GAP) - GAP, room() - 2 * GAP);
       const frame = { x, w };
       x += w + GAP;
       return frame;
@@ -320,13 +351,16 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     return { x: x + BORDER, y: MENU + GAP + k * (h + GAP) + BORDER, w: w - 2 * BORDER, h: h - 2 * BORDER };
   };
   // In the Overview a row scrolls by columns: its offset puts that column at the left edge.
+  const besidePin = space => {
+    const shown = layout(space).flatMap((f, i) => (f.x + f.w > space.scroll && f.x < space.scroll + room() ? [i] : []));
+    return (pin.side === 'left' ? shown[0] : shown.at(-1)) ?? space.focus;
+  };
   const firstVisible = space => Math.max(0, layout(space).findIndex(f => f.x + f.w > space.scroll));
   const shownScroll = (space, frames) => (overview && space.ovOffset != null && frames[space.ovOffset] ? frames[space.ovOffset].x - GAP : space.scroll);
 
-  function place(win, frame, space, { z = '', delay = '', focused = false, floating = false }) {
+  function place(win, frame, space, { z = '', delay = '', focused = false, floating = false, parent = rows.get(space) }) {
     const el = windowElement(win);
-    const row = rows.get(space);
-    if (el.parentElement !== row) row.append(el);
+    if (el.parentElement !== parent) parent.append(el);
     win.frame = frame;
     el.style.transform = `translate3d(${frame.x}px,${frame.y}px,0)`;
     el.style.width = `${frame.w}px`;
@@ -349,7 +383,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
       const scroll = shownScroll(space, frames);
       const selected = !messy && index === active ? focusedWin(space) : null;
       space.cols.forEach((column, i) => column.wins.forEach((win, k) => place(win,
-        messy ? { x: win.mess[0] + (W - MIN_W) / 2, y: win.mess[1] - index * H, w: win.mess[2], h: win.mess[3] } : stackFrame(frames[i].x - scroll, frames[i].w, k, column.wins.length),
+        messy ? { x: win.mess[0] + (W - MIN_W) / 2, y: win.mess[1] - index * H, w: win.mess[2], h: win.mess[3] } : stackFrame(frames[i].x - scroll + stripX(), frames[i].w, k, column.wins.length),
         space,
         { z: messy ? win.mess[4] : '', delay: tidying ? `${(index * 4 + i) * 45}ms` : '', focused: win === selected },
       )));
@@ -367,8 +401,23 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     if (overview !== root.classList.contains('is-overview')) {
       root.classList.add('ov-zoom');
       clearTimeout(zoomTimer);
-      zoomTimer = setTimeout(() => root.classList.remove('ov-zoom'), 240);
+      zoomTimer = setTimeout(() => {
+        root.classList.remove('ov-zoom');
+        if (!overview) render();
+      }, 240);
     }
+    // The pinned column and a shown scratchpad stay still on the screen as workspaces change;
+    // the Overview, and its closing zoom, carries them in the active row.
+    const lift = overview || root.classList.contains('ov-zoom') ? rows.get(spaces[active]) : fixed;
+    const current = messy ? null : focusedWin(spaces[active]);
+    if (pin) {
+      const w = pinWidth();
+      const x = pin.side === 'left' ? GAP : W - GAP - w;
+      pin.column.wins.forEach((win, k) => place(win, stackFrame(x, w, k, pin.column.wins.length), null, { z: 15, focused: win === current, parent: lift }));
+    }
+    // A parked scratchpad window waits above the screen, to drop in from the top.
+    scratch.wins.forEach(({ win, frame }, i) => place(win, scratch.shown ? frame : { ...frame, y: -frame.h - 80 }, null,
+      { z: 30 + i, focused: win === current, floating: true, parent: scratch.shown ? lift : fixed }));
     track.style.transform = overview
       ? `translate3d(${(W * (1 - s)) / 2}px,${H / 2 - (active * OVERVIEW_ROW + H / 2) * s}px,0) scale(${s})`
       : `translate3d(0,${-active * H}px,0)`;
@@ -379,7 +428,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     menus.innerHTML = app.menus.map(menu => `<span>${menu}</span>`).join('');
     label.textContent = String(active + 1);
     defiButton.setAttribute('aria-label', `Defi menu, workspace ${active + 1}`);
-    root.querySelectorAll('.dock-item').forEach(item => item.classList.toggle('running', spaces.some(space => [...space.cols.flatMap(c => c.wins), ...space.floats.map(f => f.win)].some(win => win.app === item.dataset.app))));
+    root.querySelectorAll('.dock-item').forEach(item => item.classList.toggle('running', [...spaces.flatMap(allWins), ...outsideWins()].some(win => win.app === item.dataset.app)));
     if (!defiMenu.hidden) fillMenu();
     // Defi's focus history, most recent first, behind the recent windows switcher.
     if (shown && !messy && !switcher) recent = [shown, ...recent.filter(win => win !== shown)];
@@ -413,8 +462,15 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   function act(command) {
     const space = spaces[active];
     const last = space.cols.length - 1;
-    const column = space.cols[space.focus];
+    const onPin = outside === 'pin';
+    const column = onPin ? pin.column : space.cols[space.focus];
     const tiled = () => { space.layer = 'tiled'; };
+    // The pinned column cannot move, join, float or be maximized; a scratchpad window cannot change workspace.
+    if (onPin && /^(move-column|join-window|consume-or-expel|unjoin|toggle-floating|maximize|center-column|toggle-scratchpad-window)/.test(command)) return render();
+    if (outside === 'scratch' && command.startsWith('move-')) return render();
+    if (onPin && space.floats.length && /^(activate-floating|focus-floating)/.test(command)) outside = null;
+    // Any other command on the strip takes the focus back from the scratchpad.
+    if (outside === 'scratch' && !/^(focus-workspace|reorder-workspace|toggle-scratchpad|toggle-overview)/.test(command)) outside = null;
     const moveTo = to => {
       if (!column || to < 0 || to > last || to === space.focus) return;
       space.cols.splice(space.focus, 1);
@@ -447,10 +503,71 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
       return render();
     }
     switch (command) {
-      case 'focus-column left': tiled(); space.focus = Math.max(0, space.focus - 1); break;
-      case 'focus-column right': tiled(); space.focus = Math.min(Math.max(0, last), space.focus + 1); break;
-      case 'focus-column first': tiled(); space.focus = 0; break;
-      case 'focus-column last': tiled(); space.focus = Math.max(0, last); break;
+      case 'focus-column left':
+      case 'focus-column right': {
+        const side = command.endsWith('left') ? 'left' : 'right';
+        if (onPin) {
+          // Leaving the pinned column lands on the column showing beside it.
+          if (pin.side !== side) { outside = null; tiled(); space.focus = besidePin(space); }
+          break;
+        }
+        tiled();
+        if (pin?.side === side && (side === 'left' ? space.focus <= 0 : space.focus >= last)) { outside = 'pin'; break; }
+        space.focus = Math.min(Math.max(0, last), Math.max(0, space.focus + (side === 'left' ? -1 : 1)));
+        break;
+      }
+      case 'focus-column first': outside = null; tiled(); space.focus = 0; break;
+      case 'focus-column last': outside = null; tiled(); space.focus = Math.max(0, last); break;
+      case 'pin-column left':
+      case 'pin-column right': {
+        const side = command.endsWith('left') ? 'left' : 'right';
+        if (onPin && pin.side === side) {
+          // Unpinned, the column returns to this workspace's strip on its side.
+          const at = side === 'left' ? 0 : space.cols.length;
+          space.cols.splice(at, 0, pin.column);
+          Object.assign(space, { focus: at, layer: 'tiled' });
+          pin = null;
+          outside = null;
+        } else if (onPin) pin.side = side;
+        else if (column && space.layer !== 'floating') {
+          // Pinning another column returns the pinned one to the place it leaves.
+          space.cols.splice(space.focus, 1, ...(pin ? [pin.column] : []));
+          space.focus = Math.max(0, Math.min(space.focus, space.cols.length - 1));
+          pin = { column, side };
+          outside = 'pin';
+        }
+        break;
+      }
+      case 'toggle-scratchpad':
+        if (overview || !scratch.wins.length) break;
+        scratch.shown = !(scratch.shown && outside === 'scratch');
+        outside = scratch.shown ? 'scratch' : null;
+        break;
+      case 'toggle-scratchpad-window': {
+        if (overview) break;
+        if (outside === 'scratch') {
+          // Taken out, the window stays where it is as an ordinary floating window.
+          const [held] = scratch.wins.splice(scratch.focus, 1);
+          space.floats.push(held);
+          Object.assign(space, { floatFocus: space.floats.length - 1, layer: 'floating' });
+          scratch.focus = Math.max(0, scratch.wins.length - 1);
+          if (!scratch.wins.length) scratch.shown = false;
+          outside = null;
+          break;
+        }
+        const win = focusedWin(space);
+        if (!win) break;
+        // A tiled window floats first, centered at 60% of the screen, each later one a little offset.
+        const n = scratch.wins.length;
+        const frame = space.layer === 'floating' && space.floats.length
+          ? space.floats[space.floatFocus].frame
+          : { x: W * 0.2 + n * 28, y: H * 0.2 + n * 28, w: W * 0.6, h: H * 0.6 };
+        detach(space, win);
+        scratch.wins.push({ win, frame });
+        scratch.focus = n;
+        if (scratch.shown) outside = 'scratch';
+        break;
+      }
       case 'focus-window up': if (column) { tiled(); column.focus = Math.max(0, column.focus - 1); } break;
       case 'focus-window down': if (column) { tiled(); column.focus = Math.min(column.wins.length - 1, column.focus + 1); } break;
       case 'move-window up':
@@ -478,7 +595,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
       case 'center-column': {
         if (space.layer === 'floating') break;
         const frame = layout(space)[space.focus];
-        if (frame) space.scroll = frame.x + frame.w / 2 - W / 2;
+        if (frame) space.scroll = frame.x + frame.w / 2 - room() / 2;
         break;
       }
       case 'reorder-workspace up':
@@ -587,7 +704,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   function stepSwitcher(step) {
     if (!switcher) {
       // By latest focus, then the others in workspace and column order, as recentWindowCandidates lists them.
-      const all = spaces.flatMap(space => [...space.cols.flatMap(c => c.wins), ...space.floats.map(f => f.win)]);
+      const all = [...spaces.flatMap(allWins), ...outsideWins()];
       const list = [...recent.filter(win => all.includes(win)), ...all.filter(win => !recent.includes(win))];
       if (list.length < 2) return;
       switcher = { list, index: 0 };
@@ -658,7 +775,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     const index = Math.min(spaces.length - 1, Math.max(0, Math.round((point.y - H / 2) / OVERVIEW_ROW)));
     const space = spaces[index];
     const frames = layout(space);
-    const x = point.x + shownScroll(space, frames);
+    const x = point.x + shownScroll(space, frames) - stripX();
     const y = point.y - index * OVERVIEW_ROW;
     const i = frames.findIndex(f => x >= f.x && x <= f.x + f.w);
     if (i < 0) return { space, at: x < (frames[0]?.x ?? 0) ? 0 : space.cols.length, frames };
@@ -671,7 +788,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
   }
   function showIndicator(target) {
     const row = rows.get(target.space);
-    const scroll = shownScroll(target.space, target.frames);
+    const scroll = shownScroll(target.space, target.frames) - stripX();
     if (indicator.parentElement !== row) row.append(indicator);
     if (target.column) {
       const f = target.frames[target.i];
@@ -688,7 +805,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     }
   }
   function startDrag(event, win, el) {
-    if (!overview || event.button !== 0 || spaces.some(space => space.floats.some(f => f.win === win))) return;
+    if (!overview || event.button !== 0 || outsideWins().includes(win) || spaces.some(space => space.floats.some(f => f.win === win))) return;
     drag = { win, el, start: trackPoint(event), moving: false };
     el.setPointerCapture(event.pointerId);
   }
@@ -784,8 +901,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     event.stopPropagation();
     closeMenu();
     const app = item.dataset.app;
-    const wins = space => [...space.cols.flatMap(c => c.wins), ...space.floats.map(f => f.win)];
-    const win = wins(spaces[active]).find(w => w.app === app) ?? spaces.flatMap(wins).find(w => w.app === app);
+    const win = [...allWins(spaces[active]), ...outsideWins()].find(w => w.app === app) ?? spaces.flatMap(allWins).find(w => w.app === app);
     item.classList.remove('bounce');
     void item.offsetWidth;
     item.classList.add('bounce');
@@ -978,7 +1094,7 @@ export function mountDesk(root, { reducedMotion, onCommand: report = () => {}, s
     if (pan.axis === 'x') {
       const { chosen, shown } = land;
       const current = pan.rest + shown;
-      commit(() => Object.assign(space, { layer: 'tiled', focus: chosen.column, scroll: chosen.scroll }), 'x', current - chosen.scroll);
+      commit(() => { outside = null; Object.assign(space, { layer: 'tiled', focus: chosen.column, scroll: chosen.scroll }); }, 'x', current - chosen.scroll);
       startGlide('x', current - chosen.scroll, velocity);
       onCommand('Swipe', `focus-column ${chosen.column + 1}`);
     } else {

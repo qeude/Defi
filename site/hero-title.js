@@ -136,7 +136,7 @@ export function mountHeroTitle(hero, reducedMotion) {
   });
 
   // The title's reveal ends at 1.4 s, then the word starts to go.
-  document.fonts.load(`500 96px 'Cabinet Grotesk'`).catch(() => {}).then(() => document.fonts.ready).then(() => setTimeout(() => {
+  document.fonts.load('600 96px Allo').catch(() => {}).then(() => document.fonts.ready).then(() => setTimeout(() => {
     measure();
     start = previous = performance.now();
     resume();
