@@ -1189,7 +1189,7 @@ item follows the menu bar's own color, so it is white on a dark menu bar and
 black on a light one.
 
 With `columns = true`, a second item draws one bar per column, as wide as the
-column, and frames the columns on screen. The focused column is solid, the
+column, and frames the part of the strip the screen shows, cutting through a column that is half off screen. The focused column is solid, the
 others on screen are dimmed, and those off screen are fainter. Stacked windows
 split their bar, up to three. The bars narrow to keep the item within
 `columns_width`, down to 2 points each, past which it grows. Click a bar to focus that column; click elsewhere,

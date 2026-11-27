@@ -11,7 +11,7 @@ struct MenuBarColumnsLayout: Equatable {
 
   var size: CGSize
   var bars: [Bar]
-  /// Encloses the columns on screen.
+  /// The screen, over the columns it shows.
   var frame: CGRect
 
   func windowID(atX x: CGFloat) -> UInt64? {
@@ -39,23 +39,57 @@ func menuBarColumnsLayout(_ monitor: MenuMonitor?, maxWidth: CGFloat) -> MenuBar
   let scale = min(menuBarColumnsPerScreen / monitor.stripWidth, max(room, 0) / max(total, 1))
   var x = menuBarColumnPadding
   var bars: [MenuBarColumnsLayout.Bar] = []
-  var visible: [CGRect] = []
   for (index, column) in columns.enumerated() {
     let rect = CGRect(x: x, y: 3, width: max(menuBarColumnMinimum, column.width * scale), height: 12)
     let center = column.x + column.width / 2
     let onScreen = center > 0 && center < monitor.stripWidth
-    if onScreen { visible.append(rect) }
     var alpha: CGFloat = onScreen ? 0.55 : 0.28
     if index == monitor.focusedColumn { alpha = 1 }
     bars.append(.init(windowID: column.windowID, rect: rect, windows: column.windows, alpha: alpha))
     x = rect.maxX + menuBarColumnGap
   }
-  let first = visible.first
-    ?? monitor.focusedColumn.flatMap { bars.indices.contains($0) ? bars[$0].rect : nil } ?? bars[0].rect
-  let last = visible.last ?? first
+  let width = (x - menuBarColumnGap + menuBarColumnPadding - 0.001).rounded(.up)
+  // Bars have gaps and minimum widths, so map each screen edge through the column it falls in.
+  // An edge on a column boundary belongs to the column on screen: the next one for the left edge.
+  func imageX(_ point: Double, leading: Bool) -> CGFloat {
+    var previous: (end: Double, maxX: CGFloat)?
+    for (column, bar) in zip(columns, bars) {
+      if point < column.x {
+        guard let previous, column.x > previous.end else { return bar.rect.minX - CGFloat(column.x - point) * scale }
+        let t = CGFloat((point - previous.end) / (column.x - previous.end))
+        return previous.maxX + max(0, t) * (bar.rect.minX - previous.maxX)
+      }
+      if leading ? point < column.x + column.width : point <= column.x + column.width {
+        return bar.rect.minX + CGFloat((point - column.x) / max(column.width, 1)) * bar.rect.width
+      }
+      previous = (column.x + column.width, bar.rect.maxX)
+    }
+    return bars[bars.count - 1].rect.maxX + CGFloat(point - (previous?.end ?? 0)) * scale
+  }
+  let minX = max(0.75, imageX(0, leading: true) - 1.5)
+  let maxX = min(width - 0.75, imageX(monitor.stripWidth, leading: false) + 1.5)
   return MenuBarColumnsLayout(
-    size: CGSize(width: (x - menuBarColumnGap + menuBarColumnPadding - 0.001).rounded(.up), height: height), bars: bars,
-    frame: CGRect(x: first.minX - 1.5, y: 0.75, width: last.maxX - first.minX + 3, height: 16.5))
+    size: CGSize(width: width, height: height), bars: bars,
+    frame: CGRect(x: minX, y: 0.75, width: max(maxX - minX, 3), height: 16.5))
+}
+
+func interpolate(_ from: MenuBarColumnsLayout, _ to: MenuBarColumnsLayout, _ t: CGFloat) -> MenuBarColumnsLayout {
+  if t <= 0 { return from }
+  if t >= 1 { return to }
+  func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * t }
+  func mix(_ a: CGRect, _ b: CGRect) -> CGRect {
+    CGRect(x: mix(a.minX, b.minX), y: mix(a.minY, b.minY), width: mix(a.width, b.width), height: mix(a.height, b.height))
+  }
+  let sources = Dictionary(from.bars.map { ($0.windowID, $0) }, uniquingKeysWith: { a, _ in a })
+  let bars = to.bars.map { target -> MenuBarColumnsLayout.Bar in
+    // A new column fades in where it lands.
+    guard let source = sources[target.windowID] else { return .init(windowID: target.windowID, rect: target.rect,
+      windows: target.windows, alpha: target.alpha * t) }
+    return .init(windowID: target.windowID, rect: mix(source.rect, target.rect),
+      windows: t < 0.5 ? source.windows : target.windows, alpha: mix(source.alpha, target.alpha))
+  }
+  return MenuBarColumnsLayout(size: CGSize(width: mix(from.size.width, to.size.width), height: to.size.height),
+    bars: bars, frame: mix(from.frame, to.frame))
 }
 
 func menuBarColumnsImage(_ layout: MenuBarColumnsLayout) -> NSImage {
