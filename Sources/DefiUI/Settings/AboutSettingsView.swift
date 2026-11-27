@@ -14,8 +14,8 @@ struct AboutSettingsView: View {
       }
       Section("Links", symbol: "link", color: .blue) {
         AboutSettingsLink(
-          title: "Website", symbol: "globe", detail: "qeude.github.io/Defi",
-          url: "https://qeude.github.io/Defi/")
+          title: "Website", symbol: "globe", detail: "getdefi.app",
+          url: "https://getdefi.app/")
         AboutSettingsLink(
           title: "Documentation", symbol: "book", detail: "Configuration guide",
           url: "https://github.com/qeude/Defi/blob/main/CONFIGURATION.md")
