@@ -284,7 +284,10 @@ struct WindowDiscoveryTests {
     let outcome = classifyWindow(report.window, rule: report.rule)
     #expect(outcome == WindowClassification(disposition: report.disposition, reason: report.reason))
     if !report.window.title.isEmpty {
-      #expect(!windowClassificationTrace(WindowID(rawValue: 1), report.window, rule: report.rule, outcome).contains(report.window.title))
+      var retitled = report.window
+      retitled.title = "\u{1}"
+      #expect(windowClassificationTrace(WindowID(rawValue: 1), report.window, rule: report.rule, outcome)
+        == windowClassificationTrace(WindowID(rawValue: 1), retitled, rule: report.rule, outcome))
     }
   }
 

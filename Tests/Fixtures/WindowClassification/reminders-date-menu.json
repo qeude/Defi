@@ -1,0 +1,12 @@
+{
+  "disposition" : "ignored",
+  "reason" : "text-accessory",
+  "window" : {
+    "appID" : "com.apple.reminders",
+    "modal" : false,
+    "resizable" : false,
+    "role" : "AXWindow",
+    "subrole" : "AXDialog",
+    "title" : "Window"
+  }
+}
