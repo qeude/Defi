@@ -185,7 +185,7 @@ func forEachWorkspaceWindow(
       visit(windowID, columnOffset + 1, rowOffset + 1)
     }
   }
-  for windowID in workspace.floatingWindows {
+  for windowID in workspace.floatingWindows + (workspace.scratchpadWindows ?? []) {
     visit(windowID, nil, nil)
   }
 }

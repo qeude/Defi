@@ -291,6 +291,8 @@ public let commandSpecs: [CommandSpec] = [
     return .pinColumn(edge)
   },
   layout("toggle-floating", .floating) { _, _ in .toggleFloating },
+  layout("toggle-scratchpad", .floating) { _, _ in .toggleScratchpad },
+  layout("toggle-scratchpad-window", .floating) { _, _ in .toggleScratchpadWindow },
   layout("activate-floating", .floating) { _, _ in .activateFloating },
   layout("activate-window", .workspace) { _, _ in .activateWindow },
   layout("join-window", .window, .keywords( ["left", "right"])) { arguments, _ in

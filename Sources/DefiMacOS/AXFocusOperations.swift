@@ -27,6 +27,17 @@ struct AXFocusOperations: @unchecked Sendable {
   var applicationIsActive: (pid_t) -> Bool = {
     NSRunningApplication(processIdentifier: $0)?.isActive == true
   }
+  /// Activation returns before the app orders its windows forward, and a window raised before
+  /// that lands under them; waits, at most a quarter second, until the app's window is in front.
+  var awaitFrontmostProcess: (pid_t, () -> Bool) -> Void = { processID, isCurrent in
+    let deadline = ProcessInfo.processInfo.systemUptime + 0.25
+    while isCurrent(), ProcessInfo.processInfo.systemUptime < deadline,
+      copyCGWindows(options: [.optionOnScreenOnly, .excludeDesktopElements])
+        .first(where: { $0.layer == 0 })?.processID != processID
+    {
+      usleep(8_000)
+    }
+  }
   var prepareActivation: () -> (AXUIElement) -> AXError = {
     let system = AXUIElementCreateSystemWide()
     return {

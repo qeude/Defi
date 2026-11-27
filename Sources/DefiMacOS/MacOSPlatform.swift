@@ -38,6 +38,10 @@ public final class MacOSPlatform {
     didSet { if oldValue != windowProxySpring { RibbonProxyStore.shared.spring = windowProxySpring } }
   }
   public var windowProxyMonitors: [WindowProxyMonitor] = []
+  /// Windows the layout floats, including those floated by command, which the snapshot cannot see.
+  public var layoutFloatingWindowIDs: Set<WindowID> = []
+  /// Scratchpad windows, which slide in from above the screen as they show and back up as they park.
+  public var scratchpadWindowIDs: Set<WindowID> = []
   /// The overlay is drawing a motion; desktop reads wait for its landing.
   public nonisolated var windowProxiesMoving: Bool { RibbonProxyStore.shared.isMoving }
   /// The overlay holds the pointer's window (a carry or a stretch).

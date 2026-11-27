@@ -57,6 +57,8 @@ struct ModelTests {
     ("pin-column left", Command.pinColumn(.left)),
     ("pin-column right", Command.pinColumn(.right)),
     ("toggle-floating", Command.toggleFloating),
+    ("toggle-scratchpad", Command.toggleScratchpad),
+    ("toggle-scratchpad-window", Command.toggleScratchpadWindow),
     ("activate-floating", Command.activateFloating),
     ("activate-window", Command.activateWindow),
     ("toggle-overview", Command.toggleOverview),

@@ -362,6 +362,8 @@ struct ConfigTests {
     #expect(config.keys["mod-p"] == "pin-column left")
     #expect(config.keys["mod-shift-p"] == "pin-column right")
     #expect(config.keys["mod-v"] == "toggle-floating")
+    #expect(config.keys["mod-s"] == "toggle-scratchpad")
+    #expect(config.keys["mod-shift-s"] == "toggle-scratchpad-window")
     #expect(config.keys["mod-shift-v"] == "activate-floating")
     #expect(config.keys["mod-return"] == "activate-window")
     #expect(config.keys["mod-shift-comma"] == "focus-floating previous")

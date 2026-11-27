@@ -98,6 +98,7 @@ struct FocusMutationTests {
         return mutate(element, !CFEqual(element, oldElement) && !failTarget)
       },
       applicationIsActive: { _ in true },
+      awaitFrontmostProcess: { _, _ in },
       prepareActivation: {
         if gap == .activationPreparation { pause() }
         return { element in mutate(element, CFEqual(element, oldElement) || !failTarget) }

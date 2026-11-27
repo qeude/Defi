@@ -71,6 +71,10 @@ public enum Command: Equatable, Codable, Sendable {
   /// Pins the focused column to an edge, or returns it to the strip from that edge.
   case pinColumn(ColumnPin)
   case toggleFloating
+  /// Adds the focused window to the scratchpad, or takes it out.
+  case toggleScratchpadWindow
+  /// Shows the scratchpad's windows on the focused monitor, or parks them.
+  case toggleScratchpad
   case activateFloating
   case activateWindow
   case joinWindow(Direction)
@@ -86,8 +90,11 @@ public enum Command: Equatable, Codable, Sendable {
     switch self {
     case .cycleWidth, .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth:
       return CommandEffects(editsSelectedLayout: true, resizesManagedLayout: true)
-    case .moveColumn, .moveWindow, .toggleFloating:
+    case .moveColumn, .moveWindow, .toggleFloating, .toggleScratchpadWindow:
       return CommandEffects(editsSelectedLayout: true)
+    case .toggleScratchpad:
+      return CommandEffects(
+        resizesManagedLayout: true, explicitlyFocusesFloating: true, movesWindowsAcrossMonitors: true)
     case .pinColumn:
       return CommandEffects(editsSelectedLayout: true, resizesManagedLayout: true)
     case .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,

@@ -442,6 +442,7 @@ extension MacOSPlatform {
   private func foregroundFloatingWindowElements(
     above targetWindowID: WindowID
   ) -> [AXUIElement] {
+    let floatingWindowIDs = floatingWindowIDs.union(layoutFloatingWindowIDs)
     guard !floatingWindowIDs.contains(targetWindowID),
       let targetFrame = lastSnapshotWindows.first(where: {
         $0.id == targetWindowID
@@ -540,6 +541,25 @@ extension MacOSPlatform {
 }
 
 extension MacOSPlatform {
+  /// Brings the windows forward in order, the last on top, off the input path and without
+  /// activating their applications.
+  public func raiseWindows(_ windowIDs: [WindowID]) {
+    let windows = windowIDs.compactMap { windowID in
+      elements[windowID].map {
+        PreparedAXWindowElement(
+          windowID: windowID, processID: processIDs[windowID] ?? 0, element: $0, usesBatchedAttributeReads: false)
+      }
+    }
+    guard !windows.isEmpty else { return }
+    DispatchQueue.global(qos: .userInitiated).async {
+      for element in windows.map(\.element) {
+        _ = AXMessagingTimeoutAccess.shared.withTimeout(frameRefreshInterval, elements: [element]) { () -> AXError in
+          performAccessibilityWrite(on: element) { AXUIElementPerformAction(element, kAXRaiseAction as CFString) }
+        }
+      }
+    }
+  }
+
   /// Presses the window's close button off the input path. The window leaves the model only when
   /// macOS reports it destroyed: an app may answer with a sheet and keep it.
   public func pressCloseButton(_ windowID: WindowID) -> Bool {

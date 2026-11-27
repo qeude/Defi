@@ -208,6 +208,8 @@ private let shortcutLabels: [(command: String, label: String)] = [
   ("set-window-height", "Window height"), ("switch-preset-window-height", "Next window height"),
   ("reset-window-height", "Even window heights"),
   ("toggle-floating", "Float or tile window"),
+  ("toggle-scratchpad", "Show or hide scratchpad"),
+  ("toggle-scratchpad-window", "Add to or take out of scratchpad"),
   ("close-window", "Close window"),
   ("focus-floating previous", "Previous floating"), ("focus-floating next", "Next floating"),
   ("toggle-cheatsheet", "Shortcuts"), ("open-settings", "Settings"),

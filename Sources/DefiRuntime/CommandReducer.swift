@@ -16,6 +16,7 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
   case layout(LayoutError)
   case stackConstraint(StackRejection)
   case pinnedColumnStays
+  case scratchpadWindowStays
 
   public var description: String {
     switch self {
@@ -27,6 +28,8 @@ public enum ReducerError: Error, Equatable, CustomStringConvertible, Sendable {
     case .layout(let error): "layout error: \(error)"
     case .stackConstraint(let rejection): "cannot join: \(rejection)"
     case .pinnedColumnStays: "the pinned column shows on every workspace; unpin it to move it"
+    case .scratchpadWindowStays:
+      "scratchpad windows follow you to every workspace; take the window out of the scratchpad to move it"
     }
   }
 }
@@ -154,6 +157,10 @@ public func reduce(
     return index
   }
 
+  // macOS orders the focused window of another app above a shown scratchpad, so a focused one
+  // keeps the focus as it rides a workspace switch.
+  let focusedScratchpadWindowID = state.selectedWindowID(on: state.monitors[monitorIndex].id)
+    .flatMap { state.scratchpadWindowIDs.contains($0) ? $0 : nil }
   do {
     switch command {
     case .focusColumn(let direction):
@@ -512,6 +519,10 @@ public func reduce(
       }
     case .toggleFloating:
       try toggleFocusedFloating(monitorIndex: monitorIndex, state: &state)
+    case .toggleScratchpadWindow:
+      try toggleScratchpadWindow(monitorIndex: monitorIndex, state: &state)
+    case .toggleScratchpad:
+      try toggleScratchpad(monitorIndex: monitorIndex, state: &state)
     case .focusFloating(let direction):
       let index = try workspaceIndex(state.monitors[monitorIndex])
       focusFloating(direction, workspace: &state.monitors[monitorIndex].workspaces[index])
@@ -531,6 +542,18 @@ public func reduce(
     throw ReducerError.stackConstraint(rejection)
   }
   state.maintainWorkspaceLifecycle()
+  switch command {
+  case .switchWorkspace, .focusWorkspace:
+    // Only when it rode along: a switch to another monitor's workspace leaves it behind.
+    if let focusedScratchpadWindowID,
+      state.monitors[monitorIndex].workspaces.contains(where: {
+        $0.id == state.monitors[monitorIndex].activeWorkspace && $0.floatingWindows.contains(focusedScratchpadWindowID)
+      })
+    {
+      focusWindow(focusedScratchpadWindowID, state: &state)
+    }
+  default: break
+  }
   normalizeNativeFullscreenColumns(state: &state)
 }
 
@@ -700,13 +723,13 @@ private func commandMutatesNativeFullscreenSelection(_ command: Command) -> Bool
     .reorderWorkspace, .moveWorkspaceToMonitor,
     .maximizeColumn, .setColumnWidth, .expandColumnToAvailableWidth, .centerColumn, .centerVisibleColumns,
     .pinColumn,
-    .toggleFloating, .joinWindow, .unjoinWindows, .consumeOrExpelWindow, .swapWindow,
-    .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
+    .toggleFloating, .toggleScratchpadWindow, .joinWindow, .unjoinWindows, .consumeOrExpelWindow,
+    .swapWindow, .setWindowHeight, .resetWindowHeight, .switchPresetWindowHeight:
     true
   case .focusColumn, .focusColumnOrMonitor, .focusFloating, .focusWindow, .focusWindowOrWorkspace,
     .focusWindowPrevious, .focusWindowID, .switchWorkspace, .focusWorkspace, .focusMonitor,
     .activateFloating, .activateWindow, .toggleOverview, .toggleCheatsheet, .openSettings,
-    .recentWindows, .spawnShell, .closeWindow:
+    .recentWindows, .spawnShell, .closeWindow, .toggleScratchpad:
     false
   }
 }

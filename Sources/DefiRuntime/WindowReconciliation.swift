@@ -563,7 +563,14 @@ private func applyWindowIDReplacements(
           state.monitors[monitorIndex].workspaces[workspaceIndex].floatingWindows.map {
             $0 == previousID ? replacementID : $0
           }
+        state.monitors[monitorIndex].workspaces[workspaceIndex].scratchpadWindows =
+          state.monitors[monitorIndex].workspaces[workspaceIndex].scratchpadWindows?.map {
+            $0 == previousID ? replacementID : $0
+          }
       }
+    }
+    state.scratchpadWindowIDs = state.scratchpadWindowIDs.map {
+      $0 == previousID ? replacementID : $0
     }
     for windowID in state.windows.keys
     where state.windows[windowID]?.transientOwnerID == previousID {

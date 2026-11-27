@@ -175,6 +175,11 @@ extension AXFocusWriter {
         isCurrent(queued),
         inputGuardIsCurrent(request)
       {
+        if activationAttempted, !request.foregroundWindowElements.isEmpty {
+          operations.awaitFrontmostProcess(request.processID) {
+            isCurrent(queued) && inputGuardIsCurrent(request)
+          }
+        }
         for element in request.foregroundWindowElements {
           guard isCurrent(queued), inputGuardIsCurrent(request) else {
             cancelled = true

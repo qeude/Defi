@@ -551,6 +551,13 @@ func windowProxyDisplayMoves(_ monitor: WindowProxyMonitor, displayCount: Int,
     || !monitor.windowIDs.isDisjoint(with: opened.union([dropped].compactMap { $0 })) || reflows
 }
 
+/// A scratchpad drops in from above the screen to where it shows, and parks back up there.
+func windowProxyScratchpadSlide(shows: Bool, shown: Rect, viewport: Rect) -> (from: Rect, to: Rect) {
+  // Clear of the menu bar, which sits above the overlay.
+  let above = Rect(x: shown.x, y: viewport.y - shown.height - 50, width: shown.width, height: shown.height)
+  return shows ? (above, shown) : (shown, above)
+}
+
 /// Plans each proxy from what is on screen to its target. Windows without a
 /// known start (entering from parking) travel with the shared motion.
 func windowProxyMotion(ribbonTargets: [WindowID: Rect], otherTargets: [WindowID: Rect],
@@ -625,6 +632,11 @@ extension MacOSPlatform {
     skippedWindowIDs: Set<WindowID>,
     hiddenWindowIDs: Set<WindowID>, source: String, animated: Bool) {
     let allWindows = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
+    // true: shows; false: parks. Only a command does: the Overview and restores park it too.
+    let toggledScratchpad = source != "command-layout-animation" ? [:]
+      : Dictionary(uniqueKeysWithValues: scratchpadWindowIDs.compactMap { id in
+        hiddenWindowIDs.contains(id) == lastHiddenWindowIDs.contains(id) ? nil : (id, !hiddenWindowIDs.contains(id))
+      })
     // Each display moves on its own overlay, exactly as a single display does.
     for monitor in windowProxyMonitors {
       guard let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else {
@@ -640,12 +652,14 @@ extension MacOSPlatform {
         continue
       }
       let ribbon = ribbonFrames.filter { owned.contains($0.windowID) }
+      let toggled = toggledScratchpad.filter { owned.contains($0.key) }
       let shown = applyWindowProxies(on: monitor, presenter: presenter,
         assignments: assignments.filter { owned.contains($0.windowID) }, ribbonFrames: ribbon,
         previousRibbonFrames: previousRibbonFrames, previousPlaceholderFrames: previousPlaceholderFrames,
         skippedWindowIDs: skippedWindowIDs, hiddenWindowIDs: hiddenWindowIDs, allWindows: allWindows,
+        toggledScratchpad: toggled,
         motion: windowProxyMotionDuration(source: source, animated: animated,
-          hasRibbon: !ribbon.isEmpty, workspaceShift: monitor.workspaceShift))
+          hasRibbon: !ribbon.isEmpty || !toggled.isEmpty, workspaceShift: monitor.workspaceShift))
       if released, !shown { presenter.landDrop() }
     }
   }
@@ -654,7 +668,7 @@ extension MacOSPlatform {
     assignments: [FrameAssignment], ribbonFrames: [FrameAssignment],
     previousRibbonFrames: [WindowID: Rect], previousPlaceholderFrames: [WindowID: Rect],
     skippedWindowIDs: Set<WindowID>, hiddenWindowIDs: Set<WindowID>, allWindows: [WindowID: Window],
-    motion duration: TimeInterval?) -> Bool {
+    toggledScratchpad: [WindowID: Bool], motion duration: TimeInterval?) -> Bool {
     let viewport = monitor.viewport, workspaceShift = monitor.workspaceShift
     // A fullscreen Space hides this desktop: the layout lands at once, ready when it slides back.
     guard monitor.windowIDs.isDisjoint(with: activeNativeFullscreenWindowIDs) else {
@@ -670,7 +684,8 @@ extension MacOSPlatform {
     // Windows discovered by this snapshot grow in at their place instead of sliding.
     let opened = newlyDiscoveredWindowIDs
     // A released scroll gesture settles from the drawn ribbon, even back to where it was.
-    let moves = presenter.releasesPan || windowProxyDisplayMoves(monitor, displayCount: windowProxyMonitors.count,
+    let moves = presenter.releasesPan || !toggledScratchpad.isEmpty
+      || windowProxyDisplayMoves(monitor, displayCount: windowProxyMonitors.count,
       ribbonTargets: ribbonTargets, previousRibbonFrames: previousRibbonFrames, opened: opened,
       dropped: windowProxyDroppedWindowID, skipped: skippedWindowIDs)
     // A plain layout landing mid-motion (scroll to keep focus visible, a drop settling)
@@ -728,6 +743,12 @@ extension MacOSPlatform {
     var proxies = planned.compactMap { plan -> RibbonProxyWindow? in
       guard let window = windows[plan.id], let processID = window.processID else { return nil }
       let appears = opened.contains(plan.id) && spawnedFrames[plan.id] == nil
+      if let shows = toggledScratchpad[plan.id] {
+        let (from, to) = windowProxyScratchpadSlide(shows: shows, shown: shows ? plan.to : observed[plan.id] ?? plan.from,
+          viewport: viewport)
+        return RibbonProxyWindow(id: plan.id, appID: window.appID, processID: processID,
+          from: from, to: to, floats: true)
+      }
       let from = plan.id == dropped?.0 ? dropped?.1 ?? plan.from : spawnedFrames[plan.id] ?? plan.from
       return RibbonProxyWindow(id: plan.id, appID: window.appID, processID: processID,
         from: from, to: plan.to, appears: appears, pinned: pinnedWindowIDs.contains(plan.id))

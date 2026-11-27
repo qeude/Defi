@@ -992,3 +992,23 @@ struct DaemonCommandPolicyTests {
     )
   }
 }
+
+struct ScratchpadRaiseTests {
+  @Test func aShownScratchpadIsRaisedOnlyAsItComesForwardWithTheFocus() {
+    let notes = WindowID(rawValue: 1), list = WindowID(rawValue: 2), tile = WindowID(rawValue: 3)
+    var raised: Set<WindowID> = []
+    func layout(_ selected: WindowID?) -> [WindowID] {
+      let raise = scratchpadRaise(shown: [notes, list], selected: selected, raised: raised)
+      raised = raise.raised
+      return raise.order
+    }
+    #expect(layout(list) == [notes, list])
+    #expect(layout(list) == [])
+    #expect(layout(notes) == [])
+    // Another window takes the focus: the layouts that follow leave the scratchpad where it is.
+    #expect(layout(tile) == [])
+    #expect(layout(tile) == [])
+    #expect(layout(nil) == [])
+    #expect(layout(notes) == [list, notes])
+  }
+}

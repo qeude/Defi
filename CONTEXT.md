@@ -93,6 +93,11 @@ layout.
 A managed window that belongs to a workspace without participating in its
 scrolling layout.
 
+**Scratchpad**:
+The floating windows the user shows and parks together with one command. Shown,
+they ride the active workspace of their monitor.
+_Avoid_: Dropdown, hidden window
+
 **Transient window**:
 A dialog, sheet, or modal window whose monitor and workspace follow its owning
 window and which cannot be managed independently from that owner.

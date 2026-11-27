@@ -62,3 +62,34 @@ resizing them, so no width write lands on a window whose picture the overlay is
 sliding in. During motion the overlay
 draws it above the strip, so columns slide beneath it as in a compositor.
 `ScrollFocus.pinned` is unrelated: it records `center-column`.
+
+## Scratchpad
+
+Scratchpad windows reuse the floating machinery: a shown one is an ordinary
+entry of `Workspace.floatingWindows`, and a parked one moves to
+`Workspace.scratchpadWindows`, which the layout parks on every workspace,
+active or not. Parked windows stay in a workspace so location, removal,
+persistence, and display migration need no second path, while selection,
+floating focus, and the Overview never see them. Membership lives in
+`RuntimeState.scratchpadWindowIDs`, since a shown scratchpad window is otherwise
+indistinguishable from a floating one.
+
+Like a pinned column, a shown scratchpad belongs to no workspace:
+`maintainWorkspaceLifecycle` carries its windows into the monitor's active
+workspace, and a trailing workspace holding only them stays trailing. Parked
+windows are parked wherever they live, so they stay where they were parked and
+move only off a workspace about to go; a workspace switch never writes them. A move to
+another workspace would be carried straight back, so the reducer refuses it.
+
+macOS raises only the window it focuses, so the daemon raises every scratchpad
+window through Accessibility, the selected one last, each time the scratchpad
+comes forward with the focus, and never while another window has it: raised at
+every layout, its windows swapped places with each other many times a second. Accessibility cannot
+order a window above the active app's windows: a raise stops just below them. So
+the scratchpad stays in front only while it has the focus, which is why a focused
+scratchpad keeps it across a workspace switch, and `toggle-scratchpad` parks
+only a focused scratchpad and brings an unfocused one forward. For the same
+reason a focus write that activates an app waits for its windows to come forward
+before raising the floating windows above it. Overview edits copy back a single workspace and would lose
+membership changes, so the daemon refuses both scratchpad commands while the
+Overview is open.

@@ -68,6 +68,9 @@ func moveFocusedSelectionToWorkspace(
   if source.focusedLayer == .tiled,
     pinnedColumnIndices(source.columns).values.contains(source.focusedColumn)
   { throw ReducerError.pinnedColumnStays }
+  if source.focusedLayer == .floating,
+    source.focusedFloatingWindowID.map(state.scratchpadWindowIDs.contains) == true
+  { throw ReducerError.scratchpadWindowStays }
   moveFocusedSelection(
     movesWholeColumn: movesWholeColumn,
     follow: follow,
