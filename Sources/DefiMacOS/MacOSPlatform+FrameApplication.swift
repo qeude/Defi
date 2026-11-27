@@ -22,7 +22,8 @@ extension MacOSPlatform {
   public func apply(
     _ assignments: [FrameAssignment],
     ribbonFrames: [FrameAssignment] = [],
-    hiddenWindowIDs: Set<WindowID> = [],
+    hiddenWindowIDs requestedHiddenWindowIDs: Set<WindowID> = [],
+    hiddenUnlessSlid: Set<WindowID> = [],
     skipping requestedSkippedWindowIDs: Set<WindowID> = [],
     asynchronousPositionTimeoutSeconds: Float = 0.016,
     animated: Bool = false,
@@ -39,8 +40,9 @@ extension MacOSPlatform {
       (@NavigationActor @Sendable () -> Bool)? = nil,
     focusRequestIDAfterCommit:
       (@NavigationActor @Sendable (NativeFocusRequestID?) -> Void)? = nil,
+    /// Accepted frames, and the windows this apply wrote position-only (their size was not asked).
     acceptedFrameHandler:
-      (@NavigationActor @Sendable ([WindowID: Rect]) -> Void)? = nil,
+      (@NavigationActor @Sendable ([WindowID: Rect], Set<WindowID>) -> Void)? = nil,
     commandPerformance: CommandPerformanceContext? = nil,
     source: String = "platform"
   ) {
@@ -73,14 +75,23 @@ extension MacOSPlatform {
     let submissionGeneration = frameSubmissionGeneration
     let horizontalRibbonNavigation = source == "command-animation" && positionsOnly
       && lastMonitorFrames.count == 1 && !ribbonFrames.isEmpty
+    let slidingMonitors = windowProxyMonitors.filter { $0.workspaceShift != nil }
+    let requestsSlide = !slidingMonitors.isEmpty
+    // A drawn slide moves only its own monitor's windows; a refused one moves nothing, so sizes land now.
+    let slidingWindowIDs = slidingMonitors.reduce(into: Set<WindowID>()) { $0.formUnion($1.windowIDs) }
+    var slid = false
     if windowProxiesEnabled {
       let resumes = !animates && !resumed.isEmpty
-      applyWindowProxies(assignments: assignments, ribbonFrames: ribbonFrames,
+      slid = applyWindowProxies(assignments: assignments, ribbonFrames: ribbonFrames,
         previousRibbonFrames: previousRibbonFrames, previousPlaceholderFrames: previousPlaceholderFrames,
         skippedWindowIDs: skippedWindowIDs,
-        hiddenWindowIDs: hiddenWindowIDs, source: resumes ? "native-focus-animation" : source,
+        hiddenWindowIDs: requestedHiddenWindowIDs, source: resumes ? "native-focus-animation" : source,
         animated: animated || resumes)
     }
+    if requestsSlide { frameCoordinator.recordTrace("workspace-slide drawn=\(slid)") }
+    // A refused slide switches at once: offscreen columns park as without one.
+    let hiddenWindowIDs = requestsSlide && !slid
+      ? requestedHiddenWindowIDs.union(hiddenUnlessSlid) : requestedHiddenWindowIDs
     // One switch, one slide: a later apply (a restore, a repair) must not reuse it.
     for index in windowProxyMonitors.indices { windowProxyMonitors[index].workspaceShift = nil }
     // Native windows jump once to their targets, under the overlay when it draws the motion.
@@ -105,6 +116,7 @@ extension MacOSPlatform {
     let coordinatorWasBusy = frameCoordinator.isBusy
     let unwrittenWindowIDs = coordinatorWasBusy ? frameCoordinator.pendingWindowIDs : []
     var writeIntents: [WindowID: (position: Bool, size: Bool)] = [:]
+    var positionOnlyWrites = Set<WindowID>()
     var referenceFrames: [WindowID: Rect] = [:]
     let now = snapshotEngine.discoveryNow
     for assignment in assignments where !skippedWindowIDs.contains(assignment.windowID) {
@@ -124,10 +136,13 @@ extension MacOSPlatform {
           ?? lastSnapshotWindows.first(where: { $0.id == assignment.windowID })?.frame
       )
       guard let reference else { continue }
+      let writesPositionOnly = positionsOnly
+        && (!requestsSlide || slid && slidingWindowIDs.contains(assignment.windowID))
+      if writesPositionOnly { positionOnlyWrites.insert(assignment.windowID) }
       let intent = frameWriteIntent(
         reference: reference,
         target: assignment.frame,
-        positionsOnly: positionsOnly,
+        positionsOnly: writesPositionOnly,
         horizontalOnly: horizontalRibbonNavigation
       )
       if intent.position || intent.size {
@@ -135,6 +150,7 @@ extension MacOSPlatform {
         referenceFrames[assignment.windowID] = reference
       }
     }
+    let positionOnlyWindowIDs = positionOnlyWrites
     if !writeIntents.isEmpty {
       invalidatePointerHitTestCache()
     }
@@ -322,7 +338,7 @@ extension MacOSPlatform {
             focusCompletionAfterCommit?(.frameSuperseded)
             return
           }
-          self.consumeAcceptedFrames(result.acceptedObservations, handler: acceptedFrameHandler)
+          self.consumeAcceptedFrames(result.acceptedObservations) { acceptedFrameHandler?($0, positionOnlyWindowIDs) }
           if let cursorWarpWindowIDAfterCommit,
             deferredFocusFrameCommitIsReady(
               targetWindowID: cursorWarpWindowIDAfterCommit,
@@ -416,7 +432,8 @@ extension MacOSPlatform {
       asynchronousWrites,
       source: source,
       monitorFrames: lastMonitorFrames,
-      stagesVisibleBeforeParking: stagesVisibleBeforeParking,
+      // A slide the overlay refused lands for real: arrivals go before departures, as without one.
+      stagesVisibleBeforeParking: stagesVisibleBeforeParking || (requestsSlide && !slid),
       successfulWrite: commandSuccessfulWrite,
       cursorWarpAfterWindowCommit: cursorWarpAfterWindowCommit,
       completion: frameCompletion
@@ -630,7 +647,8 @@ extension MacOSPlatform {
   func applyWindowProxies(assignments: [FrameAssignment], ribbonFrames: [FrameAssignment],
     previousRibbonFrames: [WindowID: Rect], previousPlaceholderFrames: [WindowID: Rect],
     skippedWindowIDs: Set<WindowID>,
-    hiddenWindowIDs: Set<WindowID>, source: String, animated: Bool) {
+    hiddenWindowIDs: Set<WindowID>, source: String, animated: Bool) -> Bool {
+    var slid = true
     let allWindows = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
     // true: shows; false: parks. Only a command does: the Overview and restores park it too.
     let toggledScratchpad = source != "command-layout-animation" ? [:]
@@ -641,6 +659,7 @@ extension MacOSPlatform {
     for monitor in windowProxyMonitors {
       guard let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else {
         DispatchQueue.main.async { RibbonProxyRenderer.shared.refreshEnvironment() }
+        if monitor.workspaceShift != nil { slid = false }
         continue
       }
       let owned = monitor.windowIDs
@@ -649,6 +668,7 @@ extension MacOSPlatform {
       // Its windows are absent from this layout's ribbon, not leaving it.
       guard monitor.laidOut else {
         if released { presenter.landDrop() }
+        if monitor.workspaceShift != nil { slid = false }
         continue
       }
       let ribbon = ribbonFrames.filter { owned.contains($0.windowID) }
@@ -661,7 +681,9 @@ extension MacOSPlatform {
         motion: windowProxyMotionDuration(source: source, animated: animated,
           hasRibbon: !ribbon.isEmpty || !toggled.isEmpty, workspaceShift: monitor.workspaceShift))
       if released, !shown { presenter.landDrop() }
+      if monitor.workspaceShift != nil, !shown { slid = false }
     }
+    return slid
   }
 
   private func applyWindowProxies(on monitor: WindowProxyMonitor, presenter: RibbonProxyPresenter,

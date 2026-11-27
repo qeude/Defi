@@ -103,13 +103,15 @@ if [[ "${DEFI_VM_SECOND_DISPLAY:-0}" == 1 ]]; then
 fi
 
 mkdir -p "$OUT"
+failed=0  # a stopped bench still has logs to collect; the run fails once they are copied
 for entry in "${BUNDLES[@]}"; do
   label="${entry%%=*}"
   app="$G/$label/Defi.app"
   echo "== $label"
   vm "sudo -n launchctl asuser 501 sudo -n -u admin sh -c '\"$app/Contents/MacOS/defi\" service start >/dev/null; for i in \$(seq 60); do \"$app/Contents/MacOS/defi\" status 2>/dev/null | grep -q ^running && break; sleep 0.5; done; \"$app/Contents/MacOS/defi\" status | tr \" \" \"\\n\" | grep -E \"^(running|windows|overviewPermission|displayHz)\"'"
   vm "killall UserNotificationCenter NotificationCenter 2>/dev/null; true"
-  vm "sudo -n launchctl asuser 501 sudo -n -u admin /usr/bin/python3 -u $G/glitch_bench.py $app $G/out-$label ${BENCH_ARGS[*]:-}" 2>&1 | tee "$OUT/$label.log" || true
+  vm "sudo -n launchctl asuser 501 sudo -n -u admin /usr/bin/python3 -u $G/glitch_bench.py $app $G/out-$label ${BENCH_ARGS[*]:-}" 2>&1 | tee "$OUT/$label.log" || failed=1
   vm "sudo -n launchctl asuser 501 sudo -n -u admin \"$app/Contents/MacOS/defi\" service stop >/dev/null 2>&1; pkill -x defi-daemon; log show --last 30m --style compact --predicate 'process == \"defi-daemon\" and messageType == fault' 2>/dev/null | tail -20 > $G/out-$label/faults.txt; ls ~/Library/Logs/DiagnosticReports | grep -i defi > $G/out-$label/crashes.txt; true"
   vm "cd $G/out-$label && tar -cf - --exclude fixtures ." | (mkdir -p "$OUT/$label" && tar -C "$OUT/$label" -xf -)
 done
+exit "$failed"

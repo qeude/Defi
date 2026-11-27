@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct CheatsheetView: View {
-  let groups: [ShortcutGroup]
+  let columns: [[ShortcutGroup]]
   let layout: CheatsheetLayout
 
   var body: some View {
     ScrollView([.horizontal, .vertical]) {
-      CheatsheetContent(groups: groups, columnCount: layout.columns)
+      CheatsheetContent(columns: columns)
         .scaleEffect(layout.scale, anchor: .topLeading)
         .frame(width: layout.scaledSize.width, height: layout.scaledSize.height, alignment: .topLeading)
     }
@@ -48,21 +48,19 @@ extension View {
 }
 
 struct CheatsheetContent: View {
-  let groups: [ShortcutGroup]
-  let columnCount: Int
+  let columns: [[ShortcutGroup]]
 
   var body: some View {
     HStack(alignment: .top, spacing: 44) {
-      ForEach(Array(columns.enumerated()), id: \.offset) { _, groups in
-        column(groups)
-      }
+      // Section titles are unique: a column is known by its first one.
+      ForEach(columns, id: \.first?.title) { CheatsheetColumn(groups: $0) }
     }
     .fixedSize(horizontal: true, vertical: true)
     .padding(28)
   }
 
   /// Sections keep reading order; the split minimizes the tallest column.
-  private var columns: [[ShortcutGroup]] {
+  static func columns(_ groups: [ShortcutGroup], count columnCount: Int) -> [[ShortcutGroup]] {
     let weights = groups.map { $0.rows.count + 2 }
     func split(from start: Int, into count: Int) -> (height: Int, cuts: [Int]) {
       if count <= 1 { return (weights[start...].reduce(0, +), []) }
@@ -82,9 +80,13 @@ struct CheatsheetContent: View {
     let bounds = [0] + split(from: 0, into: min(columnCount, groups.count)).cuts + [groups.count]
     return zip(bounds, bounds.dropFirst()).map { Array(groups[$0..<$1]) }
   }
+}
 
-  /// One grid per column keeps keys and labels aligned across sections.
-  private func column(_ groups: [ShortcutGroup]) -> some View {
+/// One grid per column keeps keys and labels aligned across sections.
+private struct CheatsheetColumn: View {
+  let groups: [ShortcutGroup]
+
+  var body: some View {
     Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
       ForEach(Array(groups.enumerated()), id: \.element.title) { index, group in
         Text(group.title)

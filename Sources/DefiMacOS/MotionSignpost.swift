@@ -20,10 +20,14 @@ enum MotionSignpost {
 
   /// An animation the render server runs for a known time. Each span has its own key, so
   /// overlapping spans each keep their own end.
-  static func span(_ kind: StaticString, _ seconds: TimeInterval) {
+  static func span(_ kind: StaticString, _ seconds: TimeInterval, after lead: TimeInterval = 0) {
     guard log.signpostsEnabled, seconds > 0 else { return }
     let key = spans.withLock { $0 &+= 1; return $0 }
-    begin(kind, key)
-    DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { end(kind, key) }
+    if lead > 0 {
+      DispatchQueue.main.asyncAfter(deadline: .now() + lead) { begin(kind, key) }
+    } else {
+      begin(kind, key)
+    }
+    DispatchQueue.main.asyncAfter(deadline: .now() + lead + seconds) { end(kind, key) }
   }
 }

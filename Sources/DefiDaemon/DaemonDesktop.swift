@@ -44,6 +44,7 @@ extension Daemon {
     var nativeFullscreenPlaceholderAssignments: [FrameAssignment] = []
     var nativeFullscreenRibbonFrames: [FrameAssignment] = []
     var hiddenWindowIDs = Set<WindowID>()
+    var slideHiddenWindowIDs = Set<WindowID>()
     var outOfScopeWindowIDs = Set<WindowID>()
     var cachedMonitorIDs = Set<MonitorID>()
     let viewports = viewportsByMonitor
@@ -118,6 +119,8 @@ extension Daemon {
           monitorBorderAssignments.append(contentsOf: strip.frames)
           if workspaceTransition?.monitorID != monitor.id {
             monitorHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
+          } else {
+            slideHiddenWindowIDs.formUnion(strip.parkedWindowIDs)
           }
 
           if !state.nativeFullscreenWindowIDs.isEmpty {
@@ -260,6 +263,7 @@ extension Daemon {
       platformAssignments,
       ribbonFrames: ribbonFrames,
       hiddenWindowIDs: hiddenWindowIDs,
+      hiddenUnlessSlid: slideHiddenWindowIDs,
       skipping: skipped,
       asynchronousPositionTimeoutSeconds: positionTimeoutSeconds,
       animated: animated,
@@ -273,10 +277,10 @@ extension Daemon {
       focusCompletionAfterCommit: postCommitFocus.completion,
       cursorWarpIsCurrentAfterCommit: postCommitFocus.isCursorWarpCurrent,
       focusRequestIDAfterCommit: postCommitFocus.requestID,
-      acceptedFrameHandler: { [weak self] acceptedFrames in
+      acceptedFrameHandler: { [weak self] acceptedFrames, positionOnlyWindowIDs in
         guard let self else { return }
         for (windowID, frame) in acceptedFrames {
-          if !positionsOnly,
+          if !positionOnlyWindowIDs.contains(windowID),
             let requested = platformAssignments.first(where: { $0.windowID == windowID })?.frame
           {
             state.acceptTiledWindowFrame(frame, requested: requested, for: windowID, settled: false)

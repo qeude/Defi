@@ -22,6 +22,7 @@ extension AXFrameCoordinator {
       let applicationCount = Set(frame.writes.values.map(\.processID)).count
       activeWindowIDs = Set(frame.writes.keys)
       activeWrites = frame.writes
+      activeFrameStagesVisibleBeforeParking = frame.stagesVisibleBeforeParking
       appendTraceLocked(
         "start g=\(frame.generation) apps=\(applicationCount) rebased=\(rebasedWindowCount)"
       )
@@ -56,6 +57,7 @@ extension AXFrameCoordinator {
       }
       activeWindowIDs.removeAll(keepingCapacity: true)
       activeWrites.removeAll(keepingCapacity: true)
+      activeFrameStagesVisibleBeforeParking = false
       retireIdleProcessWriteQueuesLocked()
       lock.unlock()
       let acceptedObservations = readAcceptedFrames(

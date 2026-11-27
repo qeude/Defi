@@ -32,7 +32,12 @@ workspaces from configuration for a new session.
 Positions are one-based, non-wrapping, and resolve past the current stack to the
 trailing workspace. Vertical transitions use public Accessibility position
 writes and animate only when the whole transition is safe and refresh-budget
-compliant; otherwise every participating window switches at once.
+compliant; otherwise every participating window switches at once. When the
+overlay refuses a slide it was asked for (no Screen Recording, no background
+picture yet), arriving windows are written before departing ones park, so a
+slow application never leaves the desk empty. A workspace
+reached by native focus (Command-Tab, the Dock, a click) takes the same
+transition as one reached by a command.
 
 The empty trailing workspace is focusable without a Defi-owned focus sink. macOS
 may therefore keep sending ordinary keys to the previously focused parked
