@@ -213,8 +213,9 @@ The scratchpad holds floating windows you call up and put away together.
 `toggle-scratchpad-window` adds the focused window to it and parks it off
 screen unless the scratchpad is showing. A tiled window floats first, centered
 over the strip at 60% of the screen, each later one a little offset.
-`toggle-scratchpad` brings all of its windows forward over the focused screen
-and focuses them, and parks them again when they show there with the focus.
+`toggle-scratchpad` drops all of its windows in from the top of the focused
+screen and focuses them, and sends them back up when they show there with the
+focus.
 
 - The scratchpad follows you: shown, its windows move along when you switch
   workspaces, keeping the focus if they had it, and `toggle-scratchpad` on

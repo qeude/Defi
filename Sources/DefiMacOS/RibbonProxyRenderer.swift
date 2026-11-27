@@ -25,6 +25,8 @@ struct RibbonProxyWindow {
   var picture: CGImage? = nil
   /// In a pinned column: drawn above the strip scrolling beneath it.
   var pinned = false
+  /// A scratchpad sliding in or out: above the strip, as its native windows are.
+  var floats = false
 }
 
 /// Pictures stay valid only for the native size they were captured at.
@@ -679,7 +681,14 @@ final class RibbonProxyPresenter {
         standIns.remove(window.id)
       }
       // The active window travels above the windows it crosses, as in Niri.
-      layer.zPosition = window.pinned ? 150_000 : window.id == selectedWindowID ? 100_000 : depth[window.id] ?? 0
+      let selected = window.id == selectedWindowID, stacked = depth[window.id] ?? 0
+      if window.pinned {
+        layer.zPosition = 150_000
+      } else if window.floats {
+        layer.zPosition = 120_000 + (selected ? 10_000 : stacked)
+      } else {
+        layer.zPosition = selected ? 100_000 : stacked
+      }
       // Mid-flight windows retarget at once: holding them still would stall their motion.
       let start = current == nil ? motionStart : now
       let launched = ribbonProxyMove(layer, from: from, to: to, velocity: velocity, at: start)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fluidity probe: A/B comparison of Defi builds per user action on the real display.
 Fixture windows only: column and workspace navigation, window open and close, app launch and
-quit, activation (Command-Tab's native path), Overview and cheatsheet. Screen capture cannot judge
+quit, activation (Command-Tab's native path), Overview, cheatsheet, scratchpad. Screen capture cannot judge
 120 Hz: a light Instruments recording (Hitches and Points of Interest, ~30 MB) attached to the daemon
 gives the compositor's renders, and Defi's `motion` signposts say when something animates.
 Per action and trial: share of render gaps <= 10 ms inside animations, worst gap (spikes over
@@ -195,7 +195,20 @@ def scenario(out, label, rounds, on_ready, only=None):
             act('launch', launch, 1.5)
             act('quit', lambda: holder['app'].close(), 1.2)
 
+        if only == 'scratchpad':
+            pad = fixture.ask('create', id='pad')
+            expected.append((0, 'pad', next(w['windowNumber'] for w in pad['windows'] if w['id'] == 'pad')))
+            pe.wait_owned([fixture], expected, empty['id'], discovered)
+            pe.command('focus-window-id', str(expected[-1][2]))
+            time.sleep(.8)
+            pe.command('toggle-scratchpad-window')  # parks it: the scratchpad starts hidden
+            time.sleep(1.2)
         for _ in range(rounds):
+            if only == 'scratchpad':
+                for _ in range(8):
+                    go('scratchpad-show', 'toggle-scratchpad', pause=1)
+                    go('scratchpad-hide', 'toggle-scratchpad', pause=1)
+                continue
             if only == 'overview':
                 for _ in range(8):
                     go('overview-open', 'toggle-overview', pause=1)
@@ -396,7 +409,7 @@ def main():
     p.add_argument('--bundle', action='append', required=True, help='LABEL=path')
     p.add_argument('--trials', type=int, default=2, help='trials per build, alternating ABBA')
     p.add_argument('--rounds', type=int, default=1, help='workload repetitions per trial')
-    p.add_argument('--only', choices=['column', 'overview', 'cheatsheet', 'workspace', 'window'], help='one action only')
+    p.add_argument('--only', choices=['column', 'overview', 'cheatsheet', 'workspace', 'window', 'scratchpad'], help='one action only')
     p.add_argument('--profile', action='store_true', help='Time Profiler instead of render gaps')
     args = p.parse_args()
     if not pe.locked():

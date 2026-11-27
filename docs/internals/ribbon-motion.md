@@ -31,6 +31,10 @@ controls. The probe now also judges cadence: the share of render gaps of at most
 drift more between runs than within one, so a gain counts only when every trial
 lies beyond every pooled base trial (`script/fluidity_report.py`).
 
+A scratchpad parking slides off the top of the screen before its spring settles:
+nothing changes on screen in the rest of the motion, so the compositor renders
+nothing and the probe counts those 30-60 ms as late frames nobody sees.
+
 ## Tried without a gain beyond noise
 
 - delaying native moves (25 ms, or to the end of the spring), or spacing them by 16 ms
