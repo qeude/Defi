@@ -80,7 +80,6 @@ let package = Package(
       name: "DefiMacOS",
       dependencies: [
         "DefiModel", "DefiCore", "DefiConfig", "DefiRuntime",
-        .product(name: "TOMLDecoder", package: "TOMLDecoder"),
       ]
     ),
     .executableTarget(

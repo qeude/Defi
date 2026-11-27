@@ -1,5 +1,6 @@
 import DefiMacOS
 import DefiConfig
+import DefiModel
 import DefiRuntime
 import Foundation
 import SwiftUI

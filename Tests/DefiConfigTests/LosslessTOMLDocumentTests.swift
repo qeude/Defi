@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import TOMLDecoder
 
-@testable import DefiMacOS
+@testable import DefiConfig
 
 struct LosslessTOMLDocumentTests {
   @Test

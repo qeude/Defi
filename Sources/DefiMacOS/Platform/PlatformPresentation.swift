@@ -1,7 +1,6 @@
 import AppKit
 import DefiCore
 import DefiModel
-import DefiRuntime
 
 /// Geometry notifications carry IDs, never stale frames. Resolve once at delivery.
 struct PendingBorderGeometry {

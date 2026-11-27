@@ -1,4 +1,5 @@
 import DefiRuntime
+import DefiModel
 import Testing
 @testable import DefiMacOS
 

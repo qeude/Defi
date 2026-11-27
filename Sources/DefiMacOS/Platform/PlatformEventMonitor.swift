@@ -2,7 +2,6 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import DefiModel
-import DefiRuntime
 import Synchronization
 
 /// Window discovery reads Defi itself only while it is a regular app, with Settings open.

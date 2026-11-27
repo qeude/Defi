@@ -1,5 +1,5 @@
 import ApplicationServices
-import DefiRuntime
+import DefiModel
 
 @MainActor
 final class ObservationMeasurementAccess {

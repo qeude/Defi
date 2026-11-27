@@ -4,7 +4,6 @@ import Darwin
 import DefiConfig
 import DefiCore
 import DefiModel
-import DefiRuntime
 import OSLog
 
 private let frameCommitLogger = Logger(
