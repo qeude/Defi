@@ -21,6 +21,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
   case screenRecording
   case launchAtLogin
   case automaticUpdates
+  case supportPrompt
   case menuBar
   case workspaceDisplay
   case menuBarIndicator
@@ -83,6 +84,7 @@ enum SettingsOption: String, CaseIterable, Sendable {
     case .screenRecording: (.general, "Screen Recording", "permissions screen recording capture animations previews")
     case .launchAtLogin: (.general, "Launch Defi at login", "startup launch login")
     case .automaticUpdates: (.general, "Automatically check for updates", "updates automatic check")
+    case .supportPrompt: (.general, "Ask for support after major updates", "support prompt reminder")
     case .menuBar: (.menuBar, "Show Defi in the menu bar", "menu_bar.enabled")
     case .workspaceDisplay: (.menuBar, "Workspace labels", "menu_bar.workspace_style icon only icon and name name only number none")
     case .menuBarIndicator: (.menuBar, "Workspace indicator", "menu_bar.indicator dots pills boxes circles rectangles spaces")

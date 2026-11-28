@@ -46,7 +46,7 @@ public struct MenuBarContent: View {
         .disabled(AppUpdater.shared.status == .checking)
       }
       Divider()
-      Link("Support Defi…", destination: defiSponsorsURL)
+      Button("Support Defi…") { SupportPrompt.show() }
       Divider()
       Button("Quit Defi") {
         commandHandler("quit")

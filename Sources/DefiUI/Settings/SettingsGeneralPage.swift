@@ -37,6 +37,8 @@ struct GeneralSettingsView: View {
         }
         AutomaticUpdatesToggle()
           .settingsSearchTarget(.automaticUpdates)
+        SupportPromptToggle()
+          .settingsSearchTarget(.supportPrompt)
       }
       Section("Configuration", symbol: "doc.text", color: .blue) {
         HStack(spacing: 10) {
@@ -83,6 +85,17 @@ struct AutomaticUpdatesToggle: View {
   var body: some View {
     if AppUpdater.shared.isEligible {
       Toggle(SettingsOption.automaticUpdates.title, isOn: $automaticChecks)
+    }
+  }
+}
+
+@MainActor
+struct SupportPromptToggle: View {
+  @AppStorage(SupportPrompt.afterUpdatesKey) private var afterUpdates = true
+
+  var body: some View {
+    if AppUpdater.shared.isEligible {
+      Toggle(SettingsOption.supportPrompt.title, isOn: $afterUpdates)
     }
   }
 }

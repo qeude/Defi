@@ -29,6 +29,16 @@ struct AppUpdaterTests {
   }
 
   @Test
+  func asksForSupportOnlyAfterAMajorUpdate() {
+    #expect(SupportPrompt.isMajorUpdate(from: "0.12.3", to: "1.0.0"))
+    #expect(SupportPrompt.isMajorUpdate(from: "9.4.0", to: "10.0.0"))
+    #expect(!SupportPrompt.isMajorUpdate(from: nil, to: "1.0.0"))
+    #expect(!SupportPrompt.isMajorUpdate(from: "0.11.2", to: "0.12.0"))
+    #expect(!SupportPrompt.isMajorUpdate(from: "1.0.0", to: "1.0.1"))
+    #expect(!SupportPrompt.isMajorUpdate(from: "2.0.0", to: "1.9.0"))
+  }
+
+  @Test
   func stagesOnlyASignedAppWithTheAnnouncedVersion() throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }

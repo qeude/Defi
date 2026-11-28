@@ -32,6 +32,7 @@ struct DefiDaemonMain: App {
       NavigationActor.enqueue { daemon.start() }
       MainActor.assumeIsolated {
         AppUpdater.shared.start { NavigationActor.enqueue { daemon.handleMenuCommand("quit") } }
+        SupportPrompt.showAfterUpdate()
       }
     } catch DaemonInstanceLockError.alreadyRunning {
       exit(0)

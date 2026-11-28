@@ -99,6 +99,10 @@ Turn the check off in Settings › General, or run it by hand from Settings ›
 About or the menu bar. Builds not signed with the release certificate never
 check. Homebrew users can keep using `brew upgrade --cask defi`.
 
+After an update to a new major version, a panel invites you to sponsor Defi or
+star its repository. Turn that off from the panel or in Settings › General;
+"Support Defi…" in the menu bar opens it any time.
+
 ## Keyboard shortcuts
 
 Shortcuts use <kbd>⌃</kbd><kbd>⌥</kbd> (Control + Option), leaving Option free
