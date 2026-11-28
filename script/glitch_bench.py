@@ -465,6 +465,32 @@ def windows(bench, rng, rounds):
             (bench.out / f'close-{number}-trace.txt').write_text(bench.cli_run('trace')[0])
 
 
+def requested(bench, rng, rounds):
+    """A window the user asked for (a click, then the app opens it, as with Command-N) opens in its
+    slot without first showing where macOS placed it, also while the app's main thread is busy."""
+    for r in range(rounds):
+        for busy in (0, 0.35):
+            focused = bench.focused()
+            fixture = next((f for f in bench.fixtures.values() if f.process.poll() is None
+                            and focused in {w['windowNumber'] for w in f.ask()['windows']}), bench.fixture('a'))
+            x, y, w, h = next((w['frame'] for w in fixture.ask()['windows'] if w['windowNumber'] == focused),
+                              fixture.ask()['windows'][0]['frame'])
+            subprocess.run([str(bench.tools / 'GlitchCamera'), 'click', str(x + w / 2), str(y + h / 2)])
+            if busy:
+                fixture.ask('set-busy', delay=busy, period=0.5)
+            start, pids = now(), bench.daemons()
+            number = bench.create(fixture.name, f'asked{r}-{busy}-{int(time.time() * 1000)}')
+            bench.log_event('open-requested', window=number, busy=busy)
+            bench.judge('open-requested', start, number, pids, until=lambda: bench.focused() == number)
+            if busy:
+                fixture.ask('set-busy', delay=0, period=0.5)
+            window_id = next(w['id'] for w in fixture.ask()['windows'] if w['windowNumber'] == number)
+            start, pids = now(), bench.daemons()
+            bench.log_event('close', window=number)
+            fixture.ask('close', id=window_id)
+            bench.judge('close', start, None, pids, until=lambda: number not in bench.window_ids())
+
+
 def activation(bench, rng, rounds):
     for _ in range(rounds):
         for name in ['b', 'a', 'b', 'a']:
@@ -749,7 +775,7 @@ def app_switch(bench, rng, rounds):
 SCENARIOS = {'columns': columns, 'workspaces': workspaces, 'windows': windows, 'activation': activation,
              'overview': overview, 'fullscreen': fullscreen, 'restart': restart, 'slow': slow,
              'displays': displays, 'settings': settings, 'hidden-close': hidden_close, 'pinned': pinned,
-             'app-switch': app_switch}
+             'app-switch': app_switch, 'requested': requested}
 
 
 # -- analysis ----------------------------------------------------------------------------------------

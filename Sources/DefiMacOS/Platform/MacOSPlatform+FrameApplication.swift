@@ -676,7 +676,7 @@ extension MacOSPlatform {
         assignments: assignments.filter { owned.contains($0.windowID) }, ribbonFrames: ribbon,
         previousRibbonFrames: previousRibbonFrames, previousPlaceholderFrames: previousPlaceholderFrames,
         skippedWindowIDs: skippedWindowIDs, hiddenWindowIDs: hiddenWindowIDs, allWindows: allWindows,
-        toggledScratchpad: toggled,
+        toggledScratchpad: toggled, isLifecycle: source == "window-lifecycle-animation",
         motion: windowProxyMotionDuration(source: source, animated: animated,
           hasRibbon: !ribbon.isEmpty || !toggled.isEmpty, workspaceShift: monitor.workspaceShift))
       if released, !shown { presenter.landDrop() }
@@ -689,7 +689,7 @@ extension MacOSPlatform {
     assignments: [FrameAssignment], ribbonFrames: [FrameAssignment],
     previousRibbonFrames: [WindowID: Rect], previousPlaceholderFrames: [WindowID: Rect],
     skippedWindowIDs: Set<WindowID>, hiddenWindowIDs: Set<WindowID>, allWindows: [WindowID: Window],
-    toggledScratchpad: [WindowID: Bool], motion duration: TimeInterval?) -> Bool {
+    toggledScratchpad: [WindowID: Bool], isLifecycle: Bool, motion duration: TimeInterval?) -> Bool {
     let viewport = monitor.viewport, workspaceShift = monitor.workspaceShift
     // A fullscreen Space hides this desktop: the layout lands at once, ready when it slides back.
     guard monitor.windowIDs.isDisjoint(with: activeNativeFullscreenWindowIDs) else {
@@ -700,15 +700,18 @@ extension MacOSPlatform {
     var observed = latestObservedFrames
     for (id, window) in windows where observed[id] == nil { observed[id] = window.frame }
     let native = assignments.filter { !skippedWindowIDs.contains($0.windowID) }
+    // Back from full screen: macOS animated the return, and a motion from the window's
+    // last ribbon place would show its full-screen picture.
+    let returning = isLifecycle && native.contains { previousPlaceholderFrames[$0.windowID] != nil }
     let ribbonTargets = Dictionary(ribbonFrames.filter { !skippedWindowIDs.contains($0.windowID) }
       .map { ($0.windowID, $0.frame) }) { first, _ in first }
     // Windows discovered by this snapshot grow in at their place instead of sliding.
     let opened = newlyDiscoveredWindowIDs
     // A released scroll gesture settles from the drawn ribbon, even back to where it was.
-    let moves = presenter.releasesPan || !toggledScratchpad.isEmpty
+    let moves = !returning && (presenter.releasesPan || !toggledScratchpad.isEmpty
       || windowProxyDisplayMoves(monitor, displayCount: windowProxyMonitors.count,
       ribbonTargets: ribbonTargets, previousRibbonFrames: previousRibbonFrames, opened: opened,
-      dropped: windowProxyDroppedWindowID, skipped: skippedWindowIDs)
+      dropped: windowProxyDroppedWindowID, skipped: skippedWindowIDs))
     // A plain layout landing mid-motion (scroll to keep focus visible, a drop settling)
     // continues the running motion toward its targets instead of cutting it.
     let duration = moves ? duration ?? (!ribbonFrames.isEmpty
@@ -853,12 +856,13 @@ extension MacOSPlatform {
       borderWindowIDs: monitor.windowIDs)
   }
 
-  /// Whether every full-screen window has left full screen. The first time, the borders
-  /// hidden on its display show again: the desktop slides back before the Space change
+  /// Once every full-screen window has left full screen, the borders hidden on its
+  /// display show again: the desktop slides back before the Space change
   /// lands, while the window's own frame events already come in.
-  @discardableResult
-  func noteNativeFullscreenReturn() -> Bool {
-    guard !activeNativeFullscreenWindowIDs.isEmpty else { return false }
+  /// Nothing covers the return: macOS animates it, and a picture of the window would show
+  /// its content as it was before full screen.
+  func noteNativeFullscreenReturn() {
+    guard !activeNativeFullscreenWindowIDs.isEmpty else { return }
     guard !activeNativeFullscreenWindowIDs.contains(where: { id in
       guard let element = elements[id] else { return false }
       var value: CFTypeRef?
@@ -869,41 +873,11 @@ extension MacOSPlatform {
     }) else {
       // Back in full screen before a snapshot saw it leave: its display hides borders again.
       returnedNativeFullscreenWindowIDs = []
-      return false
+      return
     }
-    if returnedNativeFullscreenWindowIDs != activeNativeFullscreenWindowIDs {
-      returnedNativeFullscreenWindowIDs = activeNativeFullscreenWindowIDs
-      enqueuePresentation { $0.presentHideBordersOnFullscreenDisplays([]) }
-    }
-    return true
-  }
-
-  /// Back from a full-screen Space, macOS draws parked windows on screen and the app puts
-  /// its window back where it likes: the screen keeps Defi's layout until the exit lands.
-  func holdWindowProxiesForFullscreenReturn() {
-    // The Space change lands before the desktop is back on screen.
-    guard !activeNativeFullscreenWindowIDs.isEmpty else { return }
-    // Arriving on a full-screen Space also lands here; the proxies would cover the window.
-    guard noteNativeFullscreenReturn() else { return }
-    // A snapshot on the full-screen Space sees none of the desk, so the windows come from
-    // the ribbon, which stayed where the user left it.
-    let all = Dictionary(lastSnapshotWindows.map { ($0.id, $0) }) { first, _ in first }
-    let appIDs = applicationIDsByProcess
-    for monitor in windowProxyMonitors {
-      guard let display = RibbonProxyStore.shared.screen(containing: monitor.viewport)?.displayID else { continue }
-      let shown = monitor.windowIDs.compactMap { id -> RibbonProxyWindow? in
-        guard let owner = processIDs[id], let frame = previousLogicalRibbonFrames[id],
-          windowProxyVisibleOverlap(frame, monitor.viewport) > 1.01 else { return nil }
-        return RibbonProxyWindow(id: id, appID: all[id]?.appID ?? appIDs[owner] ?? "", processID: owner,
-          from: frame, to: frame)
-      }
-      RibbonProxyPresenter.on(display).hold(windows: shown, viewport: monitor.viewport,
-        generation: frameSubmissionGeneration, processID: 0,
-        selectedWindowID: desiredSelectedWindowID, managedWindowIDs: Set(all.keys).union(monitor.windowIDs),
-        borderWindowIDs: monitor.windowIDs)
-    }
-    // The app reports its window back a few snapshots after the slide.
-    RibbonProxyPresenter.extendHolds()
+    guard returnedNativeFullscreenWindowIDs != activeNativeFullscreenWindowIDs else { return }
+    returnedNativeFullscreenWindowIDs = activeNativeFullscreenWindowIDs
+    enqueuePresentation { $0.presentHideBordersOnFullscreenDisplays([]) }
   }
 
   /// `frame` is nil for a dialog, a panel or a tab. A new native tab can also show
