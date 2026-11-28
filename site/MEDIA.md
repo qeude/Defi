@@ -35,7 +35,7 @@ Frame rate: ScreenCaptureKit delivers 120 fps while columns scroll and the
 Overview moves. Vertical workspace switches arrive at about 60 fps in the
 capture; those stretches repeat frames in the 120 fps files.
 
-`feature-app-rules.webp` (1000 × 690) is a crop of a Retina capture of
+`feature-app-rules.webp` (1000 × 384) is a crop of a Retina capture of
 Settings › App Rules in Dark Mode, made in the `defi-e2e` VM on 27 November
 2026 from a build of `main`, with two neutral rules (Xcode on `dev`, Safari on
 `web`).

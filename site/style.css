@@ -396,10 +396,10 @@ h2{font:600 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.04em}
 .card-copy p{margin-top:10px;max-width:440px;font-size:16px;color:var(--muted)}
 .card-video .card-art{padding:22px 22px 0;align-items:end}
 .card-video video{display:block;width:100%;height:auto;border-radius:12px;box-shadow:0 0 0 1px #ffffff1f}
-/* An uneven grid: the Overview leads on two rows beside two stacked cards, then three cards of falling width. */
+/* An uneven grid: the Overview leads on two rows beside two stacked cards, then two rows of 5 and 7 that swap sides. */
 .b-hero{grid-column:span 7;grid-row:span 2}
 .b-side,.b-split{grid-column:span 5}
-.b-5{grid-column:span 5}.b-4{grid-column:span 4}.b-3{grid-column:span 3}
+.b-5{grid-column:span 5}.b-7{grid-column:span 7}
 .b-side{min-height:0}
 .b-side .card-art{padding-top:36px}
 /* The speed card sets its copy beside the number. */
@@ -436,9 +436,10 @@ h2{font:600 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.04em}
 .ill-hz{display:flex;align-items:flex-start;justify-content:center;align-self:center;gap:.08em;margin:0;font:600 clamp(56px,36cqi,128px)/1 var(--display);letter-spacing:-.045em;font-variant-numeric:tabular-nums;color:var(--ink)}
 .ill-hz b{font-weight:inherit}
 .ill-hz>span{margin-top:.14em;font-size:.28em;letter-spacing:0;color:var(--muted)}
-.b-5 .card-art{min-height:260px;-webkit-mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);-webkit-mask-composite:source-in;mask-image:linear-gradient(90deg,#000 74%,transparent),linear-gradient(#000 76%,transparent);mask-composite:intersect}
-.ill-shot{position:absolute;top:28px;left:28px;max-width:none;width:max(112%,460px);height:auto}
-.ill-monitors{display:flex;align-items:flex-end;gap:12px;width:min(100%,420px)}
+.b-rules .card-art{min-height:260px;-webkit-mask-image:linear-gradient(90deg,#000 74%,transparent);mask-image:linear-gradient(90deg,#000 74%,transparent)}
+/* The capture bleeds off the right edge, centred below the art padding like the other illustrations. */
+.ill-shot{position:absolute;top:calc(50% + 14px);left:28px;max-width:none;width:max(130%,460px);height:auto;translate:0 -50%}
+.ill-monitors{display:flex;align-items:flex-end;gap:12px;width:min(100%,560px)}
 .mon{flex:5;height:auto;aspect-ratio:16/10;gap:3px;padding:11px 4px 4px;border-radius:8px;overflow:visible;box-shadow:0 0 0 3px #0b0b0d,0 0 0 4px #ffffff24,0 24px 40px -18px #000}
 .mon::before{height:7px;border-radius:8px 8px 0 0}
 .mon::after{content:'';position:absolute;bottom:-17px;left:50%;width:28%;height:12px;transform:translateX(-50%);border-radius:0 0 6px 6px;background:linear-gradient(#26262a,#35353b)}
@@ -480,6 +481,35 @@ h2{font:600 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.04em}
 }
 @keyframes swipe-focus-a{0%,38%,87%,100%{box-shadow:0 0 0 2px #fff,0 14px 28px -10px #000}42%,83%{box-shadow:0 0 0 .5px #ffffff2e,0 12px 22px -12px #000b}}
 @keyframes swipe-focus-b{0%,38%,87%,100%{box-shadow:0 0 0 .5px #ffffff2e,0 12px 22px -12px #000b}42%,83%{box-shadow:0 0 0 2px #fff,0 14px 28px -10px #000}}
+/* The menu bar card. Sizes follow the real item in units of one point (--u). */
+.ill-bar{--u:min(1.8px,calc(100cqi / 230));--mb:10s;width:100%;border-radius:14px;overflow:hidden;background:var(--wallpaper);box-shadow:0 0 0 1px #ffffff1f,0 24px 50px -24px #000}
+.bar-strip{display:flex;align-items:center;justify-content:flex-end;gap:calc(10 * var(--u));height:calc(24 * var(--u));padding:0 calc(10 * var(--u));background:#0006;color:#fff;font:500 calc(13 * var(--u))/1 -apple-system,BlinkMacSystemFont,system-ui,sans-serif}
+.bar-ws{display:flex;align-items:center;gap:calc(4 * var(--u))}
+.bar-ws b{padding:calc(2 * var(--u)) calc(6 * var(--u));border-radius:99px;background:#fff;color:#0c1a3d;font-size:calc(11 * var(--u));font-weight:600}
+.bar-ws i{width:calc(6 * var(--u));height:calc(6 * var(--u));border-radius:50%;background:#ffffff8c}
+.bar-ws i.empty{background:none;box-shadow:inset 0 0 0 calc(1.2 * var(--u)) #ffffff59}
+.bar-cols{flex:none;position:relative;width:calc(73 * var(--u));height:calc(18 * var(--u))}
+.bar-bars{position:absolute;inset:calc(3 * var(--u)) 0 auto calc(3 * var(--u));display:flex;gap:calc(2 * var(--u));height:calc(12 * var(--u))}
+.bar-bars i{flex:none;border-radius:calc(1.5 * var(--u));background:#ffffff47}
+.bar-bars i.stack{background:linear-gradient(#ffffff47 calc(5.5 * var(--u)),transparent 0 calc(6.5 * var(--u)),#ffffff47 0)}
+/* As in the real item, a whole bar brightens while its column's centre is on screen; the focused one is covered by .bar-focus. */
+.bar-bars i:nth-child(3){animation:bar-c3 var(--mb) infinite var(--ease)}
+.bar-bars i:nth-child(4){animation:bar-c4 var(--mb) infinite var(--ease)}
+.bar-focus{position:absolute;top:calc(3 * var(--u));left:0;width:calc(14.4 * var(--u));height:calc(12 * var(--u));border-radius:calc(1.5 * var(--u));background:#fff;translate:calc(21.94 * var(--u));animation:bar-focus var(--mb) infinite var(--ease)}
+.bar-frame{position:absolute;top:calc(.75 * var(--u));left:0;width:calc(25 * var(--u));height:calc(16.5 * var(--u));border-radius:calc(3 * var(--u));box-shadow:inset 0 0 0 calc(1.2 * var(--u)) #fff;translate:calc(16.64 * var(--u));animation:bar-frame var(--mb) infinite var(--ease)}
+.bar-clock{white-space:nowrap}
+/* The screen under the bar: the same strip, one screen wide, scrolling with the frame above. */
+.bar-screen{position:relative;height:clamp(140px,32cqi,230px);padding:10px 0;container-type:inline-size}
+.bar-track{position:relative;display:flex;gap:8px;height:100%;translate:-73cqi;animation:bar-track var(--mb) infinite var(--ease)}
+.bar-track>span{flex:none;display:flex;flex-direction:column;gap:8px}
+.bar-ring{position:absolute;inset:0 auto 0 0;width:calc(80cqi - 8px);border-radius:8px;box-shadow:0 0 0 2px #fff;translate:83cqi;animation:bar-ring var(--mb) infinite var(--ease)}
+/* Focus steps right twice and back; the screen scrolls only as far as keeps the focused column on it, and the frame maps each screen edge through its column. */
+@keyframes bar-frame{0%,16%,84%,100%{translate:calc(16.64 * var(--u));width:calc(25 * var(--u))}22%,38%,62%,78%{translate:calc(25.84 * var(--u));width:calc(23 * var(--u))}44%,56%{translate:calc(39.72 * var(--u));width:calc(23 * var(--u))}}
+@keyframes bar-focus{0%,16%,84%,100%{translate:calc(21.94 * var(--u));width:calc(14.4 * var(--u))}22%,38%,62%,78%{translate:calc(38.34 * var(--u));width:calc(9 * var(--u))}44%,56%{translate:calc(49.34 * var(--u));width:calc(11.88 * var(--u))}}
+@keyframes bar-c3{0%,16%,44%,56%,84%,100%{background:#ffffff47}22%,38%,62%,78%{background:#ffffff8c}}
+@keyframes bar-c4{0%,16%,84%,100%{background:#ffffff47}22%,78%{background:#ffffff8c}}
+@keyframes bar-track{0%,16%,84%,100%{translate:-73cqi}22%,38%,62%,78%{translate:-113cqi}44%,56%{translate:-179cqi}}
+@keyframes bar-ring{0%,16%,84%,100%{translate:83cqi;width:calc(80cqi - 8px)}22%,38%,62%,78%{translate:163cqi;width:calc(50cqi - 8px)}44%,56%{translate:213cqi;width:calc(66cqi - 8px)}}
 .ill-native{display:grid;justify-items:center;gap:22px;width:100%}
 /* macOS Command-Tab: glass panel, a rounded highlight behind the chosen app, its name below */
 .cmdtab{display:flex;gap:4px;padding:10px 10px 28px;border-radius:22px;background:#2a2a30d9;backdrop-filter:blur(20px);box-shadow:inset 0 0 0 1px #ffffff1f,0 24px 50px -16px #000}
@@ -572,6 +602,6 @@ h2{font:600 clamp(40px,5.6vw,64px)/1.02 var(--display);letter-spacing:-.04em}
 @media (prefers-reduced-motion:reduce){
   .hero-bg i,.hword{animation:none}
   html{scroll-behavior:auto}
-  .term u,.foot-art *,.hz-light i,.swipe-track,.swipe-track .mw,.trackpad i{animation:none!important}
+  .term u,.foot-art *,.hz-light i,.swipe-track,.swipe-track .mw,.trackpad i,.bar-bars i,.bar-focus,.bar-frame,.bar-track,.bar-ring{animation:none!important}
   .reveal{opacity:1;transform:none}
 }
