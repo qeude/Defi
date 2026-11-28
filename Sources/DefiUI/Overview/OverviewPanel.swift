@@ -510,6 +510,8 @@ final class OverviewPanel {
     if let surfaceScene, surfaceScene.projection != projection {
       ids.formUnion(surfaceScene.nativeFrames.keys)
       let sceneLayer = surfaceScene.layer
+      // Without the scene, the closing zoom falls back to the Overview's pictures.
+      if !openingTransitionInProgress { openingTransitionChanged?("dropped(projection-changed)") }
       cancelSurfaceTransition(reason: "projection-changed")
       // The cards gain their titles below: the zoom's pictures dissolve instead of popping.
       let fade = CABasicAnimation(keyPath: "opacity")
