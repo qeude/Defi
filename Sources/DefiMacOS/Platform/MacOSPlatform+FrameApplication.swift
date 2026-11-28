@@ -702,16 +702,16 @@ extension MacOSPlatform {
     let native = assignments.filter { !skippedWindowIDs.contains($0.windowID) }
     // Back from full screen: macOS animated the return, and a motion from the window's
     // last ribbon place would show its full-screen picture.
-    if isLifecycle, native.contains(where: { previousPlaceholderFrames[$0.windowID] != nil }) { return false }
+    let returning = isLifecycle && native.contains { previousPlaceholderFrames[$0.windowID] != nil }
     let ribbonTargets = Dictionary(ribbonFrames.filter { !skippedWindowIDs.contains($0.windowID) }
       .map { ($0.windowID, $0.frame) }) { first, _ in first }
     // Windows discovered by this snapshot grow in at their place instead of sliding.
     let opened = newlyDiscoveredWindowIDs
     // A released scroll gesture settles from the drawn ribbon, even back to where it was.
-    let moves = presenter.releasesPan || !toggledScratchpad.isEmpty
+    let moves = !returning && (presenter.releasesPan || !toggledScratchpad.isEmpty
       || windowProxyDisplayMoves(monitor, displayCount: windowProxyMonitors.count,
       ribbonTargets: ribbonTargets, previousRibbonFrames: previousRibbonFrames, opened: opened,
-      dropped: windowProxyDroppedWindowID, skipped: skippedWindowIDs)
+      dropped: windowProxyDroppedWindowID, skipped: skippedWindowIDs))
     // A plain layout landing mid-motion (scroll to keep focus visible, a drop settling)
     // continues the running motion toward its targets instead of cutting it.
     let duration = moves ? duration ?? (!ribbonFrames.isEmpty

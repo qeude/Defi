@@ -111,7 +111,10 @@ extension MacOSPlatform {
         let opening = ProcessInfo.processInfo.systemUptime
         let hold: @Sendable () -> Void = { [weak self] in
           NavigationActor.enqueue { [weak self] in
-            guard let self, opening >= latestOpening else { return }
+            // Held after a slow read, a window the layout already opened would only freeze the screen.
+            guard let self, opening >= latestOpening,
+              !lastSnapshotWindows.contains(where: { $0.id.rawValue == createdNumber.map(UInt64.init) })
+            else { return }
             latestOpening = opening
             holdWindowProxiesForOpening(processID)
           }
