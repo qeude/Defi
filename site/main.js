@@ -44,6 +44,12 @@ const lightColumns = [0.5, 0.33, 0.8, 0.5, 0.66, 0.33, 0.66, 0.5, 0.33, 0.66, 0.
 
 // A window in the feature illustrations: title bar, app icon and, when focused, Defi's border.
 const miniWin = (app, cls = '') => `<span class="mw ${cls}">${appIcon(app)}</span>`;
+// The menu bar over its screen: workspace dots and the columns map (MenuBarColumns.swift), the strip below scrolling with its frame.
+// Column widths in screens; the item maps one screen to 18 points. style.css keys its frames to these.
+const stripColumns = [0.5, 0.33, 0.8, 0.5, 0.66, 0.33];
+const menuBarBars = stripColumns.map((w, i) => `<i class="${i === 1 ? 'stack' : ''}" style="width:calc(${w * 18} * var(--u))"></i>`).join('');
+const menuBarStrip = [['notes'], ['ghostty', 'safari'], ['xcode'], ['safari'], ['music'], ['mail']].map((apps, i) => `<span style="width:calc(${stripColumns[i] * 100}cqi - 8px)">${apps.map(app => miniWin(app)).join('')}</span>`).join('');
+const menuBarArt = `<div class="ill-bar" aria-hidden="true"><div class="bar-strip"><span class="bar-ws"><b>dev</b><i></i><i></i><i class="empty"></i></span><span class="bar-cols"><span class="bar-bars">${menuBarBars}</span><span class="bar-focus"></span><span class="bar-frame"></span></span><span class="bar-clock">Sat&nbsp;&nbsp;9:41</span></div><div class="bar-screen"><div class="bar-track">${menuBarStrip}<i class="bar-ring"></i></div></div></div>`;
 const card = (cls, illustration, title, text) => `<article class="card ${cls}"><div class="card-art">${illustration}</div><div class="card-copy"><h3>${title}</h3><p>${text}</p></div></article>`;
 
 app.querySelector('.hero').insertAdjacentHTML('beforeend', `
@@ -268,10 +274,11 @@ for (const section of [
     <div class="bento">
       ${card('b-hero card-video', recording('feature-overview.mp4', 'feature-overview.jpg', 'Defi Overview browsing workspace rows and their windows'), 'Every window at a glance', 'Zoom out to every workspace, with live pictures of your windows. Type to filter them by title or app, click one to go there, or drag it to another workspace.')}
       ${card('b-side', `<div class="ill-native"><div class="cmdtab">${['safari', 'ghostty', 'xcode', 'messages', 'music'].map((a, i) => `<span class="${i === 2 ? 'on' : ''}">${appIcon(a)}${i === 2 ? '<em>Xcode</em>' : ''}</span>`).join('')}</div><p>${kbd(['⌘'])}<span>+</span>${kbd(['⇥'])}</p></div>`, 'Still a Mac', 'Clicks, the Dock and Command-Tab take you to the right workspace. Full-screen apps keep their place in the strip.')}
-      ${card('b-split', `<div class="hz-light" aria-hidden="true">${[0.33, 0.5, 0.8, 0.5, 0.33].map((w, i) => `<i class="${i === 2 ? 'on' : ''}" style="flex:${w}"></i>`).join('')}</div><p class="ill-hz" aria-label="120 Hz"><b aria-hidden="true">120</b><span>Hz</span></p>`, 'Fast as your keys', 'Animations at up to 120 Hz. Commands never wait for a slow app.')}
-      ${card('b-5', `<img class="ill-shot" src="${media('feature-app-rules.webp')}" alt="Defi's Settings listing application rules, such as Xcode on the dev workspace" width="1000" height="690" loading="lazy">`, 'Every app in its place', 'Rules send an app to its named workspace, keep it floating or set its width when its window opens.')}
-      ${card('b-4', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll, with an empty workspace always ready.')}
-      ${card('b-3', `<div class="ill-swipe" aria-hidden="true"><div class="swipe-view"><div class="swipe-track">${['finder', 'notes', 'safari', 'ghostty', 'xcode', 'music', 'mail', 'messages', 'safari'].map(a => miniWin(a)).join('')}</div></div><div class="trackpad"><i></i><i></i></div></div>`, 'Swipe the strip', 'Turn on trackpad swipes and slide along your columns with your fingers, or swipe up to the Overview.')}
+      ${card('b-split', `<div class="hz-light" aria-hidden="true">${[0.33, 0.5, 0.8, 0.5, 0.33].map((w, i) => `<i class="${i === 2 ? 'on' : ''}" style="flex:${w}"></i>`).join('')}</div><p class="ill-hz" aria-label="120 Hz"><b aria-hidden="true">120</b><span>Hz</span></p>`, 'Fast as your keys', 'Animations at up to 120&nbsp;Hz. Commands never wait for a slow app.')}
+      ${card('b-5 b-rules', `<img class="ill-shot" src="${media('feature-app-rules.webp')}" alt="Defi's Settings listing application rules, such as Xcode on the dev workspace" width="1000" height="384" loading="lazy">`, 'Every app in its place', 'Rules send an app to its named workspace, keep it floating or set its width when its window opens.')}
+      ${card('b-7', menuBarArt, 'Your strip in the menu bar', 'Every workspace of every display, one click away. Turn on the columns item for a map of the strip.')}
+      ${card('b-7', `<div class="ill-monitors"><div class="mini mon">${miniWin('safari', 'on')}${miniWin('ghostty')}${miniWin('notes')}</div><div class="mini mon small">${miniWin('music', 'on')}${miniWin('mail')}</div></div>`, 'One layout per monitor', 'Each display keeps its own workspaces, focus and scroll, with an empty workspace always ready.')}
+      ${card('b-5', `<div class="ill-swipe" aria-hidden="true"><div class="swipe-view"><div class="swipe-track">${['finder', 'notes', 'safari', 'ghostty', 'xcode', 'music', 'mail', 'messages', 'safari'].map(a => miniWin(a)).join('')}</div></div><div class="trackpad"><i></i><i></i></div></div>`, 'Swipe the strip', 'Turn on trackpad swipes and slide along your columns with your fingers, or swipe up to the Overview.')}
     </div>
   </section>`,
   `<section class="shortcuts" id="shortcuts" aria-labelledby="shortcuts-title">

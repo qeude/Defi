@@ -35,15 +35,17 @@ Rhythm and type:
    it runs edge to edge and fits one screen with the keypad under it. A title across the top
    of the desk, “Go on, press ⌃⌥→”, plays the demo's shortcuts on its keys (the modifiers go down and stay, then the key lands), names the action and fades as soon as the
    visitor takes over.
-3. What Defi does: an uneven twelve-column bento of six cards with one-line
+3. What Defi does: an uneven twelve-column bento of seven cards with one-line
    descriptions. The Overview recording fills a tall card (7 columns, 2 rows)
    beside two stacked cards: Command-Tab and speed, its copy beside “120 Hz”
    (system face, snapping up from 0 out of a blur) over the footer's light
-   columns, which rise behind it and then breathe slowly. Below, three cards
-   of falling width (5, 4 and 3 columns): app rules (a real capture of Defi's Settings, fading into the card),
-   monitors (small Defi desktops: wallpaper, windows with their app icon, white
-   focus border), and the command line (real `defi` commands). The desk above
-   already shows columns reflowing and windows floating.
+   columns, which rise behind it and then breathe slowly. Below, two rows of
+   5 and 7 columns that swap sides: app rules (a real capture of Defi's
+   Settings, fading into the card) beside the menu bar (its workspace and
+   columns items at the top of a small screen whose strip scrolls in step
+   with the frame on the columns map), then monitors (small Defi desktops: wallpaper,
+   windows with their app icon, white focus border) beside the trackpad swipe.
+   The desk above already shows columns reflowing and windows floating.
    Every claim matches the code or CONFIGURATION.md.
 4. Shortcuts: “Hold ⌃ ⌥” (two keycaps) beside Defi's real cheatsheet for the
    built-in keys, laid out like CheatsheetView (black fading into glass, chord,
