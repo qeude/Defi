@@ -1093,6 +1093,7 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(controller.surfacePresentedFrameCount, 1, "The zoom must retain one fixed screenshot")
     XCTAssertEqual(fixture.frame, fixtureFrame, "Projection must not mutate native geometry")
     controller.close()
+    XCTAssertTrue(controller.openingTransitionHistory.contains("close(surface)"), controller.openingTransitionHistory)
     controller.prepare(windowPreviewsEnabled: true, snapshot: fixtureSnapshot, layout: layout)
     controller.open(snapshot: fixtureSnapshot, layout: layout, windowPreviewsEnabled: true)
     // The previous closing task ends after 0.22 seconds; it must not hide the reopened scene.
@@ -1135,6 +1136,8 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertTrue(closing)
     XCTAssertEqual(controller.previewClosingCount, closings + screens.count,
       "Every display must zoom back through its preview; empty workspaces zoom the wallpaper")
+    XCTAssertTrue(controller.openingTransitionHistory.contains("close(preview,surface:none)"),
+      controller.openingTransitionHistory)
     XCTAssertTrue(panels().contains(where: \.isVisible), "Changing workspace must retain the displayed preview during the reverse zoom")
     let hidden = await waitUntil(timeout: 2) { panels().allSatisfy { !$0.isVisible } }
     XCTAssertTrue(hidden)
@@ -1163,6 +1166,12 @@ final class DesktopE2ETests: XCTestCase {
     XCTAssertEqual(controller.surfaceTransitionCount, zooms + 1, "The zoom must run from verified native frames without previews")
     XCTAssertTrue(controller.openingTransitionHistory.contains("started(surfaces:0,"), controller.openingTransitionHistory)
     controller.close()
+    // Animations off: neither zoom may run, and the log names the cut.
+    controller.open(snapshot: fixtureSnapshot, layout: layout, animation: AnimationConfig(enabled: false),
+      windowPreviewsEnabled: false)
+    controller.close()
+    XCTAssertTrue(controller.openingTransitionHistory.contains("close(cut,surface:off,exit:true,animation:false,"),
+      controller.openingTransitionHistory)
     // Releasing the controller mid-zoom strands a screen-sized panel above every later test's windows.
     let finalHidden = await waitUntil(timeout: 2) { panels().allSatisfy { !$0.isVisible } }
     XCTAssertTrue(finalHidden)

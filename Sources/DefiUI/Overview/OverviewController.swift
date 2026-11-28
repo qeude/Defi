@@ -812,15 +812,15 @@ public final class OverviewController: NSObject {
         continue
       }
       // Why the windows could not zoom back on their own pictures.
-      var surfaceRefusal = "changed"
+      let zoomsBack = nativeExitCanZoom && animationsEnabled
+        && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+      var surfaceRefusal = zoomsBack ? "changed" : "off"
       if canZoomBack { surfaceRefusal = hadSurfaceScene ? "moved" : "none" }
       let committedOffsets = commitScrollOffsets ? viewports[panel.monitorID]?.horizontalOffsets : nil
       let monitor = snapshot?.monitors.first(where: { $0.id == panel.monitorID })
       let activeWorkspace = monitor?.workspaces.first(where: { $0.id == monitor?.activeWorkspace })
       let floating = activeWorkspace?.floatingWindows.isEmpty == false
-      if nativeExitCanZoom, animationsEnabled,
-        !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-        let snapshot, let monitor, var workspace = activeWorkspace, !floating,
+      if zoomsBack, let snapshot, let monitor, var workspace = activeWorkspace, !floating,
         let viewport = snapshot.monitorFrames[monitor.id], let screen = screen(for: monitor.id),
         let projection = closingProjections[monitor.id],
         let scene = OverviewPreviewClosingScene(projection: projection,
