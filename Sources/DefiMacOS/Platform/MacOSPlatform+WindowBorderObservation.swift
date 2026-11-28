@@ -70,7 +70,7 @@ extension MacOSPlatform {
         self?.enqueuePresentation { $0.presentRefreshWindowBorders() }
       }
       if kind == .space {
-        NavigationActor.enqueue { [weak self] in self?.holdWindowProxiesForFullscreenReturn() }
+        NavigationActor.enqueue { [weak self] in self?.noteNativeFullscreenReturn() }
       }
       let windowID = element.flatMap { element in
         self?.elements.first(where: { CFEqual($0.value, element) })?.key
@@ -111,30 +111,38 @@ extension MacOSPlatform {
         let opening = ProcessInfo.processInfo.systemUptime
         let hold: @Sendable () -> Void = { [weak self] in
           NavigationActor.enqueue { [weak self] in
-            self?.latestOpening = opening
-            self?.holdWindowProxiesForOpening(processID)
+            guard let self, opening >= latestOpening else { return }
+            latestOpening = opening
+            holdWindowProxiesForOpening(processID)
           }
         }
         // An input method's candidate list and mode marker open in the app typed into, and
         // holding the screen for them flickered at every conversion. While such typing goes
         // on, the hold waits for a read that tells them apart: a read that waits on the app,
-        // so a new window can show before its hold. Otherwise the hold starts at once.
+        // so a new window can show before its hold.
         let typesWithInputMethod = eventInput.map { opening - $0.latestTyping < 0.5 } == true
           && inputMethodEnabled()
-        if !typesWithInputMethod { hold() }
-        // An app's later dialogs, panels and native tabs open where they are: checked
-        // after the hold, off the main thread, since the read waits on the app.
         let created = UncheckedSendable(value: element), checksOwnWindow = (previousWindowCount ?? 0) > 0
+        if !typesWithInputMethod, !checksOwnWindow { hold() }
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-          if typesWithInputMethod {
-            if isTextInputAccessory(created.value) { return }
-            hold()
-          }
-          // Read last, once the hold is decided, so the log never delays it.
+          if typesWithInputMethod, isTextInputAccessory(created.value) { return }
           var verdict = "new-window-timeout"
           defer {
             ribbonProxyLogger.notice("open-created pid=\(processID) windows=\(previousWindowCount ?? 0) verdict=\(verdict, privacy: .public) \(createdWindowSummary(created.value, number: createdNumber), privacy: .public)")
           }
+          // Native fullscreen creates an AX window during the zoom. Holding the ribbon
+          // before checking its type can flash the desktop back over the animation.
+          let ownFrame = checksOwnWindow ? ownWindowFrame(created.value) : nil
+          if case .some(.none) = ownFrame {
+            verdict = "non-tiled"
+            return
+          }
+          // An unidentified surface in an existing app may still be the fullscreen helper.
+          guard !checksOwnWindow || ownFrame != nil || createdNumber != nil else {
+            verdict = "unidentified"
+            return
+          }
+          if typesWithInputMethod || checksOwnWindow { hold() }
           // Picture in picture floats above the overlay and never opens a column: holding
           // the screen for its layout froze every window behind it.
           if let createdNumber, windowFloatsAboveRibbon(createdNumber) {
@@ -144,8 +152,8 @@ extension MacOSPlatform {
             }
           }
           let shown = applicationShownWindowIDs(processID)
-          if checksOwnWindow, let frame = ownWindowFrame(created.value) {
-            verdict = frame == nil ? "dialog-or-tab" : "own-window"
+          if let frame = ownFrame {
+            verdict = "own-window"
             NavigationActor.enqueue { [weak self] in
               guard let self, latestOpening == opening else { return }
               releaseOpeningHoldUnlessOwnWindow(processID, at: frame)
@@ -155,12 +163,16 @@ extension MacOSPlatform {
           // A first window, or an app too slow to answer (Finder): WindowServer showing it
           // a new standard window confirms one, and the hold waits for its layout. The
           // screen stays held while this check runs, and moves again as soon as it fails.
-          NavigationActor.enqueue { RibbonProxyPresenter.extendHolds(to: 0.8) }
+          NavigationActor.enqueue { [weak self] in
+            if self?.latestOpening == opening { RibbonProxyPresenter.extendHolds(to: 0.8) }
+          }
           let deadline = ProcessInfo.processInfo.systemUptime + 0.8
           while ProcessInfo.processInfo.systemUptime < deadline {
             if !applicationShownWindowIDs(processID).isSubset(of: shown) {
               verdict = "new-window"
-              return NavigationActor.enqueue { RibbonProxyPresenter.extendHolds() }
+              return NavigationActor.enqueue { [weak self] in
+                if self?.latestOpening == opening { RibbonProxyPresenter.extendHolds() }
+              }
             }
             usleep(20_000)
           }

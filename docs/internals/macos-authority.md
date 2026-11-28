@@ -27,6 +27,18 @@ write is outstanding or has failed; only a click on that window lifts the
 suppression. After the write succeeds, keyboard focus input newer than its
 completion, such as Command-Tab, lifts it, and older input does not.
 
+## Native fullscreen exit
+
+AppKit returns a window from native fullscreen to the frame its app last set
+itself, not to the one Defi wrote through Accessibility, and macOS animates it
+there. Writes made before or during fullscreen do not change that frame. During
+the animation WindowServer shows an exit surface in place of the window, and
+lists the window again about 140 ms after the animation ends. A write before
+that moment lands inside the exit surface, which then shows its last frame
+again: the window visibly bounces between both sizes. Defi therefore resizes
+the window once it is back, and draws nothing over the return, since its last
+picture shows the content as it was before fullscreen.
+
 ## Firm limits in shipped builds
 
 - Third-party window position and size change only through public Accessibility.
