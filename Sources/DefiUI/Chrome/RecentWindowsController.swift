@@ -147,7 +147,7 @@ struct RecentWindowsView: View {
         }
         .padding(Self.padding)
       }
-      .scrollIndicators(.hidden)
+      .scrollIndicators(.never)
       .onScrollGeometryChange(for: [Int].self) { geometry in
         // Cards not fully in view on each side, counted like the Overview's overflow badges.
         let visible = (geometry.contentOffset.x - Self.padding)...(geometry.contentOffset.x

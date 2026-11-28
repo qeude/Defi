@@ -11,7 +11,7 @@ struct CheatsheetView: View {
         .scaleEffect(layout.scale, anchor: .topLeading)
         .frame(width: layout.scaledSize.width, height: layout.scaledSize.height, alignment: .topLeading)
     }
-    .scrollIndicators(.hidden)
+    .scrollIndicators(.never)
     .scrollDisabled(layout.panelSize == layout.scaledSize)
     .frame(width: layout.panelSize.width, height: layout.panelSize.height)
     .defiPanelSurface()
@@ -24,15 +24,14 @@ private struct DefiPanelSurface: ViewModifier {
   @Environment(\.colorScheme) private var colorScheme
 
   func body(content: Content) -> some View {
-    // Solid at the top for legibility, then fading down into the glass.
+    // Solid at the top for legibility, then a smoothstep fade into the glass, with no kink where it starts.
     let core: Color = colorScheme == .dark ? .black : .white
     let tinted = content.background(
       LinearGradient(
-        stops: [
-          .init(color: core.opacity(0.94), location: 0),
-          .init(color: core.opacity(0.94), location: 0.4),
-          .init(color: core.opacity(0), location: 1),
-        ],
+        stops: (0...10).map { step in
+          let t = Double(step) / 10
+          return .init(color: core.opacity(0.94 * (1 - t * t * (3 - 2 * t))), location: 0.25 + 0.75 * t)
+        },
         startPoint: .top, endPoint: .bottom
       ),
       in: .rect(cornerRadius: cornerRadius)
