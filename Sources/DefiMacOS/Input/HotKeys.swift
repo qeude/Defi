@@ -764,11 +764,12 @@ final class InputMonitor: @unchecked Sendable {
     let (overview, cheatsheet, bindings, closeWindowKeyCode) = lock.withLock {
       (overviewModeEnabled, cheatsheetVisible, self.bindings, closeWindowKeyCodes.close)
     }
-    if code == 53, lock.withLock({ recentWindowsOpen }) {
-      recentWindowsHoldBits = nil
+    // Taken before the passive tap, so a held mod with an arrow never reaches its binding.
+    if let action = [53: "cancel", 123: "previous", 124: "next"][code], lock.withLock({ recentWindowsOpen }) {
+      if code == 53 { recentWindowsHoldBits = nil }
       capturedModifierReleaseState.reset()
       recordGeneralUserInput(type: type, event: event, isDefiTextInput: false)
-      deliver(HotKeyInvocation(command: "recent-windows cancel", timestamp: Double(event.timestamp) / 1_000_000_000))
+      deliver(HotKeyInvocation(command: "recent-windows \(action)", timestamp: Double(event.timestamp) / 1_000_000_000))
       return nil
     }
     if cheatsheet && code == 53 {

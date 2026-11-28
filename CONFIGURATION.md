@@ -711,7 +711,8 @@ macOS session.
 **Recent windows.** `mod-tab` works like Command-Tab, but per window and across
 every workspace and monitor. While `mod` stays held, each Tab moves forward
 through the windows by latest focus, followed by windows never focused, and
-`mod-shift-tab` moves back. Releasing `mod` focuses the selected window and
+`mod-shift-tab` moves back; the Left and Right arrows move too, with or without
+`mod`. Releasing `mod` focuses the selected window and
 activates its workspace, like `focus-window-id`; Escape closes the switcher
 without changing anything. The switcher appears after 150 ms, without animation,
 on the active monitor, so a brief `mod-tab` goes back to the previous window
@@ -721,7 +722,8 @@ does not focus the windows or change the history.
 Cards show the window picture the animations and the Overview keep, or the app
 icon when there is none, when Screen Recording is missing, or with
 `[overview].window_previews = false`. A window that closes leaves the list, and
-the selection moves to the next one. Holding `mod` with the switcher open never
+the selection moves to the next one. When the list scrolls, a badge on each side
+counts the windows past it, as in the Overview. Holding `mod` with the switcher open never
 opens the cheat sheet. Any other command, the Overview, a display change, or
 locking the screen closes the switcher without choosing. While the Overview is
 open, `recent-windows next` and `previous` fail. From the CLI, `recent-windows

@@ -126,6 +126,7 @@ struct RecentWindowsView: View {
   static let cardWidth = RecentWindowCard.preview.width + 16
   static let spacing: CGFloat = 8
   static let padding: CGFloat = 20
+  static let cardRadius: CGFloat = 14
   static let height = RecentWindowCard.preview.height + 54 + 2 * padding
 
   static func contentWidth(count: Int) -> CGFloat {
@@ -134,6 +135,7 @@ struct RecentWindowsView: View {
 
   let cards: [RecentWindowCard]
   let selection: Int
+  @State private var hidden = [0, 0]
 
   var body: some View {
     ScrollViewReader { proxy in
@@ -146,10 +148,24 @@ struct RecentWindowsView: View {
         .padding(Self.padding)
       }
       .scrollIndicators(.hidden)
+      .onScrollGeometryChange(for: [Int].self) { geometry in
+        // Cards not fully in view on each side, counted like the Overview's overflow badges.
+        let visible = (geometry.contentOffset.x - Self.padding)...(geometry.contentOffset.x
+          + geometry.containerSize.width - Self.padding)
+        let starts = cards.indices.map { CGFloat($0) * (Self.cardWidth + Self.spacing) }
+        return [
+          starts.filter { $0 < visible.lowerBound - 0.5 }.count,
+          starts.filter { $0 + Self.cardWidth > visible.upperBound + 0.5 }.count,
+        ]
+      } action: { _, counts in hidden = counts }
+      .overlay(alignment: .leading) { overflowBadge("\u{2190} \(hidden[0])", count: hidden[0]) }
+      .overlay(alignment: .trailing) { overflowBadge("\(hidden[1]) \u{2192}", count: hidden[1]) }
       .onAppear { proxy.scrollTo(selection, anchor: .center) }
-      .onChange(of: selection) { proxy.scrollTo(selection) }
+      // Centered, so the selection never sits under an overflow badge.
+      .onChange(of: selection) { proxy.scrollTo(selection, anchor: .center) }
     }
-    .defiPanelSurface()
+    // Concentric with the cards, like Command-Tab.
+    .defiPanelSurface(cornerRadius: Self.cardRadius + Self.padding)
   }
 
   private func card(_ card: RecentWindowCard, selected: Bool) -> some View {
@@ -171,11 +187,24 @@ struct RecentWindowsView: View {
     }
     .padding(8)
     .frame(width: Self.cardWidth)
-    .background(selected ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.clear), in: .rect(cornerRadius: 12))
+    .background(selected ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Self.cardRadius))
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(card.appName.isEmpty || card.appName == card.title
       ? card.title : "\(card.title), \(card.appName)")
     .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+  }
+
+  /// The Overview's overflow badge: how many windows lie past this side.
+  @ViewBuilder private func overflowBadge(_ label: String, count: Int) -> some View {
+    if count > 0 {
+      Text(label)
+        .font(.system(size: 14, weight: .semibold))
+        .foregroundStyle(.white.opacity(0.92))
+        .frame(width: 46, height: 30)
+        .background(.black.opacity(0.72), in: .capsule)
+        .padding(.horizontal, 12)
+        .accessibilityHidden(true)
+    }
   }
 
   @ViewBuilder private func appIcon(_ card: RecentWindowCard, size: CGFloat) -> some View {
