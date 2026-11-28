@@ -805,14 +805,22 @@ public final class OverviewController: NSObject {
     // close commits viewport offsets must not disable a safe visual handoff.
     let canZoomBack = self.canZoomBack
     for panel in closingPanels {
+      let hadSurfaceScene = panel.hasSurfaceScene
       if canZoomBack && panel.hideSurfaceSceneIfUnchanged(duration: zoomBackDuration,
-        focusedWindowID: selection?.windowID, fromRest: fromRest) { continue }
+        focusedWindowID: selection?.windowID, fromRest: fromRest) {
+        recordOpeningTransition("close(surface)", monitorID: panel.monitorID)
+        continue
+      }
+      // Why the windows could not zoom back on their own pictures.
+      let zoomsBack = nativeExitCanZoom && animationsEnabled
+        && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+      var surfaceRefusal = zoomsBack ? "changed" : "off"
+      if canZoomBack { surfaceRefusal = hadSurfaceScene ? "moved" : "none" }
       let committedOffsets = commitScrollOffsets ? viewports[panel.monitorID]?.horizontalOffsets : nil
-      if nativeExitCanZoom, animationsEnabled,
-        !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-        let snapshot, let monitor = snapshot.monitors.first(where: { $0.id == panel.monitorID }),
-        var workspace = monitor.workspaces.first(where: { $0.id == monitor.activeWorkspace }),
-        workspace.floatingWindows.isEmpty,
+      let monitor = snapshot?.monitors.first(where: { $0.id == panel.monitorID })
+      let activeWorkspace = monitor?.workspaces.first(where: { $0.id == monitor?.activeWorkspace })
+      let floating = activeWorkspace?.floatingWindows.isEmpty == false
+      if zoomsBack, let snapshot, let monitor, var workspace = activeWorkspace, !floating,
         let viewport = snapshot.monitorFrames[monitor.id], let screen = screen(for: monitor.id),
         let projection = closingProjections[monitor.id],
         let scene = OverviewPreviewClosingScene(projection: projection,
@@ -828,8 +836,10 @@ public final class OverviewController: NSObject {
       {
         panel.hidePreviewScene(scene, duration: 0.22, fromRest: fromRest)
         previewClosingCount += 1
+        recordOpeningTransition("close(preview,surface:\(surfaceRefusal))", monitorID: panel.monitorID)
       } else {
         panel.hide()
+        recordOpeningTransition("close(cut,surface:\(surfaceRefusal),exit:\(nativeExitCanZoom),animation:\(animationsEnabled),floating:\(floating),reduceMotion:\(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion))", monitorID: panel.monitorID)
       }
     }
   }
