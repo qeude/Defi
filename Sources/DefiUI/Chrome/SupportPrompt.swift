@@ -106,7 +106,7 @@ struct SupportPromptContent: View {
       .padding(.bottom, 16)
     }
     .frame(width: 344)
-    .background(alignment: .bottom) { SupportPromptLight().frame(height: 200) }
+    .background(alignment: .bottom) { DefiColumnsLight().frame(height: 200) }
     // A borderless panel has no title bar to drag; everything but the buttons moves it.
     .background { Color.clear.contentShape(.rect).gesture(WindowDragGesture()) }
     .clipShape(.rect(cornerRadius: 20, style: .continuous))
@@ -114,9 +114,9 @@ struct SupportPromptContent: View {
   }
 }
 
-/// Defi's columns as light rising behind the actions, as at the bottom of the landing page:
-/// preset widths, 8 pt gaps, the focused one brighter. They rise once as the panel opens.
-private struct SupportPromptLight: View {
+/// Defi's columns as light rising from the bottom of a surface, as on the landing page:
+/// preset widths, 8 pt gaps, the focused one brighter. They rise once as they appear.
+struct DefiColumnsLight: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var rise: CGFloat = 1
   private let widths: [CGFloat] = [64, 40, 64, 104, 64, 40, 64]
@@ -135,7 +135,7 @@ private struct SupportPromptLight: View {
       }
     }
     .blur(radius: 12)
-    .frame(width: 344)
+    .frame(maxWidth: .infinity)
     .offset(y: rise * 64)
     .opacity(1 - rise)
     .mask(

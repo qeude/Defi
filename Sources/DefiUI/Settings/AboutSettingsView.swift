@@ -11,6 +11,7 @@ struct AboutSettingsView: View {
       Section {
         AboutSettingsHeader()
           .id(SettingsSearchAnchor.option(.about))
+          .settingsEdgeToEdge()
       }
       Section("Links", symbol: "link", color: .blue) {
         AboutSettingsLink(
@@ -133,6 +134,8 @@ private struct AboutSettingsHeader: View {
     }
     .frame(maxWidth: .infinity)
     .padding(.vertical, 24)
+    .padding(.horizontal, 12)
+    .background(alignment: .bottom) { DefiColumnsLight().frame(height: 200) }
   }
 }
 
